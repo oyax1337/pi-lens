@@ -1,5 +1,5 @@
 {
-  "name": "pi-autofeedback",
+  "name": "pi-lens",
   "version": "1.0.0",
   "description": "Real-time code feedback for pi — Biome, ast-grep, Ruff, TypeScript LSP, dependency analysis",
   "main": "index.ts",

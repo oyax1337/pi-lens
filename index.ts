@@ -1,5 +1,5 @@
 /**
- * pi-autofeedback - Real-time code feedback for pi
+ * pi-lens - Real-time code feedback for pi
  *
  * Provides real-time diagnostics on every write/edit:
  * - TypeScript/JavaScript: Biome (lint+format) + TypeScript LSP (type checking)
@@ -38,10 +38,10 @@ import { DependencyChecker } from "./clients/dependency-checker.js";
 import * as path from "node:path";
 import * as nodeFs from "node:fs";
 
-const DEBUG_LOG = "C:/Users/R3LiC/Desktop/autofeedback-debug.log";
+const DEBUG_LOG = "C:/Users/R3LiC/Desktop/pi-lens-debug.log";
 function dbg(msg: string) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
-  try { nodeFs.appendFileSync(DEBUG_LOG, line); } catch (e) { console.error("[autofeedback-debug] write failed:", e); }
+  try { nodeFs.appendFileSync(DEBUG_LOG, line); } catch (e) { console.error("[pi-lens-debug] write failed:", e); }
 }
 
 // --- State ---
@@ -49,7 +49,7 @@ function dbg(msg: string) {
 let verbose = false;
 
 function log(msg: string) {
-  console.log(`[autofeedback] ${msg}`);
+  console.log(`[pi-lens] ${msg}`);
 }
 
 // --- Extension ---
@@ -67,8 +67,8 @@ export default function (pi: ExtensionAPI) {
 
   // --- Flags ---
 
-  pi.registerFlag("autofeedback-verbose", {
-    description: "Enable verbose autofeedback logging",
+  pi.registerFlag("lens-verbose", {
+    description: "Enable verbose pi-lens logging",
     type: "boolean",
     default: false,
   });
@@ -225,7 +225,7 @@ export default function (pi: ExtensionAPI) {
   // --- Events ---
 
   pi.on("session_start", async (_event, ctx) => {
-    verbose = !!pi.getFlag("autofeedback-verbose");
+    verbose = !!pi.getFlag("lens-verbose");
 
     // Log available tools
     const tools: string[] = [];

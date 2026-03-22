@@ -1,5 +1,5 @@
 /**
- * AstGrep Client for pi-autofeedback
+ * AstGrep Client for pi-lens
  *
  * Structural code analysis using ast-grep CLI.
  * Scans files against YAML rule definitions.
@@ -69,7 +69,7 @@ export class AstGrepClient {
       : () => {};
     try {
       const nodeFs2 = require("node:fs") as typeof import("node:fs");
-      nodeFs2.appendFileSync("C:/Users/R3LiC/Desktop/autofeedback-debug.log",
+      nodeFs2.appendFileSync("C:/Users/R3LiC/Desktop/pi-lens-debug.log",
         `[${new Date().toISOString()}] AstGrepClient constructed, __dirname=${typeof __dirname !== "undefined" ? __dirname : "undefined"}, ruleDir=${this.ruleDir}\n`);
     } catch {}
   }
