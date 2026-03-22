@@ -227,6 +227,14 @@ export class TypeScriptClient {
 
     return [...syntactic, ...semantic]
       .filter((diag) => diag.file && diag.start !== undefined)
+      // Filter cross-file "redeclare" noise — happens when non-module scripts
+      // share global scope across multiple tracked files (TS2300, TS2451)
+      .filter((diag) => {
+        if (diag.code !== 2300 && diag.code !== 2451) return true;
+        // Only keep if the related information points back to the same file
+        const related = diag.relatedInformation ?? [];
+        return related.every(r => !r.file || this.normalizePath(r.file.fileName) === normalized);
+      })
       .map((diag) => {
         const startPos = diag.file!.getLineAndCharacterOfPosition(diag.start!);
         const endPos = diag.file!.getLineAndCharacterOfPosition(
