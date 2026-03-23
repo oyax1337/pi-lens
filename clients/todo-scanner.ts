@@ -32,6 +32,49 @@ export class TodoScanner {
   private readonly pattern = /\b(TODO|FIXME|HACK|XXX|NOTE|DEPRECATED|BUG)\b\s*[\(:]?\s*(.+)/gi;
 
   /**
+   * Check if a match position is inside a comment context.
+   * Handles: // line comments, star-slash block comments, * JSDoc lines, # Python comments
+   */
+  private isInComment(line: string, matchIndex: number): boolean {
+    const trimmed = line.trimStart();
+
+    // Line starts with comment markers — entire line is a comment
+    if (/^\/\/|^\/\*|^\*|^#/.test(trimmed)) return true;
+
+    // Check if there's a // before the match position (not inside a string)
+    const beforeMatch = line.slice(0, matchIndex);
+    const lineCommentPos = beforeMatch.lastIndexOf("//");
+    if (lineCommentPos !== -1) {
+      // Count quotes before // to see if it's inside a string
+      const beforeComment = beforeMatch.slice(0, lineCommentPos);
+      const singleQuotes = (beforeComment.match(/'/g) || []).length;
+      const doubleQuotes = (beforeComment.match(/"/g) || []).length;
+      const backticks = (beforeComment.match(/`/g) || []).length;
+      if (singleQuotes % 2 === 0 && doubleQuotes % 2 === 0 && backticks % 2 === 0) {
+        return true;
+      }
+    }
+
+    // Check for /* ... */ block comment before match
+    const blockOpen = beforeMatch.lastIndexOf("/*");
+    const blockClose = beforeMatch.lastIndexOf("*/");
+    if (blockOpen !== -1 && blockClose < blockOpen) return true;
+
+    // Check for # comment (Python)
+    const hashPos = beforeMatch.lastIndexOf("#");
+    if (hashPos !== -1) {
+      const beforeHash = beforeMatch.slice(0, hashPos);
+      const singleQuotes = (beforeHash.match(/'/g) || []).length;
+      const doubleQuotes = (beforeHash.match(/"/g) || []).length;
+      if (singleQuotes % 2 === 0 && doubleQuotes % 2 === 0) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Scan a single file for TODOs
    */
   scanFile(filePath: string): TodoItem[] {
@@ -47,6 +90,9 @@ export class TodoScanner {
       const matches = line.matchAll(this.pattern);
 
       for (const match of matches) {
+        // Skip matches that aren't inside comments
+        if (!this.isInComment(line, match.index ?? 0)) continue;
+
         const type = match[1].toUpperCase() as TodoItem["type"];
         const message = (match[2] || "").trim().replace(/\s*\*\/\s*$/, ""); // Strip closing comment
 
@@ -82,6 +128,8 @@ export class TodoScanner {
           if (["node_modules", ".git", "dist", "build", ".next", "coverage"].includes(entry.name)) continue;
           scan(fullPath);
         } else if (extensions.some(ext => entry.name.endsWith(ext))) {
+          // Skip this scanner file — its own type literals and regex cause false positives
+          if (entry.name === "todo-scanner.ts" || entry.name === "todo-scanner.js") continue;
           items.push(...this.scanFile(fullPath));
         }
       }
