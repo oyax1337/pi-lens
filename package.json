@@ -2,7 +2,10 @@
 	"name": "pi-lens",
 	"version": "1.2.0",
 	"description": "Real-time code feedback for pi — TypeScript LSP, Biome, ast-grep, Ruff, TODO scanner, dead code, duplicate detection, type coverage",
-	"repository": "github:apmantza/pi-lens",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/apmantza/pi-lens.git"
+	},
 	"main": "index.ts",
 	"scripts": {
 		"build": "tsc",
