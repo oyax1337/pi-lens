@@ -8,11 +8,25 @@
  * Rules: ./rules/ directory
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs";
 
 // --- Types ---
+
+export interface RuleDescription {
+  id: string;
+  message: string;
+  note?: string;
+  severity: "error" | "warning" | "info" | "hint";
+}
+
+export interface AstGrepMatch {
+  file: string;
+  range: { start: { line: number; column: number }; end: { line: number; column: number } };
+  text: string;
+  replacement?: string;
+}
 
 export interface AstGrepDiagnostic {
   line: number;
@@ -22,6 +36,7 @@ export interface AstGrepDiagnostic {
   severity: "error" | "warning" | "info" | "hint";
   message: string;
   rule: string;
+  ruleDescription?: RuleDescription;
   file: string;
   fix?: string;
 }
@@ -61,17 +76,89 @@ export class AstGrepClient {
   private available: boolean | null = null;
   private ruleDir: string;
   private log: (msg: string) => void;
+  private ruleDescriptions: Map<string, RuleDescription> | null = null;
 
   constructor(ruleDir?: string, verbose = false) {
     this.ruleDir = ruleDir || path.join(typeof __dirname !== "undefined" ? __dirname : ".", "..", "rules");
     this.log = verbose
       ? (msg: string) => console.log(`[ast-grep] ${msg}`)
       : () => {};
+  }
+
+  /**
+   * Load rule descriptions from YAML files
+   */
+  private loadRuleDescriptions(): Map<string, RuleDescription> {
+    if (this.ruleDescriptions !== null) return this.ruleDescriptions;
+
+    const descriptions = new Map<string, RuleDescription>();
+
+    // Find the rules directory - check more specific paths first
+    const possiblePaths = [
+      path.join(this.ruleDir, "ast-grep-rules", "rules"),
+      path.join(this.ruleDir, "rules"),
+      this.ruleDir,
+    ];
+
+    let rulesPath = possiblePaths.find(p => fs.existsSync(p));
+
+    if (!rulesPath) {
+      this.log(`Rule descriptions: no rules directory found in ${possiblePaths.join(", ")}`);
+      this.ruleDescriptions = descriptions;
+      return descriptions;
+    }
+
     try {
-      const nodeFs2 = require("node:fs") as typeof import("node:fs");
-      nodeFs2.appendFileSync("C:/Users/R3LiC/Desktop/pi-lens-debug.log",
-        `[${new Date().toISOString()}] AstGrepClient constructed, __dirname=${typeof __dirname !== "undefined" ? __dirname : "undefined"}, ruleDir=${this.ruleDir}\n`);
-    } catch {}
+      const files = fs.readdirSync(rulesPath).filter(f => f.endsWith(".yml"));
+      this.log(`Loaded ${files.length} rule descriptions from ${rulesPath}`);
+      for (const file of files) {
+        const filePath = path.join(rulesPath, file);
+        const content = fs.readFileSync(filePath, "utf-8");
+        const rule = this.parseRuleYaml(content);
+        if (rule) {
+          descriptions.set(rule.id, rule);
+        }
+      }
+    } catch (err: any) {
+      this.log(`Failed to load rule descriptions: ${err.message}`);
+    }
+
+    this.ruleDescriptions = descriptions;
+    return descriptions;
+  }
+
+  /**
+   * Simple YAML parser for rule descriptions
+   */
+  private parseRuleYaml(content: string): RuleDescription | null {
+    const result: Partial<RuleDescription> = {};
+
+    // Extract id
+    const idMatch = content.match(/^id:\s*(.+)$/m);
+    if (idMatch) result.id = idMatch[1].trim();
+
+    // Extract message (handle quoted strings)
+    const msgMatch = content.match(/^message:\s*"([^"]+)"/m) || content.match(/^message:\s*'([^']+)'/m) || content.match(/^message:\s*(.+)$/m);
+    if (msgMatch) result.message = (msgMatch[3] || msgMatch[2] || msgMatch[1]).trim();
+
+    // Extract note (multiline, indented lines)
+    const noteMatch = content.match(/^note:\s*\|([\s\S]*?)(?=^\w|\n\n|\nrule:)/m);
+    if (noteMatch) {
+      result.note = noteMatch[1]
+        .split("\n")
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .join(" ");
+    }
+
+    // Extract severity
+    const sevMatch = content.match(/^severity:\s*(.+)$/m);
+    if (sevMatch) result.severity = this.mapSeverity(sevMatch[1].trim());
+
+    if (result.id && result.message) {
+      return result as RuleDescription;
+    }
+    return null;
   }
 
   /**
@@ -92,6 +179,72 @@ export class AstGrepClient {
     }
 
     return this.available;
+  }
+
+  /**
+   * Search for AST patterns in files
+   */
+  async search(pattern: string, lang: string, paths: string[]): Promise<{ matches: AstGrepMatch[]; error?: string }> {
+    return this.runSg(["run", "-p", pattern, "--lang", lang, "--json=compact", ...paths]);
+  }
+
+  /**
+   * Search and replace AST patterns
+   */
+  async replace(pattern: string, rewrite: string, lang: string, paths: string[], apply = false): Promise<{ matches: AstGrepMatch[]; applied: boolean; error?: string }> {
+    const args = ["run", "-p", pattern, "-r", rewrite, "--lang", lang, "--json=compact"];
+    if (apply) args.push("--update-all");
+    args.push(...paths);
+
+    const result = await this.runSg(args);
+    return { matches: result.matches, applied: apply, error: result.error };
+  }
+
+  private runSg(args: string[]): Promise<{ matches: AstGrepMatch[]; error?: string }> {
+    return new Promise((resolve) => {
+      const proc = spawn("npx", ["sg", ...args], { stdio: ["ignore", "pipe", "pipe"], shell: true });
+      let stdout = "";
+      let stderr = "";
+
+      proc.stdout.on("data", (data: Buffer) => (stdout += data.toString()));
+      proc.stderr.on("data", (data: Buffer) => (stderr += data.toString()));
+
+      proc.on("error", (err: Error) => {
+        if (err.message.includes("ENOENT")) {
+          resolve({ matches: [], error: "ast-grep CLI not found. Install: npm i -D @ast-grep/cli" });
+        } else {
+          resolve({ matches: [], error: err.message });
+        }
+      });
+
+      proc.on("close", (code: number | null) => {
+        if (code !== 0 && !stdout.trim()) {
+          resolve({ matches: [], error: stderr.includes("No files found") ? undefined : stderr.trim() || `Exit code ${code}` });
+          return;
+        }
+        if (!stdout.trim()) { resolve({ matches: [] }); return; }
+        try {
+          const parsed = JSON.parse(stdout);
+          const matches = Array.isArray(parsed) ? parsed : [parsed];
+          resolve({ matches });
+        } catch {
+          resolve({ matches: [], error: "Failed to parse output" });
+        }
+      });
+    });
+  }
+
+  formatMatches(matches: AstGrepMatch[], isDryRun = false): string {
+    if (matches.length === 0) return "No matches found";
+    const MAX = 50;
+    const shown = matches.slice(0, MAX);
+    const lines = shown.map((m) => {
+      const loc = `${m.file}:${m.range.start.line + 1}:${m.range.start.column + 1}`;
+      const text = m.text.length > 100 ? m.text.slice(0, 100) + "..." : m.text;
+      return isDryRun && m.replacement ? `${loc}\n  - ${text}\n  + ${m.replacement}` : `${loc}: ${text}`;
+    });
+    if (matches.length > MAX) lines.unshift(`Found ${matches.length} matches (showing first ${MAX}):`);
+    return lines.join("\n");
   }
 
   /**
@@ -137,22 +290,33 @@ export class AstGrepClient {
 
     const errors = diags.filter(d => d.severity === "error");
     const warnings = diags.filter(d => d.severity === "warning");
+    const hints = diags.filter(d => d.severity === "hint");
 
     let output = `[ast-grep] ${diags.length} structural issue(s)`;
     if (errors.length) output += ` — ${errors.length} error(s)`;
     if (warnings.length) output += ` — ${warnings.length} warning(s)`;
+    if (hints.length) output += ` — ${hints.length} hint(s)`;
     output += ":\n";
 
-    for (const d of diags.slice(0, 15)) {
+    for (const d of diags.slice(0, 10)) {
       const loc = d.line === d.endLine
         ? `L${d.line}`
         : `L${d.line}-${d.endLine}`;
-      const fix = d.fix ? " [fixable]" : "";
-      output += `  [${d.rule}] ${loc} ${d.message}${fix}\n`;
+      const ruleInfo = d.ruleDescription
+        ? `${d.rule}: ${d.ruleDescription.message}`
+        : d.rule;
+      const fix = d.fix || d.ruleDescription?.note ? " [fixable]" : "";
+      output += `  ${ruleInfo} (${loc})${fix}\n`;
+
+      // Include note for errors to provide fix guidance
+      if (d.severity === "error" && d.ruleDescription?.note) {
+        const shortNote = d.ruleDescription.note.split("\n")[0];
+        output += `    → ${shortNote}\n`;
+      }
     }
 
-    if (diags.length > 15) {
-      output += `  ... and ${diags.length - 15} more\n`;
+    if (diags.length > 10) {
+      output += `  ... and ${diags.length - 10} more\n`;
     }
 
     return output;
@@ -214,6 +378,7 @@ export class AstGrepClient {
         severity: this.mapSeverity(item.severity),
         message: item.message || "Unknown issue",
         rule: item.ruleId || "unknown",
+        ruleDescription: this.getRuleDescription(item.ruleId || "unknown"),
         file: filePath,
       };
     }
@@ -229,6 +394,7 @@ export class AstGrepClient {
       const start = span.range?.start || { line: 0, column: 0 };
       const end = span.range?.end || start;
 
+      const ruleId = item.name || item.ruleId || "unknown";
       return {
         line: start.line + 1,
         column: start.column,
@@ -236,12 +402,18 @@ export class AstGrepClient {
         endColumn: end.column,
         severity: this.mapSeverity(item.severity || item.Severity || "warning"),
         message: item.Message?.text || item.message || "Unknown issue",
-        rule: item.name || item.ruleId || "unknown",
+        rule: ruleId,
+        ruleDescription: this.getRuleDescription(ruleId),
         file: filePath,
       };
     }
 
     return null;
+  }
+
+  private getRuleDescription(ruleId: string): RuleDescription | undefined {
+    const descriptions = this.loadRuleDescriptions();
+    return descriptions.get(ruleId);
   }
 
   private mapSeverity(severity: string): AstGrepDiagnostic["severity"] {

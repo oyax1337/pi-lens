@@ -69,7 +69,16 @@ Example:
 | `/find-todos [path]` | Scan for TODO/FIXME/HACK annotations |
 | `/dead-code` | Find unused exports/files/dependencies (requires knip) |
 | `/check-deps` | Circular dependency scan (requires madge) |
-| `/format [file\|--all]` | Apply Biome formatting |
+| `/format [file|--all]` | Apply Biome formatting |
+
+### On-demand tools
+
+| Tool | Description |
+|---|---|
+| **`ast_grep_search`** | Search code patterns using AST-aware matching. Supports meta-variables: `$VAR` (single node), `$$$` (multiple). Example: `console.log($MSG)` |
+| **`ast_grep_replace`** | Replace code patterns with AST-aware rewriting. Dry-run by default, use `apply=true` to apply changes. Example: `pattern='console.log($MSG)' rewrite='logger.info($MSG)'` |
+
+Supported languages: c, cpp, csharp, css, dart, elixir, go, haskell, html, java, javascript, json, kotlin, lua, php, python, ruby, rust, scala, sql, swift, tsx, typescript, yaml
 
 ---
 
@@ -109,6 +118,8 @@ pip install ruff
 ## ast-grep rules
 
 Rules live in `rules/ast-grep-rules/rules/`. All rules are YAML files you can edit or extend.
+
+Each rule includes a `message` and `note` that are shown in diagnostics, so the agent understands why something violated a rule and how to fix it.
 
 **Security**
 `no-eval`, `no-implied-eval`, `no-hardcoded-secrets`, `no-insecure-randomness`, `no-open-redirect`, `no-sql-in-code`, `no-inner-html`, `no-dangerously-set-inner-html`, `no-javascript-url`

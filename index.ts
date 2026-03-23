@@ -28,6 +28,7 @@
 import * as nodeFs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { Type } from "@sinclair/typebox";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { isToolCallEventType } from "@mariozechner/pi-coding-agent";
 import { AstGrepClient } from "./clients/ast-grep-client.js";
@@ -249,6 +250,74 @@ export default function (pi: ExtensionAPI) {
 			} else {
 				ctx.ui.notify(`⚠️ Format failed: ${result.error}`, "error");
 			}
+		},
+	});
+
+	// --- Tools ---
+
+	const LANGUAGES = [
+		"c", "cpp", "csharp", "css", "dart", "elixir", "go", "haskell", "html",
+		"java", "javascript", "json", "kotlin", "lua", "php", "python", "ruby",
+		"rust", "scala", "sql", "swift", "tsx", "typescript", "yaml",
+	] as const;
+
+	pi.registerTool({
+		name: "ast_grep_search",
+		label: "AST Search",
+		description: "Search code patterns using AST-aware matching. Use meta-variables: $VAR (single node), $$$ (multiple). Examples: 'console.log($MSG)', 'def $FUNC($$$):'",
+		parameters: Type.Object({
+			pattern: Type.String({ description: "AST pattern with meta-variables" }),
+			lang: Type.Union(LANGUAGES.map((l) => Type.Literal(l)), { description: "Target language" }),
+			paths: Type.Optional(Type.Array(Type.String(), { description: "Paths to search (default: .)" })),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (!astGrepClient.isAvailable()) {
+				return { content: [{ type: "text", text: "ast-grep CLI not found. Install: npm i -D @ast-grep/cli" }], isError: true, details: {} };
+			}
+
+			const { pattern, lang, paths } = params as { pattern: string; lang: string; paths?: string[] };
+			const searchPaths = paths?.length ? paths : [ctx.cwd || "."];
+			const result = await astGrepClient.search(pattern, lang, searchPaths);
+
+			if (result.error) {
+				return { content: [{ type: "text", text: `Error: ${result.error}` }], isError: true, details: {} };
+			}
+
+			const output = astGrepClient.formatMatches(result.matches);
+			return { content: [{ type: "text", text: output }], details: { matchCount: result.matches.length } };
+		},
+	});
+
+	pi.registerTool({
+		name: "ast_grep_replace",
+		label: "AST Replace",
+		description: "Replace code patterns with AST-aware rewriting. Dry-run by default (preview changes). Use apply=true to apply. Example: pattern='console.log($MSG)' rewrite='logger.info($MSG)'",
+		parameters: Type.Object({
+			pattern: Type.String({ description: "AST pattern to match" }),
+			rewrite: Type.String({ description: "Replacement pattern" }),
+			lang: Type.Union(LANGUAGES.map((l) => Type.Literal(l)), { description: "Target language" }),
+			paths: Type.Optional(Type.Array(Type.String(), { description: "Paths to search (default: .)" })),
+			apply: Type.Optional(Type.Boolean({ description: "Apply changes (default: false)" })),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (!astGrepClient.isAvailable()) {
+				return { content: [{ type: "text", text: "ast-grep CLI not found. Install: npm i -D @ast-grep/cli" }], isError: true, details: {} };
+			}
+
+			const { pattern, rewrite, lang, paths, apply } = params as { pattern: string; rewrite: string; lang: string; paths?: string[]; apply?: boolean };
+			const searchPaths = paths?.length ? paths : [ctx.cwd || "."];
+			const result = await astGrepClient.replace(pattern, rewrite, lang, searchPaths, apply ?? false);
+
+			if (result.error) {
+				return { content: [{ type: "text", text: `Error: ${result.error}` }], isError: true, details: {} };
+			}
+
+			const isDryRun = !apply;
+			let output = astGrepClient.formatMatches(result.matches, isDryRun);
+			if (isDryRun && result.matches.length > 0) output += "\n\n(Dry run - use apply=true to apply)";
+			if (apply && result.matches.length > 0) output = `Applied ${result.matches.length} replacements:\n${output}`;
+
+			return { content: [{ type: "text", text: output }], details: { matchCount: result.matches.length, applied: apply ?? false } };
 		},
 	});
 
