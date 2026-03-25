@@ -281,14 +281,14 @@ export default function (pi: ExtensionAPI) {
 							if (trimmed.startsWith("[")) {
 								try {
 									return JSON.parse(trimmed);
-								} catch {
+								} catch (err) { void err;
 									return [];
 								}
 							}
 							return raw.split("\n").flatMap((l: string) => {
 								try {
 									return [JSON.parse(l)];
-								} catch {
+								} catch (err) { void err;
 									return [];
 								}
 							});
@@ -833,7 +833,7 @@ export default function (pi: ExtensionAPI) {
 					: raw.split("\n").flatMap((l: string) => {
 							try {
 								return [JSON.parse(l)];
-							} catch {
+							} catch (err) { void err;
 								return [];
 							}
 						});
@@ -2124,7 +2124,7 @@ export default function (pi: ExtensionAPI) {
 				for (const [name, file] of newExports) {
 					cachedExports.set(name, file);
 				}
-			} catch {
+			} catch (err) { void err;
 				// ast-grep not available, skip
 			}
 		}
