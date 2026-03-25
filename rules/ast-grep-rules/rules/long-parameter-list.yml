@@ -7,3 +7,10 @@ note: |
   Consider grouping related params into an options object or configuration.
 rule:
   kind: formal_parameters
+  all:
+    - has:
+        kind: required_parameter
+    - has:
+        nthChild:
+          position: 5
+          ofKind: required_parameter
