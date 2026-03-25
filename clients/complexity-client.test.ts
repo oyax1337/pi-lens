@@ -238,6 +238,7 @@ function long(): number {
         maintainabilityIndex: 75,
         linesOfCode: 100,
         commentLines: 10,
+        codeEntropy: 0.5,
       };
 
       const formatted = client.formatMetrics(metrics);
@@ -259,6 +260,7 @@ function long(): number {
         maintainabilityIndex: 25,
         linesOfCode: 500,
         commentLines: 10,
+        codeEntropy: 0.5,
       };
 
       const formatted = client.formatMetrics(metrics);

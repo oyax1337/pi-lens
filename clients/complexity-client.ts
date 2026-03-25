@@ -34,6 +34,7 @@ export interface FileComplexity {
   maintainabilityIndex: number;      // 0-100
   linesOfCode: number;
   commentLines: number;
+  codeEntropy: number;               // Shannon entropy (0-1, lower = more predictable)
 }
 
 export interface FunctionMetrics {
@@ -195,6 +196,9 @@ export class ComplexityClient {
         commentLines
       );
 
+      // Code Entropy (Shannon entropy of code tokens)
+      const codeEntropy = this.calculateCodeEntropy(content);
+
       return {
         filePath: path.relative(process.cwd(), absolutePath),
         maxNestingDepth,
@@ -208,6 +212,7 @@ export class ComplexityClient {
         maintainabilityIndex: Math.round(maintainabilityIndex * 10) / 10,
         linesOfCode: codeLines,
         commentLines,
+        codeEntropy: Math.round(codeEntropy * 1000) / 1000,
       };
     } catch (err: any) {
       this.log(`Analysis error for ${filePath}: ${err.message}`);
@@ -240,6 +245,13 @@ export class ComplexityClient {
     // Nesting depth
     if (metrics.maxNestingDepth > 4) {
       parts.push(`  Max nesting: ${metrics.maxNestingDepth} levels (consider extracting)`);
+    }
+
+    // Code entropy (0-1, lower = more predictable)
+    if (metrics.codeEntropy > 0.8) {
+      parts.push(`  Entropy: ${metrics.codeEntropy} (high — code may be unpredictable/AI-generated)`);
+    } else if (metrics.codeEntropy < 0.3) {
+      parts.push(`  Entropy: ${metrics.codeEntropy} (low — repetitive patterns detected)`);
     }
 
     // Function length
@@ -489,6 +501,45 @@ export class ComplexityClient {
 
     // V = N * log2(n)
     return totalOps * Math.log2(uniqueOps);
+  }
+
+  /**
+   * Calculate Shannon entropy of code tokens
+   * Measures predictability/uniformity of code
+   * 0 = completely uniform, 1 = maximum entropy
+   */
+  private calculateCodeEntropy(sourceText: string): number {
+    // Tokenize by splitting on whitespace and common delimiters
+    const tokens = sourceText
+      .replace(/\/\/.*/g, "")           // Remove single-line comments
+      .replace(/\/\*[\s\S]*?\*\//g, "") // Remove multi-line comments
+      .replace(/["'`][^"'`]*["'`]/g, "STR") // Normalize strings
+      .replace(/\b\d+(\.\d+)?\b/g, "NUM")   // Normalize numbers
+      .split(/[\s\n\r\t,;:()[\]{}=<>!&|+\-*/%^~?]+/)
+      .filter(t => t.length > 0);
+
+    if (tokens.length === 0) return 0;
+
+    // Count token frequencies
+    const freq = new Map<string, number>();
+    for (const token of tokens) {
+      freq.set(token, (freq.get(token) || 0) + 1);
+    }
+
+    // Calculate Shannon entropy: H = -sum(p * log2(p))
+    let entropy = 0;
+    for (const count of freq.values()) {
+      const p = count / tokens.length;
+      if (p > 0) {
+        entropy -= p * Math.log2(p);
+      }
+    }
+
+    // Normalize to 0-1 range
+    const maxEntropy = Math.log2(freq.size);
+    if (maxEntropy === 0) return 0;
+
+    return Math.min(1, entropy / maxEntropy);
   }
 
   private isKeyword(text: string): boolean {
