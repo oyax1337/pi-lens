@@ -2,7 +2,33 @@
 
 All notable changes to pi-lens will be documented in this file.
 
-## [1.3.11] - 2026-03-25
+## [2.0.0] - 2026-03-25
+
+### Added
+- **`/lens-metrics` command**: Measure complexity metrics for all files. Exports a full `report.md` with A-F grades, summary stats, AI slop aggregate table, and top 10 worst files with actionable warnings.
+- **`/lens-booboo` saves full report**: Results saved to `.pi-lens/reviews/booboo-<timestamp>.md` — no truncation, all issues, agent-readable.
+- **AI slop indicators**: Four new real-time and report-based detectors:
+  - `AI-style comments` — emoji and boilerplate comment phrases
+  - `Many try/catch blocks` — lazy error handling pattern
+  - `Over-abstraction` — single-use helper functions
+  - `Long parameter list` — functions with > 6 params
+- **`SubprocessClient` base class**: Shared foundation for CLI tool clients (availability check, logging, command execution).
+- **Shared test utilities**: `createTempFile` and `setupTestEnvironment` extracted to `clients/test-utils.ts`, eliminating copy-paste across 13 test files.
+
+### Changed
+- **Delta mode for real-time feedback**: ast-grep and Biome now only show *new* violations introduced by the current edit — not all pre-existing ones. Fixed violations shown as `✓ Fixed: rule-name (-N)`. No change = silent.
+- **Removed redundant pre-write hints**: ast-grep and Biome pre-write counts removed (delta mode makes them obsolete). TypeScript pre-write warning kept (blocking errors).
+- **Test files excluded from AI slop warnings**: MI/complexity thresholds are inherently low in test files — warnings suppressed for `*.test.ts` / `*.spec.ts`.
+- **Test files excluded from TODO scanner**: Test fixture annotations (`FIXME`, `BUG`, etc.) no longer appear in TODO reports.
+- **ast-grep excludes test files and `.pi-lens/`**: Design smell scan in `/lens-booboo` skips test files (no magic-numbers noise) and internal review reports.
+- **jscpd excludes non-code files**: `.md`, `.json`, `.yaml`, `.yml`, `.toml`, `.lock`, and `.pi-lens/` excluded from duplicate detection — no more false positives from report files.
+- **Removed unused dependencies**: `vscode-languageserver-protocol` and `vscode-languageserver-types` removed; `@sinclair/typebox` added (was unlisted).
+
+### Fixed
+- Removed 3 unconditional `console.log` calls leaking `[scan_exports]` to terminal.
+- Duplicate Biome scan in `tool_call` hook eliminated (was scanning twice for pre-write hint + baseline).
+
+## [1.3.14] - 2026-03-25
 
 ### Added
 - **Actionable feedback messages**: All real-time warnings now include specific guidance on what to do.

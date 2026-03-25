@@ -15,21 +15,29 @@ Real-time code quality feedback for [pi](https://github.com/mariozechner/pi-codi
 | **Biome** | Lint + format for JS/TS/JSX/TSX/CSS/JSON. Auto-fix disabled by default, use `/lens-format` to apply |
 | **Ruff** | Lint + format for Python. Auto-fixes on every write by default |
 | **Test Runner** | Runs corresponding test file when you edit source code (vitest, jest, pytest). Silent if no test file exists. |
-| **Complexity Metrics** | AST-based analysis: Maintainability Index, Cyclomatic/Cognitive Complexity, Halstead Volume, nesting depth, function length, code entropy. |
+| **Complexity Metrics** | AST-based analysis: Maintainability Index, Cyclomatic/Cognitive Complexity, Halstead Volume, nesting depth, function length, code entropy. AI slop indicators: emoji comments, try/catch density, over-abstraction, long parameter lists. |
 | **jscpd** | Code duplication detection. Warns when editing a file that has duplicates with other files in the project. |
 | **Duplicate Exports** | Detects when you redefine a function that already exists elsewhere in the codebase. |
 
-### Actionable feedback
+### Delta-mode feedback (new in 2.0)
 
-All warnings include actionable guidance — the agent sees what to do, not just what's wrong:
+ast-grep and Biome run in **delta mode** — only violations *introduced by the current edit* are shown. Pre-existing issues are silent. Fixed violations are acknowledged.
 
 ```
 [TypeScript] 2 issue(s):
   [error] L10: Type 'string' is not assignable to type 'number'
 
-[ast-grep] 1 structural issue(s) — 1 warning(s):
-  no-console-log: console.log found (L15)
-    → Use a proper logging framework or remove before committing.
+[ast-grep] +1 new issue(s) introduced:
+  no-var: Use 'const' or 'let' instead of 'var' (L23) [fixable]
+    → var has function scope and can lead to unexpected hoisting behavior.
+  (18 total)
+
+[ast-grep] ✓ Fixed: no-console-log (-1)
+
+[Biome] +1 new issue(s) introduced:
+  L23:5 [style/useConst] This let declares a variable that is only assigned once.
+  1 fixable — run /lens-format
+  (4 total)
 
 [jscpd] 1 duplicate block(s) involving utils.ts:
   15 lines — helpers.ts:20
@@ -41,7 +49,8 @@ All warnings include actionable guidance — the agent sees what to do, not just
 
 [Complexity Warnings]
   ⚠ Maintainability dropped to 55 — extract logic into helper functions
-  ⚠ High entropy (4.2 bits) — follow project conventions
+  ⚠ AI-style comments (6) — remove hand-holding comments
+  ⚠ Many try/catch blocks (7) — consolidate error handling
 
 [Tests] ✗ 1/3 failed, 2 passed
   ✗ should format date
@@ -50,15 +59,11 @@ All warnings include actionable guidance — the agent sees what to do, not just
 
 ### Pre-write hints
 
-Before every write or edit to an existing file, the agent sees a summary of what's already broken:
+Before every write or edit, the agent is warned about blocking TypeScript errors already in the file:
 
 ```
 ⚠ Pre-write: file already has 5 TypeScript error(s) — fix before adding more
-⚠ Pre-write: file already has 9 Biome issue(s)
-⚠ Pre-write: file already has 8 structural violations
 ```
-
-Prevents piling new errors on top of existing ones.
 
 ### Session start summary (injected into first tool result)
 
