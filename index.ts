@@ -580,6 +580,270 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// --- Rule action map for lens-booboo-fix ---
+	const RULE_ACTIONS: Record<string, { type: "biome" | "agent" | "skip"; note: string }> = {
+		"no-var":            { type: "biome",  note: "auto-fixed by Biome --write" },
+		"prefer-template":   { type: "biome",  note: "auto-fixed by Biome --write" },
+		"no-useless-concat": { type: "biome",  note: "auto-fixed by Biome --write" },
+		"no-lonely-if":      { type: "biome",  note: "auto-fixed by Biome --write" },
+		"prefer-const":      { type: "biome",  note: "auto-fixed by Biome --write" },
+		"empty-catch":       { type: "agent",  note: "Add this.log('Error: ' + err.message) to the catch block" },
+		"silent-failure":    { type: "agent",  note: "Add this.log('Error: ' + err.message) or rethrow" },
+		"no-console-log":    { type: "agent",  note: "Remove or replace with class logger method" },
+		"no-debugger":       { type: "agent",  note: "Remove the debugger statement" },
+		"no-return-await":   { type: "agent",  note: "Remove the unnecessary `return await`" },
+		"nested-ternary":    { type: "agent",  note: "Extract to if/else or a named variable" },
+		"no-throw-string":   { type: "agent",  note: "Wrap in `new Error(...)` instead of throwing a string" },
+		"no-star-imports":   { type: "skip",   note: "Requires knowing which exports are actually used." },
+		"no-as-any":         { type: "skip",   note: "Replacing `as any` requires knowing the correct type." },
+		"no-non-null-assertion": { type: "skip", note: "Each `!` needs nullability analysis in context." },
+		"large-class":       { type: "skip",   note: "Splitting a class requires architectural decisions." },
+		"long-method":       { type: "skip",   note: "Extraction requires understanding the function's purpose." },
+		"long-parameter-list": { type: "skip", note: "Redesigning the signature requires an API decision." },
+		"no-shadow":         { type: "skip",   note: "Renaming requires understanding all variable scopes." },
+	};
+
+	pi.registerCommand("lens-booboo-fix", {
+		description:
+			"Iterative fix loop: auto-fixes Biome/Ruff, then generates a per-issue plan for agent to execute. Run repeatedly until clean. Usage: /lens-booboo-fix [path]",
+		handler: async (args, ctx) => {
+			const targetPath = args.trim() || ctx.cwd || process.cwd();
+			const fs = require("node:fs") as typeof import("node:fs");
+			const sessionFile = path.join(process.cwd(), ".pi-lens", "fix-session.json");
+			const configPath = path.join(
+				typeof __dirname !== "undefined" ? __dirname : ".",
+				"rules", "ast-grep-rules", ".sgconfig.yml",
+			);
+
+			ctx.ui.notify("🔧 Running booboo fix loop...", "info");
+
+			// Load session state
+			let session: { iteration: number; counts: Record<string, number> } = { iteration: 0, counts: {} };
+			try { if (fs.existsSync(sessionFile)) session = JSON.parse(fs.readFileSync(sessionFile, "utf-8")); } catch (e) { dbg(`fix-session load failed: ${e}`); }
+			session.iteration++;
+			const prevCounts = { ...session.counts };
+
+			// --- Step 1: Auto-fix with Biome ---
+			let biomeRan = false;
+			if (!pi.getFlag("no-biome") && biomeClient.isAvailable()) {
+				require("node:child_process").spawnSync("npx", [
+					"@biomejs/biome", "check", "--write", "--unsafe", targetPath,
+				], { encoding: "utf-8", timeout: 30000, shell: true });
+				biomeRan = true;
+			}
+
+			// --- Step 2: Auto-fix with Ruff ---
+			let ruffRan = false;
+			if (!pi.getFlag("no-ruff") && ruffClient.isAvailable()) {
+				require("node:child_process").spawnSync("ruff", ["check", "--fix", targetPath], { encoding: "utf-8", timeout: 15000, shell: true });
+				require("node:child_process").spawnSync("ruff", ["format", targetPath], { encoding: "utf-8", timeout: 15000, shell: true });
+				ruffRan = true;
+			}
+
+			// --- Step 3: ast-grep scan (after auto-fix) ---
+			type AstIssue = { rule: string; file: string; line: number; message: string };
+			const astIssues: AstIssue[] = [];
+			if (astGrepClient.isAvailable()) {
+				const result = require("node:child_process").spawnSync("npx", [
+					"sg", "scan", "--config", configPath, "--json",
+					"--globs", "!**/*.test.ts", "--globs", "!**/*.spec.ts",
+					"--globs", "!**/test-utils.ts", "--globs", "!**/.pi-lens/**",
+					targetPath,
+				], { encoding: "utf-8", timeout: 30000, shell: true, maxBuffer: 32 * 1024 * 1024 });
+
+				const raw = result.stdout?.trim() ?? "";
+				// biome-ignore lint/suspicious/noExplicitAny: ast-grep JSON output is untyped
+				const items: Record<string, any>[] = raw.startsWith("[")
+					? (() => { try { return JSON.parse(raw); } catch (e) { dbg(`ast-grep parse failed: ${e}`); return []; } })()
+					: raw.split("\n").flatMap((l: string) => { try { return [JSON.parse(l)]; } catch { return []; } });
+
+				for (const item of items) {
+					const rule = item.ruleId || item.rule?.title || item.name || "unknown";
+					const line = (item.labels?.[0]?.range?.start?.line ?? item.range?.start?.line ?? 0) + 1;
+					const relFile = path.relative(targetPath, item.file ?? "").replace(/\\/g, "/");
+					astIssues.push({ rule, file: relFile, line, message: item.message ?? rule });
+				}
+			}
+
+			// --- Step 4: AI slop from complexity scan ---
+			const slopFiles: Array<{ file: string; warnings: string[] }> = [];
+			const slopScanDir = (dir: string) => {
+				if (!fs.existsSync(dir)) return;
+				for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+					const fullPath = path.join(dir, entry.name);
+					if (entry.isDirectory()) {
+						if (["node_modules", ".git", "dist", "build", ".next", ".pi-lens"].includes(entry.name)) continue;
+						slopScanDir(fullPath);
+					} else if (complexityClient.isSupportedFile(fullPath) && !/\.(test|spec)\.[jt]sx?$/.test(entry.name)) {
+						const metrics = complexityClient.analyzeFile(fullPath);
+						if (metrics) {
+							const warnings = complexityClient.checkThresholds(metrics).filter(w =>
+								w.includes("AI-style") || w.includes("try/catch") || w.includes("single-use") || w.includes("Excessive comments")
+							);
+							if (warnings.length > 0) {
+								slopFiles.push({ file: path.relative(targetPath, fullPath).replace(/\\/g, "/"), warnings });
+							}
+						}
+					}
+				}
+			};
+			slopScanDir(targetPath);
+
+			// --- Step 5: Remaining Biome lint ---
+			const remainingBiome: Array<{ file: string; line: number; rule: string; message: string; fixable: boolean }> = [];
+			if (!pi.getFlag("no-biome") && biomeClient.isAvailable()) {
+				// Sample a few key files for remaining lint (not whole project — Biome just ran)
+				// Just report counts from a quick scan
+				const checkResult = require("node:child_process").spawnSync("npx", [
+					"@biomejs/biome", "check", "--reporter=json", "--max-diagnostics=50", targetPath,
+				], { encoding: "utf-8", timeout: 20000, shell: true });
+				try {
+					const data = JSON.parse(checkResult.stdout ?? "{}");
+					for (const diag of (data.diagnostics ?? []).slice(0, 20)) {
+						if (!diag.category?.startsWith("lint/")) continue;
+						const filePath = diag.location?.path?.file ?? "";
+						const line = diag.location?.span?.start?.line ?? 0;
+						const rule = diag.category ?? "lint";
+						const fixable = diag.tags?.includes("fixable") ?? false;
+						remainingBiome.push({
+							file: path.relative(targetPath, filePath).replace(/\\/g, "/"),
+							line: line + 1, rule, message: diag.message ?? rule, fixable,
+						});
+					}
+				} catch (e) { dbg(`biome lint parse failed: ${e}`); }
+			}
+
+			// --- Categorize ast-grep issues ---
+			const agentTasks: AstIssue[] = [];
+			const skipRules = new Map<string, { note: string; count: number }>();
+
+			// Group by rule
+			const byRule = new Map<string, AstIssue[]>();
+			for (const issue of astIssues) {
+				const list = byRule.get(issue.rule) ?? [];
+				list.push(issue);
+				byRule.set(issue.rule, list);
+			}
+
+			for (const [rule, issues] of byRule) {
+				const action = RULE_ACTIONS[rule];
+				if (!action || action.type === "agent") {
+					agentTasks.push(...issues);
+				} else if (action.type === "skip") {
+					skipRules.set(rule, { note: action.note, count: issues.length });
+				}
+				// biome type → already handled by Step 1
+			}
+
+			// --- Update session counts ---
+			const currentCounts = {
+				agent_ast: agentTasks.length,
+				biome_lint: remainingBiome.length,
+				slop_files: slopFiles.length,
+			};
+			session.counts = currentCounts;
+			fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+			fs.writeFileSync(sessionFile, JSON.stringify(session, null, 2), "utf-8");
+
+			// --- Check if done ---
+			const totalFixable = agentTasks.length + remainingBiome.length + slopFiles.length;
+			if (totalFixable === 0) {
+				const msg = `✅ BOOBOO FIX LOOP COMPLETE — No more fixable issues found after ${session.iteration} iteration(s).\n\nRemaining skipped items are architectural — see /lens-booboo for full report.`;
+				ctx.ui.notify(msg, "info");
+				fs.unlinkSync(sessionFile);
+				return;
+			}
+
+			// --- Build delta line ---
+			let deltaLine = "";
+			if (session.iteration > 1 && Object.keys(prevCounts).length > 0) {
+				const prevTotal = Object.values(prevCounts).reduce((a, b) => a + b, 0);
+				const currTotal = totalFixable;
+				const fixed = prevTotal - currTotal;
+				deltaLine = fixed > 0 ? `✅ Fixed ${fixed} issues since last iteration.` : `⚠️ No change since last iteration — check if fixes were applied.`;
+			}
+
+			// --- Build the fix plan message ---
+			const lines: string[] = [];
+			lines.push(`📋 BOOBOO FIX PLAN — Iteration ${session.iteration} (${totalFixable} fixable items remaining)`);
+			if (deltaLine) lines.push(deltaLine);
+			lines.push("");
+
+			// Auto-fix note
+			if (biomeRan || ruffRan) {
+				lines.push(`⚡ Auto-fixed: ${[biomeRan && "Biome --write --unsafe", ruffRan && "Ruff --fix + format"].filter(Boolean).join(", ")} already ran.`);
+				lines.push("");
+			}
+
+			// Agent tasks — grouped by rule
+			if (agentTasks.length > 0) {
+				lines.push(`## 🔨 Fix these [${agentTasks.length} items]`);
+				lines.push("");
+				const groupedAgent = new Map<string, AstIssue[]>();
+				for (const t of agentTasks) {
+					const g = groupedAgent.get(t.rule) ?? [];
+					g.push(t);
+					groupedAgent.set(t.rule, g);
+				}
+				for (const [rule, issues] of groupedAgent) {
+					const action = RULE_ACTIONS[rule];
+					const note = action?.note ?? "Fix this violation";
+					lines.push(`### ${rule} (${issues.length})`);
+					lines.push(`→ ${note}`);
+					for (const issue of issues.slice(0, 15)) {
+						lines.push(`  - \`${issue.file}:${issue.line}\``);
+					}
+					if (issues.length > 15) lines.push(`  ... and ${issues.length - 15} more`);
+					lines.push("");
+				}
+			}
+
+			// Remaining Biome lint
+			if (remainingBiome.length > 0) {
+				lines.push(`## 🟠 Remaining Biome lint [${remainingBiome.length} items]`);
+				lines.push("→ Fix each manually or run `/lens-format` from the UI:");
+				for (const d of remainingBiome.slice(0, 10)) {
+					lines.push(`  - \`${d.file}:${d.line}\` [${d.rule}] ${d.message}`);
+				}
+				if (remainingBiome.length > 10) lines.push(`  ... and ${remainingBiome.length - 10} more`);
+				lines.push("");
+			}
+
+			// AI slop
+			if (slopFiles.length > 0) {
+				lines.push(`## 🤖 AI Slop indicators [${slopFiles.length} files]`);
+				for (const { file, warnings } of slopFiles.slice(0, 10)) {
+					lines.push(`  - \`${file}\`: ${warnings.map(w => w.split(" — ")[0]).join(", ")}`);
+				}
+				if (slopFiles.length > 10) lines.push(`  ... and ${slopFiles.length - 10} more`);
+				lines.push("");
+			}
+
+			// Skips
+			if (skipRules.size > 0) {
+				lines.push(`## ⏭️ Skip [${[...skipRules.values()].reduce((a, b) => a + b.count, 0)} items — architectural]`);
+				for (const [rule, { note, count }] of skipRules) {
+					lines.push(`  - **${rule}** (${count}): ${note}`);
+				}
+				lines.push("");
+			}
+
+			lines.push("---");
+			lines.push("Fix the items above, then run `/lens-booboo-fix` again for the next iteration.");
+			lines.push("If an item in '🔨 Fix these' is not safe to fix, skip it with one sentence why.");
+
+			const fixPlan = lines.join("\n");
+
+			// Save plan for reference
+			const planPath = path.join(process.cwd(), ".pi-lens", "fix-plan.md");
+			fs.writeFileSync(planPath, `# Fix Plan — Iteration ${session.iteration}\n\n${fixPlan}`, "utf-8");
+
+			// Notify and inject into conversation
+			ctx.ui.notify(`📄 Fix plan saved: ${planPath}`, "info");
+			pi.sendUserMessage(fixPlan);
+		},
+	});
+
 	pi.registerCommand("lens-metrics", {
 		description:
 			"Measure complexity metrics for all files and export to report.md. Usage: /lens-metrics [path]",
