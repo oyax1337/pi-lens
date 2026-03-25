@@ -217,10 +217,10 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("lens-booboo", {
 		description:
-			"Code review: design smells + complexity metrics. Usage: /lens-booboo [path]",
+			"Full codebase review: design smells, complexity, AI slop detection, TODOs, dead code, duplicates, type coverage. Usage: /lens-booboo [path]",
 		handler: async (args, ctx) => {
 			const targetPath = args.trim() || ctx.cwd || process.cwd();
-			ctx.ui.notify("🔍 Running code review...", "info");
+			ctx.ui.notify("🔍 Running full codebase review...", "info");
 
 			const parts: string[] = [];
 
@@ -304,8 +304,9 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 
-			// Part 3: Complexity metrics
+			// Part 3: Complexity metrics + AI slop detection
 			const results: import("./clients/complexity-client.js").FileComplexity[] = [];
+			const aiSlopIssues: string[] = [];
 
 			const scanDir = (dir: string) => {
 				if (!require("node:fs").existsSync(dir)) return;
@@ -320,6 +321,15 @@ export default function (pi: ExtensionAPI) {
 						const metrics = complexityClient.analyzeFile(fullPath);
 						if (metrics) {
 							results.push(metrics);
+
+							// Check AI slop indicators per file
+							const warnings = complexityClient.checkThresholds(metrics);
+							if (warnings.length > 0) {
+								aiSlopIssues.push(`  ${metrics.filePath}:`);
+								for (const w of warnings) {
+									aiSlopIssues.push(`    ⚠ ${w}`);
+								}
+							}
 						}
 					}
 				}
@@ -355,7 +365,38 @@ export default function (pi: ExtensionAPI) {
 					if (highCognitive.length > 5) summary += `    ... and ${highCognitive.length - 5} more\n`;
 				}
 
+				// Add AI slop issues
+				if (aiSlopIssues.length > 0) {
+					summary += `\n[AI Slop Indicators]\n${aiSlopIssues.join("\n")}`;
+				}
+
 				parts.push(summary);
+			}
+
+			// Part 4: TODOs scan
+			const todoResult = todoScanner.scanDirectory(targetPath);
+			const todoReport = todoScanner.formatResult(todoResult);
+			if (todoReport) parts.push(todoReport);
+
+			// Part 5: Dead code (knip)
+			if (knipClient.isAvailable()) {
+				const knipResult = knipClient.analyze(targetPath);
+				const knipReport = knipClient.formatResult(knipResult);
+				if (knipReport) parts.push(knipReport);
+			}
+
+			// Part 6: Code duplication
+			if (jscpdClient.isAvailable()) {
+				const jscpdResult = jscpdClient.scan(targetPath);
+				const jscpdReport = jscpdClient.formatResult(jscpdResult);
+				if (jscpdReport) parts.push(jscpdReport);
+			}
+
+			// Part 7: Type coverage
+			if (typeCoverageClient.isAvailable()) {
+				const tcResult = typeCoverageClient.scan(targetPath);
+				const tcReport = typeCoverageClient.formatResult(tcResult);
+				if (tcReport) parts.push(tcReport);
 			}
 
 			if (parts.length === 0) {
