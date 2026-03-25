@@ -251,6 +251,7 @@ export default function (pi: ExtensionAPI) {
 						encoding: "utf-8",
 						timeout: 30000,
 						shell: true,
+						maxBuffer: 32 * 1024 * 1024, // 32MB
 					});
 
 					const output = result.stdout || result.stderr || "";
