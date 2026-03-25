@@ -4,13 +4,16 @@ message: "Empty catch block — handle or log the error"
 severity: warning
 note: |
   Silently swallowing errors makes debugging impossible.
-  At minimum, log the error. Ideally, handle it properly.
+  Catches with return statements, assignments, or error propagation are acceptable.
 rule:
-  all:
-    - kind: catch_clause
-    - has:
-        kind: statement_block
-        not:
-          has:
-            kind: expression_statement
-            stopBy: end
+  kind: catch_clause
+  has:
+    kind: statement_block
+    not:
+      has:
+        any:
+          - kind: expression_statement   # this.log(...), void err, etc.
+          - kind: return_statement       # return defaultValue
+          - kind: throw_statement        # rethrow
+          - kind: variable_declaration   # const x = ...
+          - kind: assignment_expression  # x = ...

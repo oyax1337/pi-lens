@@ -661,10 +661,6 @@ export default function (pi: ExtensionAPI) {
 			type: "agent",
 			note: "Add this.log('Error: ' + err.message) to the catch block",
 		},
-		"silent-failure": {
-			type: "agent",
-			note: "Add this.log('Error: ' + err.message) or rethrow",
-		},
 		"no-console-log": {
 			type: "agent",
 			note: "Remove or replace with class logger method",
