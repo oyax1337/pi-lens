@@ -1,0 +1,9 @@
+id: magic-numbers
+language: TypeScript
+message: "Magic number detected — use a named constant"
+severity: hint
+note: |
+  Hardcoded numbers make code harder to understand and maintain.
+  Extract to a named constant with a descriptive name.
+rule:
+  kind: number

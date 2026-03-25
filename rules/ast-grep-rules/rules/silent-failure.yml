@@ -1,0 +1,14 @@
+id: silent-failure
+language: TypeScript
+message: "Silent failure detected — log or rethrow the error"
+severity: warning
+note: |
+  Empty catch blocks swallow errors silently.
+  Always log the error or rethrow it to aid debugging.
+rule:
+  kind: catch_clause
+  has:
+    kind: statement_block
+    not:
+      has:
+        kind: throw_statement

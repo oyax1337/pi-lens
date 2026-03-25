@@ -711,10 +711,24 @@ export default function (pi: ExtensionAPI) {
 
 			const diags = tsClient.getDiagnostics(filePath);
 			if (diags.length > 0) {
-				lspOutput += `\n\n[TypeScript] ${diags.length} issue(s):\n`;
-				for (const d of diags.slice(0, 10)) {
-					const label = d.severity === 2 ? "Warning" : "Error";
-					lspOutput += `  [${label}] L${d.range.start.line + 1}: ${d.message}\n`;
+				// Separate unused imports (TS6133, TS6196) from other diagnostics
+				const unusedImports = diags.filter(d => d.code === 6133 || d.code === 6196);
+				const otherDiags = diags.filter(d => d.code !== 6133 && d.code !== 6196);
+
+				if (unusedImports.length > 0) {
+					lspOutput += `\n\n[Unused Imports] ${unusedImports.length} imported but never used:\n`;
+					for (const d of unusedImports.slice(0, 10)) {
+						lspOutput += `  L${d.range.start.line + 1}: ${d.message}\n`;
+					}
+					lspOutput += `  → Remove unused imports to reduce noise\n`;
+				}
+
+				if (otherDiags.length > 0) {
+					lspOutput += `\n\n[TypeScript] ${otherDiags.length} issue(s):\n`;
+					for (const d of otherDiags.slice(0, 10)) {
+						const label = d.severity === 2 ? "Warning" : "Error";
+						lspOutput += `  [${label}] L${d.range.start.line + 1}: ${d.message}\n`;
+					}
 				}
 			}
 		}

@@ -291,6 +291,17 @@ export class ComplexityClient {
       warnings.push(`High entropy (${metrics.codeEntropy.toFixed(1)} bits) — follow project conventions`);
     }
 
+    // Comments ratio (>30% = excessive comments, AI slop signal)
+    const totalLines = metrics.linesOfCode + metrics.commentLines;
+    if (totalLines > 10 && metrics.commentLines / totalLines > 0.3) {
+      warnings.push(`Excessive comments (${Math.round(metrics.commentLines / totalLines * 100)}%) — remove obvious comments`);
+    }
+
+    // Verbose code (long functions with low complexity = overly verbose)
+    if (metrics.avgFunctionLength > 30 && metrics.cyclomaticComplexity < 3) {
+      warnings.push(`Verbose code (avg ${Math.round(metrics.avgFunctionLength)} lines, low complexity) — simplify or extract`);
+    }
+
     return warnings;
   }
 
