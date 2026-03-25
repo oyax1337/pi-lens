@@ -212,7 +212,7 @@ export class ComplexityClient {
         maintainabilityIndex: Math.round(maintainabilityIndex * 10) / 10,
         linesOfCode: codeLines,
         commentLines,
-        codeEntropy: Math.round(codeEntropy * 1000) / 1000,
+        codeEntropy: Math.round(codeEntropy * 100) / 100,
       };
     } catch (err: any) {
       this.log(`Analysis error for ${filePath}: ${err.message}`);
@@ -247,11 +247,9 @@ export class ComplexityClient {
       parts.push(`  Max nesting: ${metrics.maxNestingDepth} levels (consider extracting)`);
     }
 
-    // Code entropy (0-1, lower = more predictable)
-    if (metrics.codeEntropy > 0.8) {
-      parts.push(`  Entropy: ${metrics.codeEntropy} (high — code may be unpredictable/AI-generated)`);
-    } else if (metrics.codeEntropy < 0.3) {
-      parts.push(`  Entropy: ${metrics.codeEntropy} (low — repetitive patterns detected)`);
+    // Code entropy (in bits, >3.5 = risky AI-induced complexity)
+    if (metrics.codeEntropy > 3.5) {
+      parts.push(`  Entropy: ${metrics.codeEntropy.toFixed(1)} bits (>3.5 — risky AI-induced complexity)`);
     }
 
     // Function length
@@ -504,9 +502,9 @@ export class ComplexityClient {
   }
 
   /**
-   * Calculate Shannon entropy of code tokens
-   * Measures predictability/uniformity of code
-   * 0 = completely uniform, 1 = maximum entropy
+   * Calculate Shannon entropy of code tokens (in bits)
+   * Uses log2 for entropy measured in bits
+   * Threshold: >3.5 bits indicates risky AI-induced complexity
    */
   private calculateCodeEntropy(sourceText: string): number {
     // Tokenize by splitting on whitespace and common delimiters
@@ -526,7 +524,7 @@ export class ComplexityClient {
       freq.set(token, (freq.get(token) || 0) + 1);
     }
 
-    // Calculate Shannon entropy: H = -sum(p * log2(p))
+    // Calculate Shannon entropy in bits: H = -sum(p * log2(p))
     let entropy = 0;
     for (const count of freq.values()) {
       const p = count / tokens.length;
@@ -535,11 +533,7 @@ export class ComplexityClient {
       }
     }
 
-    // Normalize to 0-1 range
-    const maxEntropy = Math.log2(freq.size);
-    if (maxEntropy === 0) return 0;
-
-    return Math.min(1, entropy / maxEntropy);
+    return entropy; // Return in bits, not normalized
   }
 
   private isKeyword(text: string): boolean {
