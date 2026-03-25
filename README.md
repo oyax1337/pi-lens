@@ -15,8 +15,38 @@ Real-time code quality feedback for [pi](https://github.com/mariozechner/pi-codi
 | **Biome** | Lint + format for JS/TS/JSX/TSX/CSS/JSON. Auto-fix disabled by default, use `/lens-format` to apply |
 | **Ruff** | Lint + format for Python. Auto-fixes on every write by default |
 | **Test Runner** | Runs corresponding test file when you edit source code (vitest, jest, pytest). Silent if no test file exists. |
-| **Complexity Metrics** | AST-based analysis: Maintainability Index, Cyclomatic/Cognitive Complexity, Halstead Volume, nesting depth, function length. |
+| **Complexity Metrics** | AST-based analysis: Maintainability Index, Cyclomatic/Cognitive Complexity, Halstead Volume, nesting depth, function length, code entropy. |
 | **jscpd** | Code duplication detection. Warns when editing a file that has duplicates with other files in the project. |
+| **Duplicate Exports** | Detects when you redefine a function that already exists elsewhere in the codebase. |
+
+### Actionable feedback
+
+All warnings include actionable guidance — the agent sees what to do, not just what's wrong:
+
+```
+[TypeScript] 2 issue(s):
+  [error] L10: Type 'string' is not assignable to type 'number'
+
+[ast-grep] 1 structural issue(s) — 1 warning(s):
+  no-console-log: console.log found (L15)
+    → Use a proper logging framework or remove before committing.
+
+[jscpd] 1 duplicate block(s) involving utils.ts:
+  15 lines — helpers.ts:20
+  → Extract duplicated code to a shared utility function
+
+[Duplicate Exports] 1 function(s) already exist:
+  formatDate (already in helpers.ts)
+  → Import the existing function instead of redefining it
+
+[Complexity Warnings]
+  ⚠ Maintainability dropped to 55 — extract logic into helper functions
+  ⚠ High entropy (4.2 bits) — follow project conventions
+
+[Tests] ✗ 1/3 failed, 2 passed
+  ✗ should format date
+  → Fix failing tests before proceeding
+```
 
 ### Pre-write hints
 

@@ -2,6 +2,50 @@
 
 All notable changes to pi-lens will be documented in this file.
 
+## [1.3.11] - 2026-03-25
+
+### Added
+- **Actionable feedback messages**: All real-time warnings now include specific guidance on what to do.
+- **Code entropy metric**: Shannon entropy in bits (threshold: >3.5 indicates risky AI-induced complexity).
+- **Advanced pattern matching**: `/lens-booboo` now finds structurally similar functions (e.g., `formatDate` and `formatTimestamp`).
+- **Duplicate export detection**: Warns when redefining a function that already exists in the codebase.
+- **Biome formatting noise removed**: Only lint issues shown in real-time; use `/lens-format` for formatting.
+
+## [1.3.10] - 2026-03-25
+
+### Added
+- **Actionable complexity warnings**: Real-time feedback when metrics break limits with specific fix guidance.
+
+## [1.3.9] - 2026-03-25
+
+### Fixed
+- **Entropy calculation**: Corrected to use bits with 3.5-bit threshold for AI-induced complexity.
+
+## [1.3.8] - 2026-03-25
+
+### Added
+- **Code entropy metric**: Shannon entropy to detect repetitive or unpredictable code patterns.
+
+## [1.3.7] - 2026-03-25
+
+### Added
+- **Advanced pattern matching in `/lens-booboo`**: Finds structurally similar functions across the codebase.
+
+## [1.3.6] - 2026-03-25
+
+### Added
+- **Duplicate export detection on write**: Warns when defining a function that already exists elsewhere.
+
+## [1.3.5] - 2026-03-25
+
+### Changed
+- **Consistent command prefix**: All commands now start with `lens-`.
+  - `/find-todos` → `/lens-todos`
+  - `/dead-code` → `/lens-dead-code`
+  - `/check-deps` → `/lens-deps`
+  - `/format` → `/lens-format`
+  - `/design-review` + `/lens-metrics` → `/lens-booboo`
+
 ## [1.5.0] - 2026-03-23
 
 ### Added
