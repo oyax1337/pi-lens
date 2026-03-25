@@ -354,12 +354,14 @@ message: found
 			}
 
 			return result_groups;
-		} catch {
+		} catch (err) { void err;
 			return [];
 		} finally {
 			try {
 				require("node:fs").rmSync(ruleDir, { recursive: true, force: true });
-			} catch (err) { void err; }
+			} catch (err) {
+				void err;
+			}
 		}
 	}
 
@@ -435,7 +437,9 @@ message: found
 		} finally {
 			try {
 				require("node:fs").rmSync(ruleDir, { recursive: true, force: true });
-			} catch (err) { void err; }
+			} catch (err) {
+				void err;
+			}
 		}
 
 		return exports;
@@ -484,7 +488,7 @@ message: found
 					const parsed = JSON.parse(stdout);
 					const matches = Array.isArray(parsed) ? parsed : [parsed];
 					resolve({ matches });
-				} catch {
+				} catch (err) { void err;
 					resolve({ matches: [], error: "Failed to parse output" });
 				}
 			});
@@ -595,7 +599,7 @@ message: found
 				}
 				return diagnostics;
 			}
-		} catch {
+		} catch (err) { void err;
 			// Not a JSON array, try ndjson format (legacy)
 		}
 
@@ -607,7 +611,7 @@ message: found
 				const item: AstGrepJsonDiagnostic = JSON.parse(line);
 				const diag = this.parseDiagnostic(item, resolvedFilterFile);
 				if (diag) diagnostics.push(diag);
-			} catch {
+			} catch (err) { void err;
 				// Skip unparseable lines
 			}
 		}

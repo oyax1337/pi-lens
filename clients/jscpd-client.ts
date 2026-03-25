@@ -120,7 +120,9 @@ export class JscpdClient {
 		} finally {
 			try {
 				fs.rmSync(outDir, { recursive: true, force: true });
-			} catch (err) { void err; }
+			} catch (err) {
+				void err;
+			}
 		}
 	}
 
@@ -168,7 +170,7 @@ export class JscpdClient {
 			}));
 
 			return { success: true, clones, duplicatedLines, totalLines, percentage };
-		} catch {
+		} catch (err) { void err;
 			return {
 				success: false,
 				clones: [],

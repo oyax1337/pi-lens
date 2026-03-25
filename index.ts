@@ -1241,8 +1241,18 @@ export default function (pi: ExtensionAPI) {
 			report += `|-------|-------|------------|\n`;
 			for (const [grade, count] of Object.entries(gradeCount)) {
 				const pct = ((count / results.length) * 100).toFixed(1);
-				const gradeIcons: Record<string, string> = { A: "🟢", B: "🟡", C: "🟠", D: "🔴" };
-				const gradeThresholds: Record<string, number> = { A: 80, B: 60, C: 40, D: 20 };
+				const gradeIcons: Record<string, string> = {
+					A: "🟢",
+					B: "🟡",
+					C: "🟠",
+					D: "🔴",
+				};
+				const gradeThresholds: Record<string, number> = {
+					A: 80,
+					B: 60,
+					C: 40,
+					D: 20,
+				};
 				const icon = gradeIcons[grade] ?? "⚫";
 				const threshold = gradeThresholds[grade] ?? 0;
 				report += `| ${icon} ${grade} (MI ≥ ${threshold}) | ${count} | ${pct}% |\n`;
@@ -1683,9 +1693,10 @@ export default function (pi: ExtensionAPI) {
 	const preWriteHints = new Map<string, string>();
 
 	pi.on("tool_call", async (event, _ctx) => {
-		const filePath = (isToolCallEventType("write", event) || isToolCallEventType("edit", event))
-			? (event.input as { path: string }).path
-			: undefined;
+		const filePath =
+			isToolCallEventType("write", event) || isToolCallEventType("edit", event)
+				? (event.input as { path: string }).path
+				: undefined;
 
 		if (!filePath) return;
 

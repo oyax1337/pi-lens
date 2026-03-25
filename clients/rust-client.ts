@@ -95,7 +95,9 @@ export class RustClient {
 						return p;
 					}
 				}
-			} catch (err) { void err; }
+			} catch (err) {
+				void err;
+			}
 		}
 
 		return null;
@@ -265,7 +267,9 @@ export class RustClient {
 						});
 					}
 				}
-			} catch (err) { void err; } // Skip non-JSON lines
+			} catch (err) {
+				void err;
+			} // Skip non-JSON lines
 		}
 
 		return diags;

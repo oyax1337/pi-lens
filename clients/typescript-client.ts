@@ -81,7 +81,7 @@ function loadCompilerOptions(tsconfigPath: string): ts.CompilerOptions {
 		if (parsed.errors.length) return DEFAULT_COMPILER_OPTIONS;
 		// Always set skipLibCheck to avoid noise from node_modules
 		return { ...parsed.options, skipLibCheck: true };
-	} catch {
+	} catch (err) { void err;
 		return DEFAULT_COMPILER_OPTIONS;
 	}
 }

@@ -262,7 +262,7 @@ export class TestRunnerClient {
 					this.availableRunners.set(`${cwd}:pytest:config`, true);
 					return { runner: "pytest", config: RUNNERS.pytest };
 				}
-			} catch {
+			} catch (err) { void err;
 				// package.json parse error
 			}
 		}
@@ -291,7 +291,7 @@ export class TestRunnerClient {
 						return files.some((f) =>
 							new RegExp(cf.replace(/\*/g, ".*")).test(f),
 						);
-					} catch {
+					} catch (err) { void err;
 						return false;
 					}
 				}
@@ -315,7 +315,9 @@ export class TestRunnerClient {
 				this.log("Detected pytest globally");
 				return { runner: "pytest", config: RUNNERS.pytest };
 			}
-		} catch (err) { void err; }
+		} catch (err) {
+			void err;
+		}
 
 		return null;
 	}
@@ -364,7 +366,7 @@ export class TestRunnerClient {
 							this.log(`Found test file: ${testPath}`);
 							return { testFile: testPath, runner: detected.runner };
 						}
-					} catch {
+					} catch (err) { void err;
 						// Directory not readable
 					}
 				}
@@ -545,7 +547,7 @@ export class TestRunnerClient {
 				failures,
 				duration: 0, // Vitest JSON doesn't include duration in this format
 			};
-		} catch {
+		} catch (err) { void err;
 			// If JSON parsing fails, check for basic pass/fail indicators
 			const failed = stdout.includes("FAIL") || stderr.includes("FAIL");
 			return this.emptyResult(
@@ -617,7 +619,7 @@ export class TestRunnerClient {
 				failures,
 				duration: 0,
 			};
-		} catch {
+		} catch (err) { void err;
 			const failed = stdout.includes("FAIL") || stderr.includes("FAIL");
 			return this.emptyResult(
 				testFile,

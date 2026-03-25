@@ -313,7 +313,7 @@ export class BiomeClient {
 			if (content === formatted) return "";
 
 			return this.computeDiff(content, formatted);
-		} catch {
+		} catch (err) { void err;
 			return "";
 		}
 	}
@@ -368,7 +368,7 @@ export class BiomeClient {
 			}
 
 			return diagnostics;
-		} catch {
+		} catch (err) { void err;
 			this.log("Failed to parse biome JSON output");
 			return [];
 		}

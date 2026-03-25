@@ -79,7 +79,9 @@ export class GoClient {
 						return p;
 					}
 				}
-			} catch (err) { void err; }
+			} catch (err) {
+				void err;
+			}
 		}
 
 		return null;

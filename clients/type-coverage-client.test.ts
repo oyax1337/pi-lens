@@ -9,7 +9,9 @@ describe("TypeCoverageClient", () => {
 
 	beforeEach(() => {
 		client = new TypeCoverageClient();
-		({ tmpDir: _tmpDir, cleanup } = setupTestEnvironment("pi-lens-typecoverage-test-"));
+		({ tmpDir: _tmpDir, cleanup } = setupTestEnvironment(
+			"pi-lens-typecoverage-test-",
+		));
 	});
 
 	afterEach(() => {

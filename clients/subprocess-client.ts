@@ -84,7 +84,7 @@ export abstract class SubprocessClient<T extends Diagnostic> {
 			} else {
 				this.log(`${this.toolName} not available`);
 			}
-		} catch {
+		} catch (err) { void err;
 			this.available = false;
 		}
 

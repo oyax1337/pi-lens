@@ -241,7 +241,7 @@ export class KnipClient {
 				unlistedDeps,
 				summary: `Found ${issues.length} issues`,
 			};
-		} catch {
+		} catch (err) { void err;
 			this.log("Failed to parse knip JSON output");
 			return {
 				success: false,
