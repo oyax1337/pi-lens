@@ -1358,9 +1358,10 @@ export default function (pi: ExtensionAPI) {
 				"   - `question`: what you're asking the user",
 				"   - `options`: array of { value, label, context, recommended, impact: { linesReduced, miProjection, cognitiveProjection } }",
 				"6. The user picks an option or types a free-text response in the browser form.",
-				"7. Based on their choice, propose a concrete refactoring plan (step by step, what changes, new names, where things go).",
-				"8. **Wait for the user to confirm before making any changes.**",
-				"9. After confirmation, implement the refactoring.",
+				"7. Based on their choice, write the proposed changes to TEMP files (e.g. /tmp/). Compute a unified diff: `diff -u <original> <temp>`.",
+				"8. Call the `interviewer` tool AGAIN with confirmationMode=true, plan (your step-by-step plan), and diff (the unified diff). The user sees the plan + diff + line counts and clicks Confirm or Cancel.",
+				"9. If confirmed: apply changes to the real files. If cancelled: delete temp files, make no changes.",
+				"10. After confirmation, apply the refactoring.",
 			].join("\n");
 
 			pi.sendUserMessage(steer, { deliverAs: "steer" });
@@ -1722,14 +1723,82 @@ export default function (pi: ExtensionAPI) {
 				question: string,
 				options: InterviewOption[],
 				timeoutSeconds: number,
+				plan?: string,
+				diff?: string,
+				confirmationMode?: boolean,
 		  ) => Promise<string | null>)
 		| null = null;
+
+	const confirmationHTML = (
+		question: string,
+		plan: string,
+		diff: string,
+	): string => {
+		const esc = (s: string) =>
+			s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+		const mdToHtml = (md: string) =>
+			md
+				.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+				.replace(/`([^`]+)`/g, "<code>$1</code>")
+				.replace(/^### (.+)/gm, "<h4>$1</h4>")
+				.replace(/^## (.+)/gm, "<h3>$1</h3>")
+				.replace(/^# (.+)/gm, "<h2>$1</h2>")
+				.replace(/^- (.+)/gm, "<li>$1</li>")
+				.replace(/\n\n/g, "</p><p>");
+		const diffLines = diff.split("\n");
+		const diffHtml = diffLines
+			.map((line) => {
+				if (line.startsWith("+++") || line.startsWith("---"))
+					return `<span class="df">${esc(line)}</span>`;
+				if (line.startsWith("@@"))
+					return `<span class="dh">${esc(line)}</span>`;
+				if (line.startsWith("+"))
+					return `<span class="da">${esc(line)}</span>`;
+				if (line.startsWith("-"))
+					return `<span class="dd">${esc(line)}</span>`;
+				return `<span class="dc">${esc(line)}</span>`;
+			})
+			.join("\n");
+		return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>✅ Confirm</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#e6edf3;padding:28px 32px;max-width:960px;margin:0 auto;line-height:1.5}
+h2{font-size:16px;color:#58a6ff;margin-bottom:14px}
+.plan{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 18px;margin-bottom:18px;font-size:13px;line-height:1.6}
+.plan h3{color:#f0f6fc;font-size:14px;margin:10px 0 4px}.plan h4{color:#c9d1d9;font-size:13px;margin:8px 0 3px}
+.plan li{margin:2px 0 2px 16px;list-style:disc}.plan code{background:#21262d;padding:1px 5px;border-radius:3px;font-size:12px}
+.diff-wrap{background:#161b22;border:1px solid #30363d;border-radius:8px;margin-bottom:18px;overflow:hidden}
+.diff-hdr{padding:7px 14px;font-size:11px;color:#8b949e;border-bottom:1px solid #30363d;font-family:monospace;display:flex;justify-content:space-between}
+.diff-stats{display:flex;gap:10px}.stat-add{color:#3fb950}.stat-del{color:#ff7b72}
+.diff-pre{padding:12px;font-family:'Fira Code',Consolas,monospace;font-size:12px;line-height:1.55;overflow-x:auto;white-space:pre;margin:0}
+.da{color:#3fb950;display:block}.dd{color:#ff7b72;display:block}.dh{color:#79c0ff;display:block}.df{color:#8b949e;display:block}.dc{color:#e6edf3;display:block}
+.actions{display:flex;gap:10px}.btn-c{background:#238636;color:#fff;border:1px solid #2ea043;padding:10px 24px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer}
+.btn-c:hover{background:#2ea043}.btn-x{background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:10px 24px;border-radius:6px;font-size:14px;cursor:pointer}
+.btn-x:hover{background:#30363d}.hint{color:#6e7681;font-size:12px;margin-top:8px}
+</style></head><body>
+<h2>${esc(question)}</h2>
+<div class="plan"><strong>Plan:</strong><p>${mdToHtml(plan)}</p></div>
+<div class="diff-wrap"><div class="diff-hdr"><span>Changes</span><div class="diff-stats"><span class="stat-add">+${(diff.match(/^\+/gm) || []).length}</span><span class="stat-del">−${(diff.match(/^-/gm) || []).length - (diff.match(/^---/gm) || []).length}</span></div></div><pre class="diff-pre">${diffHtml}</pre></div>
+<form method="POST">
+<input type="hidden" name="choice" value="Confirm">
+<div class="actions"><button class="btn-c" type="submit">✅ Confirm and apply</button><button class="btn-x" type="submit" name="choice" value="Cancel">❌ Cancel — no changes</button></div>
+</form>
+<p class="hint">Tab auto-closes after submit · Ctrl+Enter to confirm</p>
+<script>document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){document.querySelector('.btn-c').click();}});</script>
+</body></html>`;
+	};
 
 	const interviewHTML = (
 		question: string,
 		options: InterviewOption[],
 		_timeoutSeconds: number,
+		_plan?: string,
+		_diff?: string,
+		_confirmationMode?: boolean,
 	): string => {
+		if (_confirmationMode && _plan && _diff) {
+			return confirmationHTML(question, _plan, _diff);
+		}
 		const esc = (s: string) =>
 			s
 				.replace(/&/g, "&amp;")
@@ -1864,9 +1933,9 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Ente
 	};
 
 	// Store handler so command can call it later
-	interviewHandler = (question, options, timeoutSeconds) =>
+	interviewHandler = (question, options, timeoutSeconds, plan, diff, confirmationMode) =>
 		openBrowserInterview(
-			interviewHTML(question, options, timeoutSeconds),
+			interviewHTML(question, options, timeoutSeconds, plan, diff, confirmationMode),
 			timeoutSeconds,
 		);
 
@@ -1879,25 +1948,30 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Ente
 			question: Type.String({
 				description: "The question to present to the user",
 			}),
-			options: Type.Array(
-				Type.Object({
-					value: Type.String(),
-					label: Type.String(),
-					context: Type.Optional(Type.String()),
-					recommended: Type.Optional(Type.Boolean()),
-					impact: Type.Optional(
-						Type.Object({
-							linesReduced: Type.Optional(Type.Number()),
-							miProjection: Type.Optional(Type.String()),
-							cognitiveProjection: Type.Optional(Type.String()),
-						}),
-					),
-				}),
-				{
-					description:
-						"Answer options — include { value, label, context, recommended, impact: { linesReduced, miProjection, cognitiveProjection } }",
-				},
+			options: Type.Optional(
+				Type.Array(
+					Type.Object({
+						value: Type.String(),
+						label: Type.String(),
+						context: Type.Optional(Type.String()),
+						recommended: Type.Optional(Type.Boolean()),
+						impact: Type.Optional(
+							Type.Object({
+								linesReduced: Type.Optional(Type.Number()),
+								miProjection: Type.Optional(Type.String()),
+								cognitiveProjection: Type.Optional(Type.String()),
+							}),
+						),
+					}),
+					{
+						description:
+							"Answer options — include { value, label, context, recommended, impact }",
+					},
+				),
 			),
+			plan: Type.Optional(Type.String({ description: "Refactoring plan to display in confirmation mode" })),
+			diff: Type.Optional(Type.String({ description: "Unified diff to display in confirmation mode" })),
+			confirmationMode: Type.Optional(Type.Boolean({ description: "Show plan+diff confirmation screen instead of option selection" })),
 			timeoutSeconds: Type.Optional(
 				Type.Number({
 					description: "Auto-close after this many seconds (default 600)",
@@ -1914,8 +1988,11 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Ente
 				};
 			const result = await interviewHandler(
 				input.question,
-				input.options,
+				input.options ?? [],
 				input.timeoutSeconds ?? 600,
+				input.plan,
+				input.diff,
+				input.confirmationMode,
 			);
 			return {
 				content: [
