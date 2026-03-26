@@ -1118,14 +1118,15 @@ export default function (pi) {
                 "**Your job**:",
                 "1. Analyze this code — what's the most impactful refactoring for this file?",
                 "2. Build 3-5 refactoring options. For each, explain *why* it helps and *what* you'd change. Mark one as recommended.",
-                "3. Include an option to skip to the next worst offender.",
-                "4. Call the `interviewer` tool with:",
+                "3. For each option, estimate the impact: linesReduced (number), miProjection (e.g. '3.5 → 8'), cognitiveProjection (e.g. '1533 → 1400').",
+                "4. Include an option to skip to the next worst offender.",
+                "5. Call the `interviewer` tool with:",
                 "   - `question`: what you're asking the user",
-                "   - `options`: array of { value, label, context (the rationale), recommended }",
-                "5. The user picks an option or types a free-text response in the browser form.",
-                "6. Based on their choice, propose a concrete refactoring plan (step by step, what changes, new names, where things go).",
-                "7. **Wait for the user to confirm before making any changes.**",
-                "8. After confirmation, implement the refactoring.",
+                "   - `options`: array of { value, label, context, recommended, impact: { linesReduced, miProjection, cognitiveProjection } }",
+                "6. The user picks an option or types a free-text response in the browser form.",
+                "7. Based on their choice, propose a concrete refactoring plan (step by step, what changes, new names, where things go).",
+                "8. **Wait for the user to confirm before making any changes.**",
+                "9. After confirmation, implement the refactoring.",
             ].join("\n");
             pi.sendUserMessage(steer, { deliverAs: "steer" });
         },
@@ -1416,7 +1417,6 @@ export default function (pi) {
         "typescript",
         "yaml",
     ];
-    // --- Generic interview tool (browser-based multiple choice + free text) ---
     let interviewHandler = null;
     const interviewHTML = (question, options, _timeoutSeconds) => {
         const esc = (s) => s
@@ -1424,15 +1424,30 @@ export default function (pi) {
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;");
+        const impactBadge = (val, label, good) => `<span class="ib ${good ? "up" : "dn"}">${val > 0 ? "+" : ""}${val} ${label}</span>`;
         const optionsHtml = options
-            .map((opt, idx) => `
+            .map((opt, idx) => {
+            let impactHtml = "";
+            if (opt.impact) {
+                const parts = [];
+                if (opt.impact.linesReduced !== undefined)
+                    parts.push(impactBadge(opt.impact.linesReduced, "lines", true));
+                if (opt.impact.miProjection)
+                    parts.push(`<span class="ib proj">MI ${opt.impact.miProjection}</span>`);
+                if (opt.impact.cognitiveProjection)
+                    parts.push(`<span class="ib proj">Cognitive ${opt.impact.cognitiveProjection}</span>`);
+                if (parts.length)
+                    impactHtml = `<div class="impact">${parts.join("")}</div>`;
+            }
+            return `
 			<label class="card${opt.recommended ? " rec" : ""}">
 				<input type="radio" name="choice" value="${esc(opt.value)}"${opt.recommended ? " checked" : ""}>
 				<div class="card-body">
 					<div class="card-top"><span class="num">${idx + 1}.</span><span class="lbl">${esc(opt.label)}</span>${opt.recommended ? '<span class="badge-rec">Recommended</span>' : ""}</div>
-					${opt.context ? `<div class="ctx">${esc(opt.context)}</div>` : ""}
+					${impactHtml}${opt.context ? `<div class="ctx">${esc(opt.context)}</div>` : ""}
 				</div>
-			</label>`)
+			</label>`;
+        })
             .join("\n");
         const hasFreeText = options.some((o) => o.value === "__free__");
         return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1448,6 +1463,11 @@ export default function (pi) {
 .num{color:#6e7681;font-size:13px;min-width:18px}.lbl{font-size:13.5px;font-weight:500}
 .badge-rec{background:#1f4e2e;color:#3fb950;font-size:10px;padding:1px 7px;border-radius:10px;margin-left:4px;font-weight:600}
 .ctx{color:#8b949e;font-size:12px;margin-top:3px;padding-left:22px}
+.impact{display:flex;gap:6px;margin-top:5px;padding-left:22px;flex-wrap:wrap}
+.ib{font-size:11px;padding:2px 8px;border-radius:10px;font-family:monospace;font-weight:600}
+.ib.up{background:#1a3a2a;color:#3fb950;border:1px solid #238636}
+.ib.dn{background:#3a1a1a;color:#ff7b72;border:1px solid #f85149}
+.ib.proj{background:#1a2a3a;color:#79c0ff;border:1px solid #1f6feb}
 .free-area{display:none;margin-top:10px;padding-left:22px}
 textarea{width:100%;background:#161b22;border:1px solid #30363d;color:#e6edf3;padding:9px;border-radius:6px;font-family:inherit;font-size:13px;resize:vertical;min-height:72px;outline:none}
 textarea:focus{border-color:#58a6ff}
@@ -1540,8 +1560,13 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Ente
                 label: Type.String(),
                 context: Type.Optional(Type.String()),
                 recommended: Type.Optional(Type.Boolean()),
+                impact: Type.Optional(Type.Object({
+                    linesReduced: Type.Optional(Type.Number()),
+                    miProjection: Type.Optional(Type.String()),
+                    cognitiveProjection: Type.Optional(Type.String()),
+                })),
             }), {
-                description: "Answer options — include { value, label, context (rationale), recommended }",
+                description: "Answer options — include { value, label, context, recommended, impact: { linesReduced, miProjection, cognitiveProjection } }",
             }),
             timeoutSeconds: Type.Optional(Type.Number({
                 description: "Auto-close after this many seconds (default 600)",
