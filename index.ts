@@ -702,7 +702,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			const prevCounts = { ...session.counts };
 
-			// --- Step 1: Auto-fix with Biome ---
+			// --- Step 1: Auto-fix with Biome + Ruff ---
 			let biomeRan = false;
 			if (!pi.getFlag("no-biome") && biomeClient.isAvailable()) {
 				require("node:child_process").spawnSync(
@@ -712,8 +712,6 @@ export default function (pi: ExtensionAPI) {
 				);
 				biomeRan = true;
 			}
-
-			// --- Step 2: Auto-fix with Ruff ---
 			let ruffRan = false;
 			if (!pi.getFlag("no-ruff") && ruffClient.isAvailable()) {
 				require("node:child_process").spawnSync(
@@ -729,7 +727,25 @@ export default function (pi: ExtensionAPI) {
 				ruffRan = true;
 			}
 
-			// --- Step 3: ast-grep scan (after auto-fix) ---
+			// --- Step 2: Duplicate code (jscpd) ---
+			type JscpdClone = { fileA: string; fileB: string; startA: number; startB: number; lines: number };
+			const dupClones: JscpdClone[] = [];
+			if (jscpdClient.isAvailable()) {
+				const jscpdResult = jscpdClient.scan(targetPath);
+				dupClones.push(...jscpdResult.clones);
+				dbg(`booboo-fix jscpd: ${dupClones.length} clone(s)`);
+			}
+
+			// --- Step 3: Dead code (knip) ---
+			type KnipIssue = { type: string; name: string; file?: string };
+			const deadCodeIssues: KnipIssue[] = [];
+			if (knipClient.isAvailable()) {
+				const knipResult = knipClient.analyze(targetPath);
+				deadCodeIssues.push(...knipResult.issues);
+				dbg(`booboo-fix knip: ${deadCodeIssues.length} issue(s)`);
+			}
+
+			// --- Step 4: ast-grep scan (on surviving code) ---
 			type AstIssue = {
 				rule: string;
 				file: string;
@@ -778,7 +794,8 @@ export default function (pi: ExtensionAPI) {
 					: raw.split("\n").flatMap((l: string) => {
 							try {
 								return [JSON.parse(l)];
-							} catch (err) { void err;
+							} catch (err) {
+								void err;
 								return [];
 							}
 						});
@@ -802,7 +819,7 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 
-			// --- Step 4: AI slop from complexity scan ---
+			// --- Step 5: AI slop from complexity scan ---
 			const slopFiles: Array<{ file: string; warnings: string[] }> = [];
 			const slopScanDir = (dir: string) => {
 				if (!fs.existsSync(dir)) return;
@@ -848,17 +865,14 @@ export default function (pi: ExtensionAPI) {
 			};
 			slopScanDir(targetPath);
 
-			// --- Step 5: Remaining Biome lint ---
+			// --- Step 6: Remaining Biome lint (unfixable by --unsafe) ---
 			const remainingBiome: Array<{
 				file: string;
 				line: number;
 				rule: string;
 				message: string;
-				fixable: boolean;
 			}> = [];
 			if (!pi.getFlag("no-biome") && biomeClient.isAvailable()) {
-				// Sample a few key files for remaining lint (not whole project — Biome just ran)
-				// Just report counts from a quick scan
 				const checkResult = require("node:child_process").spawnSync(
 					"npx",
 					[
@@ -877,13 +891,11 @@ export default function (pi: ExtensionAPI) {
 						const filePath = diag.location?.path?.file ?? "";
 						const line = diag.location?.span?.start?.line ?? 0;
 						const rule = diag.category ?? "lint";
-						const fixable = diag.tags?.includes("fixable") ?? false;
 						remainingBiome.push({
 							file: path.relative(targetPath, filePath).replace(/\\/g, "/"),
 							line: line + 1,
 							rule,
 							message: diag.message ?? rule,
-							fixable,
 						});
 					}
 				} catch (e) {
@@ -895,14 +907,12 @@ export default function (pi: ExtensionAPI) {
 			const agentTasks: AstIssue[] = [];
 			const skipRules = new Map<string, { note: string; count: number }>();
 
-			// Group by rule
 			const byRule = new Map<string, AstIssue[]>();
 			for (const issue of astIssues) {
 				const list = byRule.get(issue.rule) ?? [];
 				list.push(issue);
 				byRule.set(issue.rule, list);
 			}
-
 			for (const [rule, issues] of byRule) {
 				const action = RULE_ACTIONS[rule];
 				if (!action || action.type === "agent") {
@@ -910,11 +920,12 @@ export default function (pi: ExtensionAPI) {
 				} else if (action.type === "skip") {
 					skipRules.set(rule, { note: action.note, count: issues.length });
 				}
-				// biome type → already handled by Step 1
 			}
 
 			// --- Update session counts ---
 			const currentCounts = {
+				duplicates: dupClones.length,
+				dead_code: deadCodeIssues.length,
 				agent_ast: agentTasks.length,
 				biome_lint: remainingBiome.length,
 				slop_files: slopFiles.length,
@@ -925,7 +936,11 @@ export default function (pi: ExtensionAPI) {
 
 			// --- Check if done ---
 			const totalFixable =
-				agentTasks.length + remainingBiome.length + slopFiles.length;
+				dupClones.length +
+				deadCodeIssues.length +
+				agentTasks.length +
+				remainingBiome.length +
+				slopFiles.length;
 			if (totalFixable === 0) {
 				const msg = `✅ BOOBOO FIX LOOP COMPLETE — No more fixable issues found after ${session.iteration} iteration(s).\n\nRemaining skipped items are architectural — see /lens-booboo for full report.`;
 				ctx.ui.notify(msg, "info");
@@ -937,8 +952,7 @@ export default function (pi: ExtensionAPI) {
 			let deltaLine = "";
 			if (session.iteration > 1 && Object.keys(prevCounts).length > 0) {
 				const prevTotal = Object.values(prevCounts).reduce((a, b) => a + b, 0);
-				const currTotal = totalFixable;
-				const fixed = prevTotal - currTotal;
+				const fixed = prevTotal - totalFixable;
 				deltaLine =
 					fixed > 0
 						? `✅ Fixed ${fixed} issues since last iteration.`
@@ -953,7 +967,6 @@ export default function (pi: ExtensionAPI) {
 			if (deltaLine) lines.push(deltaLine);
 			lines.push("");
 
-			// Auto-fix note
 			if (biomeRan || ruffRan) {
 				lines.push(
 					`⚡ Auto-fixed: ${[biomeRan && "Biome --write --unsafe", ruffRan && "Ruff --fix + format"].filter(Boolean).join(", ")} already ran.`,
@@ -961,7 +974,31 @@ export default function (pi: ExtensionAPI) {
 				lines.push("");
 			}
 
-			// Agent tasks — grouped by rule
+			// Duplicate code — fix first
+			if (dupClones.length > 0) {
+				lines.push(`## 🔁 Duplicate code [${dupClones.length} block(s)] — fix first`);
+				lines.push("→ Extract duplicated blocks into shared utilities before fixing violations in them.");
+				for (const clone of dupClones.slice(0, 10)) {
+					const relA = path.relative(targetPath, clone.fileA).replace(/\\/g, "/");
+					const relB = path.relative(targetPath, clone.fileB).replace(/\\/g, "/");
+					lines.push(`  - ${clone.lines} lines: \`${relA}:${clone.startA}\` ↔ \`${relB}:${clone.startB}\``);
+				}
+				if (dupClones.length > 10) lines.push(`  ... and ${dupClones.length - 10} more`);
+				lines.push("");
+			}
+
+			// Dead code — delete before fixing violations in it
+			if (deadCodeIssues.length > 0) {
+				lines.push(`## 🗑️ Dead code [${deadCodeIssues.length} item(s)] — delete before fixing violations`);
+				lines.push("→ Remove unused exports/files — no point fixing violations in code you're about to delete.");
+				for (const issue of deadCodeIssues.slice(0, 10)) {
+					lines.push(`  - [${issue.type}] \`${issue.name}\`${issue.file ? ` in ${issue.file}` : ""}`);
+				}
+				if (deadCodeIssues.length > 10) lines.push(`  ... and ${deadCodeIssues.length - 10} more`);
+				lines.push("");
+			}
+
+			// Agent tasks — ast-grep violations on surviving code
 			if (agentTasks.length > 0) {
 				lines.push(`## 🔨 Fix these [${agentTasks.length} items]`);
 				lines.push("");
@@ -985,12 +1022,10 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 
-			// Remaining Biome lint
+			// Remaining Biome lint — couldn't be auto-fixed even with --unsafe
 			if (remainingBiome.length > 0) {
-				lines.push(
-					`## 🟠 Remaining Biome lint [${remainingBiome.length} items]`,
-				);
-				lines.push("→ Fix each manually or run `/lens-format` from the UI:");
+				lines.push(`## 🟠 Remaining Biome lint [${remainingBiome.length} items]`);
+				lines.push("→ These couldn't be auto-fixed by Biome --unsafe. Fix each one manually:");
 				for (const d of remainingBiome.slice(0, 10)) {
 					lines.push(`  - \`${d.file}:${d.line}\` [${d.rule}] ${d.message}`);
 				}
@@ -1025,10 +1060,10 @@ export default function (pi: ExtensionAPI) {
 
 			lines.push("---");
 			lines.push(
-				"Fix the items above, then run `/lens-booboo-fix` again for the next iteration.",
+				"Fix the items above in order, then run `/lens-booboo-fix` again for the next iteration.",
 			);
 			lines.push(
-				"If an item in '🔨 Fix these' is not safe to fix, skip it with one sentence why.",
+				"If an item is not safe to fix, skip it with one sentence why.",
 			);
 
 			const fixPlan = lines.join("\n");

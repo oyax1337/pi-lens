@@ -597,18 +597,29 @@ export default function (pi) {
                 return;
             }
             const prevCounts = { ...session.counts };
-            // --- Step 1: Auto-fix with Biome ---
+            // --- Step 1: Auto-fix with Biome + Ruff ---
             let biomeRan = false;
             if (!pi.getFlag("no-biome") && biomeClient.isAvailable()) {
                 require("node:child_process").spawnSync("npx", ["@biomejs/biome", "check", "--write", "--unsafe", targetPath], { encoding: "utf-8", timeout: 30000, shell: true });
                 biomeRan = true;
             }
-            // --- Step 2: Auto-fix with Ruff ---
             let ruffRan = false;
             if (!pi.getFlag("no-ruff") && ruffClient.isAvailable()) {
                 require("node:child_process").spawnSync("ruff", ["check", "--fix", targetPath], { encoding: "utf-8", timeout: 15000, shell: true });
                 require("node:child_process").spawnSync("ruff", ["format", targetPath], { encoding: "utf-8", timeout: 15000, shell: true });
                 ruffRan = true;
+            }
+            const dupClones = [];
+            if (jscpdClient.isAvailable()) {
+                const jscpdResult = jscpdClient.scan(targetPath);
+                dupClones.push(...jscpdResult.clones);
+                dbg(`booboo-fix jscpd: ${dupClones.length} clone(s)`);
+            }
+            const deadCodeIssues = [];
+            if (knipClient.isAvailable()) {
+                const knipResult = knipClient.analyze(targetPath);
+                deadCodeIssues.push(...knipResult.issues);
+                dbg(`booboo-fix knip: ${deadCodeIssues.length} issue(s)`);
             }
             const astIssues = [];
             if (astGrepClient.isAvailable()) {
@@ -670,7 +681,7 @@ export default function (pi) {
                     });
                 }
             }
-            // --- Step 4: AI slop from complexity scan ---
+            // --- Step 5: AI slop from complexity scan ---
             const slopFiles = [];
             const slopScanDir = (dir) => {
                 if (!fs.existsSync(dir))
@@ -710,11 +721,9 @@ export default function (pi) {
                 }
             };
             slopScanDir(targetPath);
-            // --- Step 5: Remaining Biome lint ---
+            // --- Step 6: Remaining Biome lint (unfixable by --unsafe) ---
             const remainingBiome = [];
             if (!pi.getFlag("no-biome") && biomeClient.isAvailable()) {
-                // Sample a few key files for remaining lint (not whole project — Biome just ran)
-                // Just report counts from a quick scan
                 const checkResult = require("node:child_process").spawnSync("npx", [
                     "@biomejs/biome",
                     "check",
@@ -730,13 +739,11 @@ export default function (pi) {
                         const filePath = diag.location?.path?.file ?? "";
                         const line = diag.location?.span?.start?.line ?? 0;
                         const rule = diag.category ?? "lint";
-                        const fixable = diag.tags?.includes("fixable") ?? false;
                         remainingBiome.push({
                             file: path.relative(targetPath, filePath).replace(/\\/g, "/"),
                             line: line + 1,
                             rule,
                             message: diag.message ?? rule,
-                            fixable,
                         });
                     }
                 }
@@ -747,7 +754,6 @@ export default function (pi) {
             // --- Categorize ast-grep issues ---
             const agentTasks = [];
             const skipRules = new Map();
-            // Group by rule
             const byRule = new Map();
             for (const issue of astIssues) {
                 const list = byRule.get(issue.rule) ?? [];
@@ -762,10 +768,11 @@ export default function (pi) {
                 else if (action.type === "skip") {
                     skipRules.set(rule, { note: action.note, count: issues.length });
                 }
-                // biome type → already handled by Step 1
             }
             // --- Update session counts ---
             const currentCounts = {
+                duplicates: dupClones.length,
+                dead_code: deadCodeIssues.length,
                 agent_ast: agentTasks.length,
                 biome_lint: remainingBiome.length,
                 slop_files: slopFiles.length,
@@ -774,7 +781,11 @@ export default function (pi) {
             fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
             fs.writeFileSync(sessionFile, JSON.stringify(session, null, 2), "utf-8");
             // --- Check if done ---
-            const totalFixable = agentTasks.length + remainingBiome.length + slopFiles.length;
+            const totalFixable = dupClones.length +
+                deadCodeIssues.length +
+                agentTasks.length +
+                remainingBiome.length +
+                slopFiles.length;
             if (totalFixable === 0) {
                 const msg = `✅ BOOBOO FIX LOOP COMPLETE — No more fixable issues found after ${session.iteration} iteration(s).\n\nRemaining skipped items are architectural — see /lens-booboo for full report.`;
                 ctx.ui.notify(msg, "info");
@@ -785,8 +796,7 @@ export default function (pi) {
             let deltaLine = "";
             if (session.iteration > 1 && Object.keys(prevCounts).length > 0) {
                 const prevTotal = Object.values(prevCounts).reduce((a, b) => a + b, 0);
-                const currTotal = totalFixable;
-                const fixed = prevTotal - currTotal;
+                const fixed = prevTotal - totalFixable;
                 deltaLine =
                     fixed > 0
                         ? `✅ Fixed ${fixed} issues since last iteration.`
@@ -798,12 +808,35 @@ export default function (pi) {
             if (deltaLine)
                 lines.push(deltaLine);
             lines.push("");
-            // Auto-fix note
             if (biomeRan || ruffRan) {
                 lines.push(`⚡ Auto-fixed: ${[biomeRan && "Biome --write --unsafe", ruffRan && "Ruff --fix + format"].filter(Boolean).join(", ")} already ran.`);
                 lines.push("");
             }
-            // Agent tasks — grouped by rule
+            // Duplicate code — fix first
+            if (dupClones.length > 0) {
+                lines.push(`## 🔁 Duplicate code [${dupClones.length} block(s)] — fix first`);
+                lines.push("→ Extract duplicated blocks into shared utilities before fixing violations in them.");
+                for (const clone of dupClones.slice(0, 10)) {
+                    const relA = path.relative(targetPath, clone.fileA).replace(/\\/g, "/");
+                    const relB = path.relative(targetPath, clone.fileB).replace(/\\/g, "/");
+                    lines.push(`  - ${clone.lines} lines: \`${relA}:${clone.startA}\` ↔ \`${relB}:${clone.startB}\``);
+                }
+                if (dupClones.length > 10)
+                    lines.push(`  ... and ${dupClones.length - 10} more`);
+                lines.push("");
+            }
+            // Dead code — delete before fixing violations in it
+            if (deadCodeIssues.length > 0) {
+                lines.push(`## 🗑️ Dead code [${deadCodeIssues.length} item(s)] — delete before fixing violations`);
+                lines.push("→ Remove unused exports/files — no point fixing violations in code you're about to delete.");
+                for (const issue of deadCodeIssues.slice(0, 10)) {
+                    lines.push(`  - [${issue.type}] \`${issue.name}\`${issue.file ? ` in ${issue.file}` : ""}`);
+                }
+                if (deadCodeIssues.length > 10)
+                    lines.push(`  ... and ${deadCodeIssues.length - 10} more`);
+                lines.push("");
+            }
+            // Agent tasks — ast-grep violations on surviving code
             if (agentTasks.length > 0) {
                 lines.push(`## 🔨 Fix these [${agentTasks.length} items]`);
                 lines.push("");
@@ -826,10 +859,10 @@ export default function (pi) {
                     lines.push("");
                 }
             }
-            // Remaining Biome lint
+            // Remaining Biome lint — couldn't be auto-fixed even with --unsafe
             if (remainingBiome.length > 0) {
                 lines.push(`## 🟠 Remaining Biome lint [${remainingBiome.length} items]`);
-                lines.push("→ Fix each manually or run `/lens-format` from the UI:");
+                lines.push("→ These couldn't be auto-fixed by Biome --unsafe. Fix each one manually:");
                 for (const d of remainingBiome.slice(0, 10)) {
                     lines.push(`  - \`${d.file}:${d.line}\` [${d.rule}] ${d.message}`);
                 }
@@ -856,8 +889,8 @@ export default function (pi) {
                 lines.push("");
             }
             lines.push("---");
-            lines.push("Fix the items above, then run `/lens-booboo-fix` again for the next iteration.");
-            lines.push("If an item in '🔨 Fix these' is not safe to fix, skip it with one sentence why.");
+            lines.push("Fix the items above in order, then run `/lens-booboo-fix` again for the next iteration.");
+            lines.push("If an item is not safe to fix, skip it with one sentence why.");
             const fixPlan = lines.join("\n");
             // Save plan for reference
             const planPath = path.join(process.cwd(), ".pi-lens", "fix-plan.md");
