@@ -21,7 +21,8 @@ go.mod
 Cargo.toml
 Cargo.lock
 
-# Documentation artifacts
+# Internal planning docs
+featureideas.md
 SCA.md
 review.md
 
@@ -35,11 +36,6 @@ Thumbs.db
 
 # Debug logs
 pi-lens-debug.log
-featureideas.md
-
-# Research/temp docs
-SCA.md
-review.md
 
 # Temp scan outputs
 booboo_*.json
