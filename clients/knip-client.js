@@ -15,7 +15,7 @@ export class KnipClient {
     constructor(verbose = false) {
         this.knipAvailable = null;
         this.log = verbose
-            ? (msg) => console.log(`[knip] ${msg}`)
+            ? (msg) => console.error(`[knip] ${msg}`)
             : () => { };
     }
     /**

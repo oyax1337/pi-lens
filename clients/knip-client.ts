@@ -40,7 +40,7 @@ export class KnipClient {
 
 	constructor(verbose = false) {
 		this.log = verbose
-			? (msg: string) => console.log(`[knip] ${msg}`)
+			? (msg: string) => console.error(`[knip] ${msg}`)
 			: () => {};
 	}
 
@@ -241,7 +241,8 @@ export class KnipClient {
 				unlistedDeps,
 				summary: `Found ${issues.length} issues`,
 			};
-		} catch (err) { void err;
+		} catch (err) {
+			void err;
 			this.log("Failed to parse knip JSON output");
 			return {
 				success: false,

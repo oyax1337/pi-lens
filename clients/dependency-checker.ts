@@ -51,7 +51,7 @@ export class DependencyChecker {
 
 	constructor(verbose = false) {
 		this.log = verbose
-			? (msg: string) => console.log(`[deps] ${msg}`)
+			? (msg: string) => console.error(`[deps] ${msg}`)
 			: () => {};
 	}
 

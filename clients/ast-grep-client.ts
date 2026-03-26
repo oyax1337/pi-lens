@@ -64,7 +64,7 @@ export class AstGrepClient {
 				"rules",
 			);
 		this.log = verbose
-			? (msg: string) => console.log(`[ast-grep] ${msg}`)
+			? (msg: string) => console.error(`[ast-grep] ${msg}`)
 			: () => {};
 		this.ruleManager = new AstGrepRuleManager(this.ruleDir, this.log);
 	}
@@ -211,9 +211,7 @@ message: found
 		return this.groupSimilarFunctions(matches);
 	}
 
-	private groupSimilarFunctions(
-		matches: any[],
-	): Array<{
+	private groupSimilarFunctions(matches: any[]): Array<{
 		pattern: string;
 		functions: Array<{ name: string; file: string; line: number }>;
 	}> {

@@ -1,1 +1,263 @@
-{"issues":[{"file":"clients/subprocess-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[{"name":"clients/subprocess-client.ts"}],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[],"unlisted":[],"unresolved":[]},{"file":"clients/ast-grep-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"RuleDescription","line":17,"col":18,"pos":367},{"name":"AstGrepMatch","line":24,"col":18,"pos":502},{"name":"AstGrepDiagnostic","line":34,"col":18,"pos":688}],"unlisted":[],"unresolved":[]},{"file":"clients/biome-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"BiomeDiagnostic","line":17,"col":18,"pos":408}],"unlisted":[],"unresolved":[]},{"file":"clients/complexity-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"FileComplexity","line":24,"col":18,"pos":738},{"name":"FunctionMetrics","line":45,"col":18,"pos":1510}],"unlisted":[],"unresolved":[]},{"file":"clients/dependency-checker.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"CircularDep","line":18,"col":18,"pos":445},{"name":"DepCheckResult","line":23,"col":18,"pos":529}],"unlisted":[],"unresolved":[]},{"file":"clients/go-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"GoDiagnostic","line":16,"col":18,"pos":370}],"unlisted":[],"unresolved":[]},{"file":"clients/jscpd-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"DuplicateClone","line":18,"col":18,"pos":445},{"name":"JscpdResult","line":27,"col":18,"pos":581}],"unlisted":[],"unresolved":[]},{"file":"clients/knip-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"KnipIssue","line":17,"col":18,"pos":377},{"name":"KnipResult","line":25,"col":18,"pos":555}],"unlisted":[],"unresolved":[]},{"file":"clients/metrics-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"FileMetrics","line":21,"col":18,"pos":617},{"name":"TDREntry","line":32,"col":18,"pos":998},{"name":"SessionMetrics","line":38,"col":18,"pos":1105}],"unlisted":[],"unresolved":[]},{"file":"clients/ruff-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"RuffDiagnostic","line":17,"col":18,"pos":366}],"unlisted":[],"unresolved":[]},{"file":"clients/rust-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"RustDiagnostic","line":16,"col":18,"pos":333}],"unlisted":[],"unresolved":[]},{"file":"clients/test-runner-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"TestResult","line":19,"col":18,"pos":480},{"name":"TestFailure","line":31,"col":18,"pos":798}],"unlisted":[],"unresolved":[]},{"file":"clients/todo-scanner.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"TodoItem","line":15,"col":18,"pos":342},{"name":"TodoScanResult","line":23,"col":18,"pos":512}],"unlisted":[],"unresolved":[]},{"file":"clients/type-coverage-client.ts","binaries":[],"catalog":[],"dependencies":[],"devDependencies":[],"duplicates":[],"enumMembers":[],"exports":[],"files":[],"namespaceMembers":[],"optionalPeerDependencies":[],"types":[{"name":"TypeCoverageResult","line":17,"col":18,"pos":466},{"name":"UntypedLocation","line":25,"col":18,"pos":617}],"unlisted":[],"unresolved":[]}]}
+{
+	"issues": [
+		{
+			"file": "clients/subprocess-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [{ "name": "clients/subprocess-client.ts" }],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/ast-grep-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "RuleDescription", "line": 17, "col": 18, "pos": 367 },
+				{ "name": "AstGrepMatch", "line": 24, "col": 18, "pos": 502 },
+				{ "name": "AstGrepDiagnostic", "line": 34, "col": 18, "pos": 688 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/biome-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "BiomeDiagnostic", "line": 17, "col": 18, "pos": 408 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/complexity-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "FileComplexity", "line": 24, "col": 18, "pos": 738 },
+				{ "name": "FunctionMetrics", "line": 45, "col": 18, "pos": 1510 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/dependency-checker.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "CircularDep", "line": 18, "col": 18, "pos": 445 },
+				{ "name": "DepCheckResult", "line": 23, "col": 18, "pos": 529 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/go-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [{ "name": "GoDiagnostic", "line": 16, "col": 18, "pos": 370 }],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/jscpd-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "DuplicateClone", "line": 18, "col": 18, "pos": 445 },
+				{ "name": "JscpdResult", "line": 27, "col": 18, "pos": 581 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/knip-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "KnipIssue", "line": 17, "col": 18, "pos": 377 },
+				{ "name": "KnipResult", "line": 25, "col": 18, "pos": 555 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/metrics-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "FileMetrics", "line": 21, "col": 18, "pos": 617 },
+				{ "name": "TDREntry", "line": 32, "col": 18, "pos": 998 },
+				{ "name": "SessionMetrics", "line": 38, "col": 18, "pos": 1105 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/ruff-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "RuffDiagnostic", "line": 17, "col": 18, "pos": 366 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/rust-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "RustDiagnostic", "line": 16, "col": 18, "pos": 333 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/test-runner-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "TestResult", "line": 19, "col": 18, "pos": 480 },
+				{ "name": "TestFailure", "line": 31, "col": 18, "pos": 798 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/todo-scanner.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "TodoItem", "line": 15, "col": 18, "pos": 342 },
+				{ "name": "TodoScanResult", "line": 23, "col": 18, "pos": 512 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		},
+		{
+			"file": "clients/type-coverage-client.ts",
+			"binaries": [],
+			"catalog": [],
+			"dependencies": [],
+			"devDependencies": [],
+			"duplicates": [],
+			"enumMembers": [],
+			"exports": [],
+			"files": [],
+			"namespaceMembers": [],
+			"optionalPeerDependencies": [],
+			"types": [
+				{ "name": "TypeCoverageResult", "line": 17, "col": 18, "pos": 466 },
+				{ "name": "UntypedLocation", "line": 25, "col": 18, "pos": 617 }
+			],
+			"unlisted": [],
+			"unresolved": []
+		}
+	]
+}

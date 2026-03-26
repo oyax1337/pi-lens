@@ -61,7 +61,7 @@ export class MetricsClient {
 
 	constructor(verbose = false) {
 		this.log = verbose
-			? (msg: string) => console.log(`[metrics] ${msg}`)
+			? (msg: string) => console.error(`[metrics] ${msg}`)
 			: () => {};
 	}
 
@@ -77,7 +77,7 @@ export class MetricsClient {
 		const entropy = this.calculateEntropy(content);
 		this.fileBaselines.set(absolutePath, { content, entropy, tdr: initialTdr });
 		this.fileSessionWrites.set(absolutePath, 0);
-		
+
 		this.log(
 			`Baseline recorded: ${path.basename(filePath)} (entropy: ${entropy.toFixed(2)}, tdr: ${initialTdr})`,
 		);
@@ -294,7 +294,9 @@ export class MetricsClient {
 				delta !== 0
 					? ` (${delta > 0 ? "+" : ""}${delta.toFixed(1)} this session)`
 					: "";
-			parts.push(`[TDR Index] Total Debt: ${totalTdrCurrent.toFixed(1)}${deltaStr}`);
+			parts.push(
+				`[TDR Index] Total Debt: ${totalTdrCurrent.toFixed(1)}${deltaStr}`,
+			);
 		}
 
 		// AI Code Ratio

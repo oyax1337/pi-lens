@@ -38,7 +38,7 @@ export abstract class SubprocessClient<T extends Diagnostic> {
 	constructor(verbose = false) {
 		this.toolName = this.getToolName();
 		this.log = verbose
-			? (msg: string) => console.log(`[${this.toolName}] ${msg}`)
+			? (msg: string) => console.error(`[${this.toolName}] ${msg}`)
 			: () => {};
 	}
 
@@ -84,7 +84,8 @@ export abstract class SubprocessClient<T extends Diagnostic> {
 			} else {
 				this.log(`${this.toolName} not available`);
 			}
-		} catch (err) { void err;
+		} catch (err) {
+			void err;
 			this.available = false;
 		}
 

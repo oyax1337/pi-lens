@@ -15,7 +15,7 @@ export class RuffClient {
     constructor(verbose = false) {
         this.ruffAvailable = null;
         this.log = verbose
-            ? (msg) => console.log(`[ruff] ${msg}`)
+            ? (msg) => console.error(`[ruff] ${msg}`)
             : () => { };
     }
     /**

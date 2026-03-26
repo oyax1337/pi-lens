@@ -203,7 +203,7 @@ export class TestRunnerClient {
 
 	constructor(verbose = false) {
 		this.log = verbose
-			? (msg: string) => console.log(`[test-runner] ${msg}`)
+			? (msg: string) => console.error(`[test-runner] ${msg}`)
 			: () => {};
 	}
 
@@ -300,7 +300,6 @@ export class TestRunnerClient {
 			}
 		}
 
-
 		// Priority 5: Check if pytest is available globally (for Python)
 		try {
 			const whichCmd = process.platform === "win32" ? "where" : "which";
@@ -360,7 +359,9 @@ export class TestRunnerClient {
 				const match = files.find(
 					(f) =>
 						f === pattern ||
-						(f.startsWith("test_") && f.endsWith(".py") && f.includes(basename)),
+						(f.startsWith("test_") &&
+							f.endsWith(".py") &&
+							f.includes(basename)),
 				);
 				if (match) {
 					const testPath = path.join(searchDir, match);
@@ -544,7 +545,8 @@ export class TestRunnerClient {
 				failures,
 				duration: 0, // Vitest JSON doesn't include duration in this format
 			};
-		} catch (err) { void err;
+		} catch (err) {
+			void err;
 			// If JSON parsing fails, check for basic pass/fail indicators
 			const failed = stdout.includes("FAIL") || stderr.includes("FAIL");
 			return this.emptyResult(
@@ -616,7 +618,8 @@ export class TestRunnerClient {
 				failures,
 				duration: 0,
 			};
-		} catch (err) { void err;
+		} catch (err) {
+			void err;
 			const failed = stdout.includes("FAIL") || stderr.includes("FAIL");
 			return this.emptyResult(
 				testFile,

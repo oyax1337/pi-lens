@@ -39,7 +39,7 @@ export class JscpdClient {
 	private log: (msg: string) => void;
 
 	constructor(verbose = false) {
-		this.log = verbose ? (msg) => console.log(`[jscpd] ${msg}`) : () => {};
+		this.log = verbose ? (msg) => console.error(`[jscpd] ${msg}`) : () => {};
 	}
 
 	isAvailable(): boolean {
@@ -170,7 +170,8 @@ export class JscpdClient {
 			}));
 
 			return { success: true, clones, duplicatedLines, totalLines, percentage };
-		} catch (err) { void err;
+		} catch (err) {
+			void err;
 			return {
 				success: false,
 				clones: [],

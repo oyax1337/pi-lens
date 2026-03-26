@@ -15,7 +15,7 @@ export class BiomeClient {
     constructor(verbose = false) {
         this.biomeAvailable = null;
         this.log = verbose
-            ? (msg) => console.log(`[biome] ${msg}`)
+            ? (msg) => console.error(`[biome] ${msg}`)
             : () => { };
     }
     /**

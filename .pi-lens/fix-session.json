@@ -1,0 +1,10 @@
+{
+  "iteration": 1,
+  "counts": {
+    "duplicates": 40,
+    "dead_code": 0,
+    "agent_ast": 244,
+    "biome_lint": 0,
+    "slop_files": 9
+  }
+}

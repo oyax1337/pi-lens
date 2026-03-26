@@ -20,7 +20,7 @@ export class AstGrepClient {
             ruleDir ||
                 path.join(typeof __dirname !== "undefined" ? __dirname : ".", "..", "rules");
         this.log = verbose
-            ? (msg) => console.log(`[ast-grep] ${msg}`)
+            ? (msg) => console.error(`[ast-grep] ${msg}`)
             : () => { };
         this.ruleManager = new AstGrepRuleManager(this.ruleDir, this.log);
     }

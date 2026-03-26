@@ -64,7 +64,7 @@ export class RustClient {
 
 	constructor(verbose = false) {
 		this.log = verbose
-			? (msg: string) => console.log(`[rust] ${msg}`)
+			? (msg: string) => console.error(`[rust] ${msg}`)
 			: () => {};
 	}
 

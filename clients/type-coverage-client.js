@@ -15,7 +15,7 @@ export class TypeCoverageClient {
     constructor(verbose = false) {
         this.available = null;
         this.log = verbose
-            ? (msg) => console.log(`[type-coverage] ${msg}`)
+            ? (msg) => console.error(`[type-coverage] ${msg}`)
             : () => { };
     }
     isAvailable() {

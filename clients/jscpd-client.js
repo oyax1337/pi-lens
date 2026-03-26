@@ -15,7 +15,7 @@ import * as path from "node:path";
 export class JscpdClient {
     constructor(verbose = false) {
         this.available = null;
-        this.log = verbose ? (msg) => console.log(`[jscpd] ${msg}`) : () => { };
+        this.log = verbose ? (msg) => console.error(`[jscpd] ${msg}`) : () => { };
     }
     isAvailable() {
         if (this.available !== null)

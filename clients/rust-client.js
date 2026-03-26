@@ -27,7 +27,7 @@ export class RustClient {
         this.cargoAvailable = null;
         this.cargoPath = null;
         this.log = verbose
-            ? (msg) => console.log(`[rust] ${msg}`)
+            ? (msg) => console.error(`[rust] ${msg}`)
             : () => { };
     }
     /**

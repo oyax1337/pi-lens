@@ -54,7 +54,7 @@ function dbg(msg) {
 let _verbose = false;
 function log(msg) {
     if (_verbose)
-        console.log(`[pi-lens] ${msg}`);
+        console.error(`[pi-lens] ${msg}`);
 }
 // --- Extension ---
 export default function (pi) {
@@ -569,6 +569,10 @@ export default function (pi) {
             type: "skip",
             note: "Renaming requires understanding all variable scopes.",
         },
+        "raw-strings": {
+            type: "skip",
+            note: "CLI/tooling codebases have unavoidable raw string args — too noisy to enforce.",
+        },
     };
     pi.registerCommand("lens-booboo-fix", {
         description: "Iterative fix loop: auto-fixes Biome/Ruff, then generates a per-issue plan for agent to execute. Run repeatedly until clean. Usage: /lens-booboo-fix [path]",
@@ -579,6 +583,9 @@ export default function (pi) {
             const configPath = path.join(typeof __dirname !== "undefined" ? __dirname : ".", "rules", "ast-grep-rules", ".sgconfig.yml");
             ctx.ui.notify("🔧 Running booboo fix loop...", "info");
             const MAX_ITERATIONS = 3;
+            // Detect TypeScript project — exclude compiled .js output from scans
+            const isTsProject = fs.existsSync(path.join(targetPath, "tsconfig.json"));
+            dbg(`booboo-fix: isTsProject=${isTsProject}`);
             // Load session state
             let session = {
                 iteration: 0,
@@ -612,8 +619,11 @@ export default function (pi) {
             const dupClones = [];
             if (jscpdClient.isAvailable()) {
                 const jscpdResult = jscpdClient.scan(targetPath);
-                dupClones.push(...jscpdResult.clones);
-                dbg(`booboo-fix jscpd: ${dupClones.length} clone(s)`);
+                const clones = isTsProject
+                    ? jscpdResult.clones.filter((c) => !c.fileA.endsWith(".js") && !c.fileB.endsWith(".js"))
+                    : jscpdResult.clones;
+                dupClones.push(...clones);
+                dbg(`booboo-fix jscpd: ${dupClones.length} clone(s) (ts-only: ${isTsProject})`);
             }
             const deadCodeIssues = [];
             if (knipClient.isAvailable()) {
@@ -637,6 +647,7 @@ export default function (pi) {
                     "!**/test-utils.ts",
                     "--globs",
                     "!**/.pi-lens/**",
+                    ...(isTsProject ? ["--globs", "!**/*.js"] : []),
                     targetPath,
                 ], {
                     encoding: "utf-8",
@@ -701,7 +712,8 @@ export default function (pi) {
                         slopScanDir(fullPath);
                     }
                     else if (complexityClient.isSupportedFile(fullPath) &&
-                        !/\.(test|spec)\.[jt]sx?$/.test(entry.name)) {
+                        !/\.(test|spec)\.[jt]sx?$/.test(entry.name) &&
+                        !(isTsProject && /\.js$/.test(entry.name))) {
                         const metrics = complexityClient.analyzeFile(fullPath);
                         if (metrics) {
                             const warnings = complexityClient
@@ -817,8 +829,12 @@ export default function (pi) {
                 lines.push(`## 🔁 Duplicate code [${dupClones.length} block(s)] — fix first`);
                 lines.push("→ Extract duplicated blocks into shared utilities before fixing violations in them.");
                 for (const clone of dupClones.slice(0, 10)) {
-                    const relA = path.relative(targetPath, clone.fileA).replace(/\\/g, "/");
-                    const relB = path.relative(targetPath, clone.fileB).replace(/\\/g, "/");
+                    const relA = path
+                        .relative(targetPath, clone.fileA)
+                        .replace(/\\/g, "/");
+                    const relB = path
+                        .relative(targetPath, clone.fileB)
+                        .replace(/\\/g, "/");
                     lines.push(`  - ${clone.lines} lines: \`${relA}:${clone.startA}\` ↔ \`${relB}:${clone.startB}\``);
                 }
                 if (dupClones.length > 10)

@@ -81,7 +81,8 @@ function loadCompilerOptions(tsconfigPath: string): ts.CompilerOptions {
 		if (parsed.errors.length) return DEFAULT_COMPILER_OPTIONS;
 		// Always set skipLibCheck to avoid noise from node_modules
 		return { ...parsed.options, skipLibCheck: true };
-	} catch (err) { void err;
+	} catch (err) {
+		void err;
 		return DEFAULT_COMPILER_OPTIONS;
 	}
 }
@@ -306,28 +307,33 @@ export class TypeScriptClient {
 	}
 
 	/**
+	 * Shared preamble for position-based LSP queries.
+	 * Returns null if prerequisites are not met.
+	 */
+	private resolvePosition(
+		filePath: string,
+		line: number,
+		character: number,
+	): { normalized: string; position: number; ls: import("typescript").LanguageService } | null {
+		const normalized = this.normalizePath(filePath);
+		this.ensureFile(filePath);
+		if (!this.languageService) return null;
+		const content = this.fileContents.get(normalized);
+		if (!content) return null;
+		return { normalized, position: this.lineCharToPosition(content, line, character), ls: this.languageService };
+	}
+
+	/**
 	 * Go to definition
 	 */
 	getDefinition(filePath: string, line: number, character: number): Location[] {
-		const normalized = this.normalizePath(filePath);
-		this.ensureFile(filePath);
-		if (!this.languageService) return [];
-
-		const content = this.fileContents.get(normalized);
-		if (!content) return [];
-
-		const position = this.lineCharToPosition(content, line, character);
-		const definitions = this.languageService.getDefinitionAtPosition(
-			normalized,
-			position,
-		);
+		const resolved = this.resolvePosition(filePath, line, character);
+		if (!resolved) return [];
+		const { normalized, position, ls } = resolved;
+		const definitions = ls.getDefinitionAtPosition(normalized, position);
 		if (!definitions) return [];
 
 		return definitions.map((def) => {
-			const _pos = def.fileName
-				? { line: 0, character: 0 }
-				: { line: 0, character: 0 };
-			// For file-based definitions, we need to get line/char from the span
 			if (def.textSpan) {
 				const defFile = def.fileName || normalized;
 				const defContent = this.fileContents.get(defFile) || "";
@@ -347,54 +353,25 @@ export class TypeScriptClient {
 	/**
 	 * Get type definition
 	 */
-	getTypeDefinition(
-		filePath: string,
-		line: number,
-		character: number,
-	): Location[] {
-		const normalized = this.normalizePath(filePath);
-		this.ensureFile(filePath);
-		if (!this.languageService) return [];
-
-		const content = this.fileContents.get(normalized);
-		if (!content) return [];
-
-		const position = this.lineCharToPosition(content, line, character);
-		const defs = this.languageService.getTypeDefinitionAtPosition(
-			normalized,
-			position,
-		);
+	getTypeDefinition(filePath: string, line: number, character: number): Location[] {
+		const resolved = this.resolvePosition(filePath, line, character);
+		if (!resolved) return [];
+		const { normalized, position, ls } = resolved;
+		const defs = ls.getTypeDefinitionAtPosition(normalized, position);
 		if (!defs) return [];
-
-		return defs.map((def) => {
-			const defFile = def.fileName || normalized;
-			return { file: defFile, line: 0, character: 0 };
-		});
+		return defs.map((def) => ({ file: def.fileName || normalized, line: 0, character: 0 }));
 	}
 
 	/**
 	 * Find references
 	 */
 	getReferences(filePath: string, line: number, character: number): Location[] {
-		const normalized = this.normalizePath(filePath);
-		this.ensureFile(filePath);
-		if (!this.languageService) return [];
-
-		const content = this.fileContents.get(normalized);
-		if (!content) return [];
-
-		const position = this.lineCharToPosition(content, line, character);
-		const references = this.languageService.getReferencesAtPosition(
-			normalized,
-			position,
-		);
+		const resolved = this.resolvePosition(filePath, line, character);
+		if (!resolved) return [];
+		const { normalized, position, ls } = resolved;
+		const references = ls.getReferencesAtPosition(normalized, position);
 		if (!references) return [];
-
-		return references.map((ref) => ({
-			file: ref.fileName,
-			line: 0,
-			character: 0,
-		}));
+		return references.map((ref) => ({ file: ref.fileName, line: 0, character: 0 }));
 	}
 
 	/**
@@ -433,26 +410,12 @@ export class TypeScriptClient {
 	/**
 	 * Get completions at a position
 	 */
-	getCompletions(
-		filePath: string,
-		line: number,
-		character: number,
-	): CompletionItem[] {
-		const normalized = this.normalizePath(filePath);
-		this.ensureFile(filePath);
-		if (!this.languageService) return [];
-
-		const content = this.fileContents.get(normalized);
-		if (!content) return [];
-
-		const position = this.lineCharToPosition(content, line, character);
-		const completions = this.languageService.getCompletionsAtPosition(
-			normalized,
-			position,
-			{},
-		);
+	getCompletions(filePath: string, line: number, character: number): CompletionItem[] {
+		const resolved = this.resolvePosition(filePath, line, character);
+		if (!resolved) return [];
+		const { normalized, position, ls } = resolved;
+		const completions = ls.getCompletionsAtPosition(normalized, position, {});
 		if (!completions) return [];
-
 		return completions.entries.slice(0, 50).map((entry) => ({
 			name: entry.name,
 			kind: this.completionKind(entry.kind),
@@ -463,30 +426,13 @@ export class TypeScriptClient {
 	/**
 	 * Go to implementation
 	 */
-	getImplementation(
-		filePath: string,
-		line: number,
-		character: number,
-	): Location[] {
-		const normalized = this.normalizePath(filePath);
-		this.ensureFile(filePath);
-		if (!this.languageService) return [];
-
-		const content = this.fileContents.get(normalized);
-		if (!content) return [];
-
-		const position = this.lineCharToPosition(content, line, character);
-		const implementations = this.languageService.getImplementationAtPosition(
-			normalized,
-			position,
-		);
+	getImplementation(filePath: string, line: number, character: number): Location[] {
+		const resolved = this.resolvePosition(filePath, line, character);
+		if (!resolved) return [];
+		const { normalized, position, ls } = resolved;
+		const implementations = ls.getImplementationAtPosition(normalized, position);
 		if (!implementations) return [];
-
-		return implementations.map((impl) => ({
-			file: impl.fileName,
-			line: 0,
-			character: 0,
-		}));
+		return implementations.map((impl) => ({ file: impl.fileName, line: 0, character: 0 }));
 	}
 
 	/**

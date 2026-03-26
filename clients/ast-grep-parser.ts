@@ -120,9 +120,7 @@ export class AstGrepParser {
 			column: start.column,
 			endLine: end.line + 1,
 			endColumn: end.column,
-			severity: this.mapSeverity(
-				item.severity || item.Severity || "warning",
-			),
+			severity: this.mapSeverity(item.severity || item.Severity || "warning"),
 			message: item.Message?.text || item.message || "Unknown issue",
 			rule: ruleId,
 			ruleDescription: this.getRuleDescription(ruleId),

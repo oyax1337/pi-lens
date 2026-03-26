@@ -21,7 +21,7 @@ export class SubprocessClient {
         this.available = null;
         this.toolName = this.getToolName();
         this.log = verbose
-            ? (msg) => console.log(`[${this.toolName}] ${msg}`)
+            ? (msg) => console.error(`[${this.toolName}] ${msg}`)
             : () => { };
     }
     /**

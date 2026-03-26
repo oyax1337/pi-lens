@@ -112,7 +112,7 @@ const HALSTEAD_OPERATORS = new Set([
 export class ComplexityClient {
     constructor(verbose = false) {
         this.log = verbose
-            ? (msg) => console.log(`[complexity] ${msg}`)
+            ? (msg) => console.error(`[complexity] ${msg}`)
             : () => { };
     }
     /**

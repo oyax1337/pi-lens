@@ -155,7 +155,7 @@ export class ComplexityClient {
 
 	constructor(verbose = false) {
 		this.log = verbose
-			? (msg: string) => console.log(`[complexity] ${msg}`)
+			? (msg: string) => console.error(`[complexity] ${msg}`)
 			: () => {};
 	}
 

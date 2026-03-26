@@ -58,7 +58,7 @@ function dbg(msg: string) {
 let _verbose = false;
 
 function log(msg: string) {
-	if (_verbose) console.log(`[pi-lens] ${msg}`);
+	if (_verbose) console.error(`[pi-lens] ${msg}`);
 }
 
 // --- Extension ---
@@ -216,14 +216,16 @@ export default function (pi: ExtensionAPI) {
 							if (trimmed.startsWith("[")) {
 								try {
 									return JSON.parse(trimmed);
-								} catch (err) { void err;
+								} catch (err) {
+									void err;
 									return [];
 								}
 							}
 							return raw.split("\n").flatMap((l: string) => {
 								try {
 									return [JSON.parse(l)];
-								} catch (err) { void err;
+								} catch (err) {
+									void err;
 									return [];
 								}
 							});
@@ -656,6 +658,10 @@ export default function (pi: ExtensionAPI) {
 			type: "skip",
 			note: "Renaming requires understanding all variable scopes.",
 		},
+		"raw-strings": {
+			type: "skip",
+			note: "CLI/tooling codebases have unavoidable raw string args — too noisy to enforce.",
+		},
 	};
 
 	pi.registerCommand("lens-booboo-fix", {
@@ -679,6 +685,10 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify("🔧 Running booboo fix loop...", "info");
 
 			const MAX_ITERATIONS = 3;
+
+			// Detect TypeScript project — exclude compiled .js output from scans
+			const isTsProject = fs.existsSync(path.join(targetPath, "tsconfig.json"));
+			dbg(`booboo-fix: isTsProject=${isTsProject}`);
 
 			// Load session state
 			let session: { iteration: number; counts: Record<string, number> } = {
@@ -728,12 +738,25 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// --- Step 2: Duplicate code (jscpd) ---
-			type JscpdClone = { fileA: string; fileB: string; startA: number; startB: number; lines: number };
+			type JscpdClone = {
+				fileA: string;
+				fileB: string;
+				startA: number;
+				startB: number;
+				lines: number;
+			};
 			const dupClones: JscpdClone[] = [];
 			if (jscpdClient.isAvailable()) {
 				const jscpdResult = jscpdClient.scan(targetPath);
-				dupClones.push(...jscpdResult.clones);
-				dbg(`booboo-fix jscpd: ${dupClones.length} clone(s)`);
+				const clones = isTsProject
+					? jscpdResult.clones.filter(
+							(c) => !c.fileA.endsWith(".js") && !c.fileB.endsWith(".js"),
+						)
+					: jscpdResult.clones;
+				dupClones.push(...clones);
+				dbg(
+					`booboo-fix jscpd: ${dupClones.length} clone(s) (ts-only: ${isTsProject})`,
+				);
 			}
 
 			// --- Step 3: Dead code (knip) ---
@@ -770,6 +793,7 @@ export default function (pi: ExtensionAPI) {
 						"!**/test-utils.ts",
 						"--globs",
 						"!**/.pi-lens/**",
+						...(isTsProject ? ["--globs", "!**/*.js"] : []),
 						targetPath,
 					],
 					{
@@ -840,7 +864,8 @@ export default function (pi: ExtensionAPI) {
 						slopScanDir(fullPath);
 					} else if (
 						complexityClient.isSupportedFile(fullPath) &&
-						!/\.(test|spec)\.[jt]sx?$/.test(entry.name)
+						!/\.(test|spec)\.[jt]sx?$/.test(entry.name) &&
+						!(isTsProject && /\.js$/.test(entry.name))
 					) {
 						const metrics = complexityClient.analyzeFile(fullPath);
 						if (metrics) {
@@ -976,25 +1001,43 @@ export default function (pi: ExtensionAPI) {
 
 			// Duplicate code — fix first
 			if (dupClones.length > 0) {
-				lines.push(`## 🔁 Duplicate code [${dupClones.length} block(s)] — fix first`);
-				lines.push("→ Extract duplicated blocks into shared utilities before fixing violations in them.");
+				lines.push(
+					`## 🔁 Duplicate code [${dupClones.length} block(s)] — fix first`,
+				);
+				lines.push(
+					"→ Extract duplicated blocks into shared utilities before fixing violations in them.",
+				);
 				for (const clone of dupClones.slice(0, 10)) {
-					const relA = path.relative(targetPath, clone.fileA).replace(/\\/g, "/");
-					const relB = path.relative(targetPath, clone.fileB).replace(/\\/g, "/");
-					lines.push(`  - ${clone.lines} lines: \`${relA}:${clone.startA}\` ↔ \`${relB}:${clone.startB}\``);
+					const relA = path
+						.relative(targetPath, clone.fileA)
+						.replace(/\\/g, "/");
+					const relB = path
+						.relative(targetPath, clone.fileB)
+						.replace(/\\/g, "/");
+					lines.push(
+						`  - ${clone.lines} lines: \`${relA}:${clone.startA}\` ↔ \`${relB}:${clone.startB}\``,
+					);
 				}
-				if (dupClones.length > 10) lines.push(`  ... and ${dupClones.length - 10} more`);
+				if (dupClones.length > 10)
+					lines.push(`  ... and ${dupClones.length - 10} more`);
 				lines.push("");
 			}
 
 			// Dead code — delete before fixing violations in it
 			if (deadCodeIssues.length > 0) {
-				lines.push(`## 🗑️ Dead code [${deadCodeIssues.length} item(s)] — delete before fixing violations`);
-				lines.push("→ Remove unused exports/files — no point fixing violations in code you're about to delete.");
+				lines.push(
+					`## 🗑️ Dead code [${deadCodeIssues.length} item(s)] — delete before fixing violations`,
+				);
+				lines.push(
+					"→ Remove unused exports/files — no point fixing violations in code you're about to delete.",
+				);
 				for (const issue of deadCodeIssues.slice(0, 10)) {
-					lines.push(`  - [${issue.type}] \`${issue.name}\`${issue.file ? ` in ${issue.file}` : ""}`);
+					lines.push(
+						`  - [${issue.type}] \`${issue.name}\`${issue.file ? ` in ${issue.file}` : ""}`,
+					);
 				}
-				if (deadCodeIssues.length > 10) lines.push(`  ... and ${deadCodeIssues.length - 10} more`);
+				if (deadCodeIssues.length > 10)
+					lines.push(`  ... and ${deadCodeIssues.length - 10} more`);
 				lines.push("");
 			}
 
@@ -1024,8 +1067,12 @@ export default function (pi: ExtensionAPI) {
 
 			// Remaining Biome lint — couldn't be auto-fixed even with --unsafe
 			if (remainingBiome.length > 0) {
-				lines.push(`## 🟠 Remaining Biome lint [${remainingBiome.length} items]`);
-				lines.push("→ These couldn't be auto-fixed by Biome --unsafe. Fix each one manually:");
+				lines.push(
+					`## 🟠 Remaining Biome lint [${remainingBiome.length} items]`,
+				);
+				lines.push(
+					"→ These couldn't be auto-fixed by Biome --unsafe. Fix each one manually:",
+				);
 				for (const d of remainingBiome.slice(0, 10)) {
 					lines.push(`  - \`${d.file}:${d.line}\` [${d.rule}] ${d.message}`);
 				}
@@ -1658,7 +1705,9 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		dbg(`session_start: scans complete (${parts.length} part(s)), cached for commands`);
+		dbg(
+			`session_start: scans complete (${parts.length} part(s)), cached for commands`,
+		);
 	});
 
 	// --- Pre-write proactive hints ---
@@ -1711,7 +1760,7 @@ export default function (pi: ExtensionAPI) {
 			const initialTdr = baselineDiags
 				.filter((d) => d.ruleDescription?.grade !== undefined)
 				.reduce((acc, d) => acc + (d.ruleDescription?.grade ?? 0), 0);
-			
+
 			metricsClient.recordBaseline(filePath, initialTdr);
 		} else {
 			metricsClient.recordBaseline(filePath);
@@ -2095,7 +2144,8 @@ export default function (pi: ExtensionAPI) {
 				for (const [name, file] of newExports) {
 					cachedExports.set(name, file);
 				}
-			} catch (err) { void err;
+			} catch (err) {
+				void err;
 				// ast-grep not available, skip
 			}
 		}

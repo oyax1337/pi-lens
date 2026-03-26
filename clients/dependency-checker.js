@@ -22,7 +22,7 @@ export class DependencyChecker {
         // Files that are part of a circular dependency
         this.circularFiles = new Set();
         this.log = verbose
-            ? (msg) => console.log(`[deps] ${msg}`)
+            ? (msg) => console.error(`[deps] ${msg}`)
             : () => { };
     }
     /**

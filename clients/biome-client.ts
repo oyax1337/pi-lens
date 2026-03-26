@@ -45,7 +45,7 @@ export class BiomeClient {
 
 	constructor(verbose = false) {
 		this.log = verbose
-			? (msg: string) => console.log(`[biome] ${msg}`)
+			? (msg: string) => console.error(`[biome] ${msg}`)
 			: () => {};
 	}
 
@@ -313,7 +313,8 @@ export class BiomeClient {
 			if (content === formatted) return "";
 
 			return this.computeDiff(content, formatted);
-		} catch (err) { void err;
+		} catch (err) {
+			void err;
 			return "";
 		}
 	}
@@ -368,7 +369,8 @@ export class BiomeClient {
 			}
 
 			return diagnostics;
-		} catch (err) { void err;
+		} catch (err) {
+			void err;
 			this.log("Failed to parse biome JSON output");
 			return [];
 		}

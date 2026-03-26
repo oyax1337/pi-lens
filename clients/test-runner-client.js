@@ -160,7 +160,7 @@ export class TestRunnerClient {
     constructor(verbose = false) {
         this.availableRunners = new Map();
         this.log = verbose
-            ? (msg) => console.log(`[test-runner] ${msg}`)
+            ? (msg) => console.error(`[test-runner] ${msg}`)
             : () => { };
     }
     /**
@@ -297,7 +297,9 @@ export class TestRunnerClient {
                     continue;
                 }
                 const match = files.find((f) => f === pattern ||
-                    (f.startsWith("test_") && f.endsWith(".py") && f.includes(basename)));
+                    (f.startsWith("test_") &&
+                        f.endsWith(".py") &&
+                        f.includes(basename)));
                 if (match) {
                     const testPath = path.join(searchDir, match);
                     this.log(`Found test file: ${testPath}`);

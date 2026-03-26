@@ -21,7 +21,7 @@ export class MetricsClient {
         this.fileSessionWrites = new Map(); // agent-written lines
         this.tdrFindings = new Map();
         this.log = verbose
-            ? (msg) => console.log(`[metrics] ${msg}`)
+            ? (msg) => console.error(`[metrics] ${msg}`)
             : () => { };
     }
     /**

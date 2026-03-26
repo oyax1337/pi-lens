@@ -44,7 +44,7 @@ export class RuffClient {
 
 	constructor(verbose = false) {
 		this.log = verbose
-			? (msg: string) => console.log(`[ruff] ${msg}`)
+			? (msg: string) => console.error(`[ruff] ${msg}`)
 			: () => {};
 	}
 
@@ -64,7 +64,8 @@ export class RuffClient {
 			if (this.ruffAvailable) {
 				this.log(`Ruff found: ${result.stdout.trim()}`);
 			}
-		} catch (err) { void err;
+		} catch (err) {
+			void err;
 			this.ruffAvailable = false;
 		}
 
@@ -147,7 +148,10 @@ export class RuffClient {
 				.split("\n")
 				.filter((l) => l.startsWith("+") || l.startsWith("-")).length;
 			return `[Ruff Format] ${diffLines} line(s) would change — run 'ruff format ${path.basename(filePath)}' to fix`;
-		} catch (err) { void err; return ""; } // Intentionally return empty string on diff failure
+		} catch (err) {
+			void err;
+			return "";
+		} // Intentionally return empty string on diff failure
 	}
 
 	/**
@@ -316,7 +320,8 @@ export class RuffClient {
 			}
 
 			return diagnostics;
-		} catch (err) { void err;
+		} catch (err) {
+			void err;
 			this.log("Failed to parse ruff JSON output");
 			return [];
 		}
