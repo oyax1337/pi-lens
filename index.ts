@@ -31,6 +31,10 @@ import { Type } from "@sinclair/typebox";
 import { AstGrepClient } from "./clients/ast-grep-client.js";
 import { BiomeClient } from "./clients/biome-client.js";
 import { ComplexityClient } from "./clients/complexity-client.js";
+import {
+	TypeSafetyClient,
+	getTypeSafetyClient,
+} from "./clients/type-safety-client.js";
 import { DependencyChecker } from "./clients/dependency-checker.js";
 import { GoClient } from "./clients/go-client.js";
 import { JscpdClient } from "./clients/jscpd-client.js";
@@ -78,6 +82,7 @@ export default function (pi: ExtensionAPI) {
 	const testRunnerClient = new TestRunnerClient();
 	const metricsClient = new MetricsClient();
 	const complexityClient = new ComplexityClient();
+	const typeSafetyClient = new TypeSafetyClient();
 	const goClient = new GoClient();
 	const rustClient = new RustClient();
 
@@ -681,6 +686,10 @@ export default function (pi: ExtensionAPI) {
 		"no-architecture-violation": {
 			type: "skip",
 			note: "Layer boundary violations require architectural decisions.",
+		},
+		"switch-exhaustiveness": {
+			type: "agent",
+			note: "Add the missing case(s) or a default clause to handle all union values.",
 		},
 	};
 
@@ -2021,6 +2030,28 @@ export default function (pi: ExtensionAPI) {
 				if (fmtReport) lspOutput += `\n\n${fmtReport}`;
 				if (fixable.length > 0 || hasFormatIssues) {
 					lspOutput += `\n  → Enable --autofix-ruff to auto-fix ${fixable.length} of these on every write`;
+				}
+			}
+		}
+
+		// Type safety checks (switch exhaustiveness, etc.)
+		if (typeSafetyClient.isSupportedFile(filePath)) {
+			const report = typeSafetyClient.analyzeFile(filePath);
+			if (report && report.issues.length > 0) {
+				const errors = report.issues.filter((i) => i.severity === "error");
+				const warnings = report.issues.filter((i) => i.severity === "warning");
+				if (errors.length > 0) {
+					lspOutput += `\n\n🔴 STOP — ${errors.length} type safety violation(s). Fix before continuing:\n`;
+					for (const issue of errors) {
+						lspOutput += `  L${issue.line}: ${issue.message}\n`;
+						lspOutput += `    → Add missing cases or add a default clause\n`;
+					}
+				}
+				if (warnings.length > 0) {
+					lspOutput += `\n\n🟡 ${warnings.length} type safety warning(s):\n`;
+					for (const issue of warnings) {
+						lspOutput += `  L${issue.line}: ${issue.message}\n`;
+					}
 				}
 			}
 		}
