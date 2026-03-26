@@ -569,10 +569,6 @@ export default function (pi) {
             type: "skip",
             note: "Renaming requires understanding all variable scopes.",
         },
-        "raw-strings": {
-            type: "skip",
-            note: "CLI/tooling codebases have unavoidable raw string args — too noisy to enforce.",
-        },
     };
     pi.registerCommand("lens-booboo-fix", {
         description: "Iterative fix loop: auto-fixes Biome/Ruff, then generates a per-issue plan for agent to execute. Run repeatedly until clean. Usage: /lens-booboo-fix [path]",
