@@ -26,6 +26,8 @@ export interface FileMetrics {
 	entropyStart: number; // Shannon entropy at first touch
 	entropyCurrent: number; // Current Shannon entropy
 	entropyDelta: number; // Change in entropy
+	tdrStart: number; // New field
+	tdrCurrent: number; // New field
 	tdrContributors: TDREntry[];
 }
 
@@ -50,8 +52,10 @@ export interface SessionMetrics {
 
 export class MetricsClient {
 	private log: (msg: string) => void;
-	private fileBaselines: Map<string, { content: string; entropy: number }> =
-		new Map();
+	private fileBaselines: Map<
+		string,
+		{ content: string; entropy: number; tdr: number }
+	> = new Map();
 	private fileSessionWrites: Map<string, number> = new Map(); // agent-written lines
 	private tdrFindings: Map<string, TDREntry[]> = new Map();
 
@@ -64,17 +68,18 @@ export class MetricsClient {
 	/**
 	 * Record initial state of a file when first touched this session
 	 */
-	recordBaseline(filePath: string): void {
+	recordBaseline(filePath: string, initialTdr = 0): void {
 		const absolutePath = path.resolve(filePath);
 		if (!fs.existsSync(absolutePath)) return;
 		if (this.fileBaselines.has(absolutePath)) return; // Already recorded
 
 		const content = fs.readFileSync(absolutePath, "utf-8");
 		const entropy = this.calculateEntropy(content);
-		this.fileBaselines.set(absolutePath, { content, entropy });
+		this.fileBaselines.set(absolutePath, { content, entropy, tdr: initialTdr });
 		this.fileSessionWrites.set(absolutePath, 0);
+		
 		this.log(
-			`Baseline recorded: ${path.basename(filePath)} (entropy: ${entropy.toFixed(2)})`,
+			`Baseline recorded: ${path.basename(filePath)} (entropy: ${entropy.toFixed(2)}, tdr: ${initialTdr})`,
 		);
 	}
 
@@ -138,17 +143,12 @@ export class MetricsClient {
 		const currentContent = fs.readFileSync(absolutePath, "utf-8");
 		const totalLines = currentContent.split("\n").length;
 		const agentLines = this.fileSessionWrites.get(absolutePath) || 0;
-		const baselineLines = baseline.content.split("\n").length;
-
-		// Pre-existing lines = lines that weren't touched by agent
-		// (simplified: baseline - deleted + not-added-by-agent)
-		const _preExistingLines = Math.max(
-			0,
-			baselineLines - Math.max(0, agentLines - (totalLines - baselineLines)),
-		);
 
 		const entropyCurrent = this.calculateEntropy(currentContent);
 		const entropyDelta = entropyCurrent - baseline.entropy;
+
+		const currentTdrFindings = this.tdrFindings.get(absolutePath) || [];
+		const tdrCurrent = currentTdrFindings.reduce((a, b) => a + b.count, 0);
 
 		return {
 			filePath: path.relative(process.cwd(), absolutePath),
@@ -158,7 +158,9 @@ export class MetricsClient {
 			entropyStart: baseline.entropy,
 			entropyCurrent,
 			entropyDelta,
-			tdrContributors: [], // Populated by session summary scan
+			tdrStart: baseline.tdr,
+			tdrCurrent,
+			tdrContributors: currentTdrFindings,
 		};
 	}
 
@@ -268,18 +270,31 @@ export class MetricsClient {
 	formatSessionSummary(): string {
 		const aiRatio = this.getAICodeRatio();
 		const entropyDeltas = this.getEntropyDeltas();
-		const tdrScore = this.getTDRScore();
 		const fileCount = this.fileSessionWrites.size;
 
 		if (fileCount === 0) return ""; // No files touched
 
 		const parts: string[] = [];
 
+		// Aggregate TDR from details
+		let totalTdrCurrent = 0;
+		let totalTdrStart = 0;
+		for (const path of this.fileSessionWrites.keys()) {
+			const m = this.getFileMetrics(path);
+			if (m) {
+				totalTdrCurrent += m.tdrCurrent;
+				totalTdrStart += m.tdrStart;
+			}
+		}
+
 		// Technical Debt Index
-		if (tdrScore > 0) {
-			parts.push(
-				`[TDR Index] Total Debt: ${tdrScore.toFixed(1)} (based on architectural rule grades)`,
-			);
+		if (totalTdrCurrent > 0 || totalTdrStart > 0) {
+			const delta = totalTdrCurrent - totalTdrStart;
+			const deltaStr =
+				delta !== 0
+					? ` (${delta > 0 ? "+" : ""}${delta.toFixed(1)} this session)`
+					: "";
+			parts.push(`[TDR Index] Total Debt: ${totalTdrCurrent.toFixed(1)}${deltaStr}`);
 		}
 
 		// AI Code Ratio

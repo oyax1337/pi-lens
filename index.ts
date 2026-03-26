@@ -388,18 +388,17 @@ export default function (pi: ExtensionAPI) {
 
 				for (const entry of entries) {
 					const fullPath = path.join(dir, entry.name);
-					if (entry.isDirectory()) {
-						if (
-							[
-								"node_modules",
-								".git",
-								"dist",
-								"build",
-								".next",
-								".pi-lens",
-							].includes(entry.name)
-						)
-							continue;
+					if (
+						entry.isDirectory() &&
+						![
+							"node_modules",
+							".git",
+							"dist",
+							"build",
+							".next",
+							".pi-lens",
+						].includes(entry.name)
+					) {
 						scanDir(fullPath);
 					} else if (complexityClient.isSupportedFile(fullPath)) {
 						const metrics = complexityClient.analyzeFile(fullPath);
@@ -1127,18 +1126,17 @@ export default function (pi: ExtensionAPI) {
 
 				for (const entry of entries) {
 					const fullPath = path.join(dir, entry.name);
-					if (entry.isDirectory()) {
-						if (
-							[
-								"node_modules",
-								".git",
-								"dist",
-								"build",
-								".next",
-								".pi-lens",
-							].includes(entry.name)
-						)
-							continue;
+					if (
+						entry.isDirectory() &&
+						![
+							"node_modules",
+							".git",
+							"dist",
+							"build",
+							".next",
+							".pi-lens",
+						].includes(entry.name)
+					) {
 						scanDir(fullPath);
 					} else if (complexityClient.isSupportedFile(fullPath)) {
 						const metrics = complexityClient.analyzeFile(fullPath);
@@ -1372,13 +1370,12 @@ export default function (pi: ExtensionAPI) {
 
 					for (const entry of entries) {
 						const fullPath = path.join(dir, entry.name);
-						if (entry.isDirectory()) {
-							if (
-								["node_modules", ".git", "dist", "build", ".next"].includes(
-									entry.name,
-								)
+						if (
+							entry.isDirectory() &&
+							!["node_modules", ".git", "dist", "build", ".next"].includes(
+								entry.name,
 							)
-								continue;
+						) {
 							formatDir(fullPath);
 						} else if (/\.(ts|tsx|js|jsx|json|css)$/.test(entry.name)) {
 							const result = biomeClient.formatFile(fullPath);
@@ -1705,9 +1702,6 @@ export default function (pi: ExtensionAPI) {
 		);
 		if (!fs.existsSync(filePath)) return;
 
-		// Record baseline for metrics tracking
-		metricsClient.recordBaseline(filePath);
-
 		// Record complexity baseline for TS/JS files
 		if (
 			complexityClient.isSupportedFile(filePath) &&
@@ -1733,7 +1727,17 @@ export default function (pi: ExtensionAPI) {
 
 		// Snapshot baselines for delta mode (no pre-write hints — delta handles it)
 		if (!pi.getFlag("no-ast-grep") && astGrepClient.isAvailable()) {
-			astGrepBaselines.set(filePath, astGrepClient.scanFile(filePath));
+			const baselineDiags = astGrepClient.scanFile(filePath);
+			astGrepBaselines.set(filePath, baselineDiags);
+
+			// Add to TDR baseline
+			const initialTdr = baselineDiags
+				.filter((d) => d.ruleDescription?.grade !== undefined)
+				.reduce((acc, d) => acc + (d.ruleDescription?.grade ?? 0), 0);
+			
+			metricsClient.recordBaseline(filePath, initialTdr);
+		} else {
+			metricsClient.recordBaseline(filePath);
 		}
 
 		if (
@@ -1995,20 +1999,20 @@ export default function (pi: ExtensionAPI) {
 				} else if (after.length > 0) {
 					lspOutput += `\n\n${biomeClient.formatDiagnostics(after, filePath)}`;
 				}
-			} else {
-				if (newDiags.length > 0) {
-					const fixable = newDiags.filter((d) => d.fixable);
-					lspOutput += `\n\n🟠 You introduced ${newDiags.length} new Biome violation(s) — fix before moving on:\n`;
-					lspOutput += biomeClient.formatDiagnostics(newDiags, filePath);
-					if (fixable.length > 0)
-						lspOutput += `\n  → Auto-fixable: \`npx @biomejs/biome check --write ${path.basename(filePath)}\``;
-				}
+			} else if (newDiags.length > 0) {
+				const fixable = newDiags.filter((d) => d.fixable);
+				lspOutput += `\n\n🟠 You introduced ${newDiags.length} new Biome violation(s) — fix before moving on:\n`;
+				lspOutput += biomeClient.formatDiagnostics(newDiags, filePath);
+				if (fixable.length > 0)
+					lspOutput += `\n  → Auto-fixable: \`npx @biomejs/biome check --write ${path.basename(filePath)}\``;
 				if (fixedRules.length > 0) {
 					lspOutput += `\n\n✅ Biome: fixed ${fixedRules.join(", ")}`;
 				}
-				if (after.length > 0 && newDiags.length > 0) {
+				if (after.length > 0) {
 					lspOutput += `\n  (${after.length} total remaining)`;
 				}
+			} else if (fixedRules.length > 0) {
+				lspOutput += `\n\n✅ Biome: fixed ${fixedRules.join(", ")}`;
 			}
 		}
 
@@ -2161,7 +2165,22 @@ export default function (pi: ExtensionAPI) {
 						const current = complexityClient.analyzeFile(filePath);
 						if (current) {
 							const delta = complexityClient.formatDelta(baseline, current);
-							if (delta) complexityDeltas.push(delta);
+							if (delta) {
+								// Actionable regression alerts
+								const miDelta =
+									current.maintainabilityIndex - baseline.maintainabilityIndex;
+								const cogDelta =
+									current.cognitiveComplexity - baseline.cognitiveComplexity;
+
+								let prefix = "";
+								if (miDelta < -1 || cogDelta > 3) {
+									prefix = "🔴 REGRESSED: ";
+								} else if (miDelta > 1 || cogDelta < -3) {
+									prefix = "🟢 IMPROVED: ";
+								}
+
+								complexityDeltas.push(`${prefix}${delta}`);
+							}
 						}
 					}
 				}
