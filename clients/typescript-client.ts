@@ -279,23 +279,11 @@ export class TypeScriptClient {
 	/**
 	 * Get hover information at a position
 	 */
-	getHover(
-		filePath: string,
-		line: number,
-		character: number,
-	): HoverInfo | null {
-		const normalized = this.normalizePath(filePath);
-		this.ensureFile(filePath);
-		if (!this.languageService) return null;
-
-		const content = this.fileContents.get(normalized);
-		if (!content) return null;
-
-		const position = this.lineCharToPosition(content, line, character);
-		const info = this.languageService.getQuickInfoAtPosition(
-			normalized,
-			position,
-		);
+	getHover(filePath: string, line: number, character: number): HoverInfo | null {
+		const resolved = this.resolvePosition(filePath, line, character);
+		if (!resolved) return null;
+		const { normalized, position, ls } = resolved;
+		const info = ls.getQuickInfoAtPosition(normalized, position);
 		if (!info) return null;
 
 		return {
@@ -314,13 +302,21 @@ export class TypeScriptClient {
 		filePath: string,
 		line: number,
 		character: number,
-	): { normalized: string; position: number; ls: import("typescript").LanguageService } | null {
+	): {
+		normalized: string;
+		position: number;
+		ls: import("typescript").LanguageService;
+	} | null {
 		const normalized = this.normalizePath(filePath);
 		this.ensureFile(filePath);
 		if (!this.languageService) return null;
 		const content = this.fileContents.get(normalized);
 		if (!content) return null;
-		return { normalized, position: this.lineCharToPosition(content, line, character), ls: this.languageService };
+		return {
+			normalized,
+			position: this.lineCharToPosition(content, line, character),
+			ls: this.languageService,
+		};
 	}
 
 	/**
@@ -353,13 +349,17 @@ export class TypeScriptClient {
 	/**
 	 * Get type definition
 	 */
-	getTypeDefinition(filePath: string, line: number, character: number): Location[] {
+	getTypeDefinition(
+		filePath: string,
+		line: number,
+		character: number,
+	): Location[] {
 		const resolved = this.resolvePosition(filePath, line, character);
 		if (!resolved) return [];
 		const { normalized, position, ls } = resolved;
 		const defs = ls.getTypeDefinitionAtPosition(normalized, position);
 		if (!defs) return [];
-		return defs.map((def) => ({ file: def.fileName || normalized, line: 0, character: 0 }));
+		return this.toLocations(defs, normalized);
 	}
 
 	/**
@@ -371,19 +371,33 @@ export class TypeScriptClient {
 		const { normalized, position, ls } = resolved;
 		const references = ls.getReferencesAtPosition(normalized, position);
 		if (!references) return [];
-		return references.map((ref) => ({ file: ref.fileName, line: 0, character: 0 }));
+		return this.toLocations(references);
+	}
+
+	/** Map TS definition/reference entries to Location objects. */
+	private toLocations(entries: ReadonlyArray<{ fileName: string }>, fallbackFile?: string): Location[] {
+		return entries.map((e) => ({ file: e.fileName || fallbackFile || "", line: 0, character: 0 }));
+	}
+
+	/**
+	 * Shared preamble for tree-based LSP queries (symbols, folding).
+	 */
+	private resolveTree(filePath: string): { normalized: string; tree: import("typescript").NavigationTree } | null {
+		const normalized = this.normalizePath(filePath);
+		this.ensureFile(filePath);
+		if (!this.languageService) return null;
+		const tree = this.languageService.getNavigationTree(normalized);
+		if (!tree) return null;
+		return { normalized, tree };
 	}
 
 	/**
 	 * Get document symbols
 	 */
 	getSymbols(filePath: string): SymbolInfo[] {
-		const normalized = this.normalizePath(filePath);
-		this.ensureFile(filePath);
-		if (!this.languageService) return [];
-
-		const tree = this.languageService.getNavigationTree(normalized);
-		if (!tree) return [];
+		const resolved = this.resolveTree(filePath);
+		if (!resolved) return [];
+		const { tree } = resolved;
 
 		const symbols: SymbolInfo[] = [];
 
@@ -410,7 +424,11 @@ export class TypeScriptClient {
 	/**
 	 * Get completions at a position
 	 */
-	getCompletions(filePath: string, line: number, character: number): CompletionItem[] {
+	getCompletions(
+		filePath: string,
+		line: number,
+		character: number,
+	): CompletionItem[] {
 		const resolved = this.resolvePosition(filePath, line, character);
 		if (!resolved) return [];
 		const { normalized, position, ls } = resolved;
@@ -426,25 +444,26 @@ export class TypeScriptClient {
 	/**
 	 * Go to implementation
 	 */
-	getImplementation(filePath: string, line: number, character: number): Location[] {
+	getImplementation(
+		filePath: string,
+		line: number,
+		character: number,
+	): Location[] {
 		const resolved = this.resolvePosition(filePath, line, character);
 		if (!resolved) return [];
 		const { normalized, position, ls } = resolved;
 		const implementations = ls.getImplementationAtPosition(normalized, position);
 		if (!implementations) return [];
-		return implementations.map((impl) => ({ file: impl.fileName, line: 0, character: 0 }));
+		return this.toLocations(implementations);
 	}
 
 	/**
 	 * Get folding ranges
 	 */
 	getFoldingRanges(filePath: string): FoldingRange[] {
-		const normalized = this.normalizePath(filePath);
-		this.ensureFile(filePath);
-		if (!this.languageService) return [];
-
-		const tree = this.languageService.getNavigationTree(normalized);
-		if (!tree) return [];
+		const resolved = this.resolveTree(filePath);
+		if (!resolved) return [];
+		const { tree } = resolved;
 
 		const ranges: FoldingRange[] = [];
 

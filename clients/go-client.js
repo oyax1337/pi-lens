@@ -26,7 +26,9 @@ export class GoClient {
         this.goplsAvailable = null;
         this.goAvailable = null;
         this.goPath = null;
-        this.log = verbose ? (msg) => console.error(`[go] ${msg}`) : () => { };
+        this.log = verbose
+            ? (msg) => console.error(`[go] ${msg}`)
+            : () => { };
     }
     /**
      * Find go executable path

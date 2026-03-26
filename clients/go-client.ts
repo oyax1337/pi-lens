@@ -47,7 +47,9 @@ export class GoClient {
 	private log: (msg: string) => void;
 
 	constructor(verbose = false) {
-		this.log = verbose ? (msg: string) => console.error(`[go] ${msg}`) : () => {};
+		this.log = verbose
+			? (msg: string) => console.error(`[go] ${msg}`)
+			: () => {};
 	}
 
 	/**

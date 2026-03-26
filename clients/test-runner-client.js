@@ -372,47 +372,8 @@ export class TestRunnerClient {
     hasTestFile(sourceFilePath, cwd) {
         return this.findTestFile(sourceFilePath, cwd) !== null;
     }
-    // --- Vitest Parser ---
-    parseVitestOutput(stdout, stderr, testFile, cwd, runner) {
-        try {
-            const json = JSON.parse(stdout);
-            const failures = [];
-            for (const suite of json.testResults || []) {
-                if (suite.status === "failed" && suite.assertionResults) {
-                    for (const test of suite.assertionResults) {
-                        if (test.status === "failed") {
-                            failures.push({
-                                name: test.title,
-                                message: test.failureMessages?.[0] || suite.message || "Test failed",
-                                location: test.location
-                                    ? `${path.relative(cwd, testFile)}:${test.location.line}`
-                                    : undefined,
-                                stack: this.truncateStack(test.failureMessages?.join("\n")),
-                            });
-                        }
-                    }
-                }
-            }
-            return {
-                file: testFile,
-                sourceFile: "",
-                runner,
-                passed: json.numPassedTests || 0,
-                failed: json.numFailedTests || 0,
-                skipped: json.numSkippedTests || 0,
-                failures,
-                duration: 0, // Vitest JSON doesn't include duration in this format
-            };
-        }
-        catch (err) {
-            void err;
-            // If JSON parsing fails, check for basic pass/fail indicators
-            const failed = stdout.includes("FAIL") || stderr.includes("FAIL");
-            return this.emptyResult(testFile, "", runner, failed ? "Tests failed (could not parse output)" : undefined);
-        }
-    }
-    // --- Jest Parser ---
-    parseJestOutput(stdout, stderr, testFile, cwd, runner) {
+    // --- Shared JSON test output parser (Vitest + Jest share the same structure) ---
+    parseJsonTestOutput(stdout, stderr, testFile, cwd, runner) {
         try {
             const json = JSON.parse(stdout);
             const failures = [];
@@ -448,6 +409,14 @@ export class TestRunnerClient {
             const failed = stdout.includes("FAIL") || stderr.includes("FAIL");
             return this.emptyResult(testFile, "", runner, failed ? "Tests failed (could not parse output)" : undefined);
         }
+    }
+    // --- Vitest Parser ---
+    parseVitestOutput(stdout, stderr, testFile, cwd, runner) {
+        return this.parseJsonTestOutput(stdout, stderr, testFile, cwd, runner);
+    }
+    // --- Jest Parser ---
+    parseJestOutput(stdout, stderr, testFile, cwd, runner) {
+        return this.parseJsonTestOutput(stdout, stderr, testFile, cwd, runner);
     }
     // --- Pytest Parser (text-based, no JSON dependency) ---
     parsePytestOutput(stdout, stderr, exitCode, testFile, _cwd, runner) {

@@ -482,103 +482,25 @@ export class TestRunnerClient {
 		return this.findTestFile(sourceFilePath, cwd) !== null;
 	}
 
-	// --- Vitest Parser ---
+	// --- Shared JSON test output parser (Vitest + Jest share the same structure) ---
 
-	private parseVitestOutput(
+	private parseJsonTestOutput(
 		stdout: string,
 		stderr: string,
 		testFile: string,
 		cwd: string,
 		runner: string,
 	): TestResult {
-		// Vitest JSON output structure
-		interface VitestResult {
-			numTotalTestSuites: number;
-			numPassedTestSuites: number;
-			numFailedTestSuites: number;
-			numTotalTests: number;
+		interface JsonResult {
 			numPassedTests: number;
 			numFailedTests: number;
-			numSkippedTests: number;
-			testResults: Array<{
-				name: string;
-				status: "passed" | "failed" | "skipped";
-				message?: string;
-				assertionResults?: Array<{
-					status: "passed" | "failed" | "skipped";
-					title: string;
-					failureMessages?: string[];
-					location?: { line: number; column: number };
-				}>;
-			}>;
-		}
-
-		try {
-			const json: VitestResult = JSON.parse(stdout);
-			const failures: TestFailure[] = [];
-
-			for (const suite of json.testResults || []) {
-				if (suite.status === "failed" && suite.assertionResults) {
-					for (const test of suite.assertionResults) {
-						if (test.status === "failed") {
-							failures.push({
-								name: test.title,
-								message:
-									test.failureMessages?.[0] || suite.message || "Test failed",
-								location: test.location
-									? `${path.relative(cwd, testFile)}:${test.location.line}`
-									: undefined,
-								stack: this.truncateStack(test.failureMessages?.join("\n")),
-							});
-						}
-					}
-				}
-			}
-
-			return {
-				file: testFile,
-				sourceFile: "",
-				runner,
-				passed: json.numPassedTests || 0,
-				failed: json.numFailedTests || 0,
-				skipped: json.numSkippedTests || 0,
-				failures,
-				duration: 0, // Vitest JSON doesn't include duration in this format
-			};
-		} catch (err) {
-			void err;
-			// If JSON parsing fails, check for basic pass/fail indicators
-			const failed = stdout.includes("FAIL") || stderr.includes("FAIL");
-			return this.emptyResult(
-				testFile,
-				"",
-				runner,
-				failed ? "Tests failed (could not parse output)" : undefined,
-			);
-		}
-	}
-
-	// --- Jest Parser ---
-
-	private parseJestOutput(
-		stdout: string,
-		stderr: string,
-		testFile: string,
-		cwd: string,
-		runner: string,
-	): TestResult {
-		interface JestResult {
-			numFailedTestSuites: number;
-			numFailedTests: number;
-			numPassedTests: number;
-			numPassedTestSuites: number;
 			numSkippedTests?: number;
-			testResults: Array<{
+			testResults?: Array<{
 				name: string;
-				status: "passed" | "failed";
+				status: string;
 				message?: string;
 				assertionResults?: Array<{
-					status: "passed" | "failed" | "skipped";
+					status: string;
 					title: string;
 					failureMessages?: string[];
 					location?: { line: number; column: number };
@@ -587,7 +509,7 @@ export class TestRunnerClient {
 		}
 
 		try {
-			const json: JestResult = JSON.parse(stdout);
+			const json: JsonResult = JSON.parse(stdout);
 			const failures: TestFailure[] = [];
 
 			for (const suite of json.testResults || []) {
@@ -596,8 +518,7 @@ export class TestRunnerClient {
 						if (test.status === "failed") {
 							failures.push({
 								name: test.title,
-								message:
-									test.failureMessages?.[0] || suite.message || "Test failed",
+								message: test.failureMessages?.[0] || suite.message || "Test failed",
 								location: test.location
 									? `${path.relative(cwd, testFile)}:${test.location.line}`
 									: undefined,
@@ -621,13 +542,18 @@ export class TestRunnerClient {
 		} catch (err) {
 			void err;
 			const failed = stdout.includes("FAIL") || stderr.includes("FAIL");
-			return this.emptyResult(
-				testFile,
-				"",
-				runner,
-				failed ? "Tests failed (could not parse output)" : undefined,
-			);
+			return this.emptyResult(testFile, "", runner, failed ? "Tests failed (could not parse output)" : undefined);
 		}
+	}
+
+	// --- Vitest Parser ---
+	private parseVitestOutput(stdout: string, stderr: string, testFile: string, cwd: string, runner: string): TestResult {
+		return this.parseJsonTestOutput(stdout, stderr, testFile, cwd, runner);
+	}
+
+	// --- Jest Parser ---
+	private parseJestOutput(stdout: string, stderr: string, testFile: string, cwd: string, runner: string): TestResult {
+		return this.parseJsonTestOutput(stdout, stderr, testFile, cwd, runner);
 	}
 
 	// --- Pytest Parser (text-based, no JSON dependency) ---

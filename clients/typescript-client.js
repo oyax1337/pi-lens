@@ -232,15 +232,11 @@ export class TypeScriptClient {
      * Get hover information at a position
      */
     getHover(filePath, line, character) {
-        const normalized = this.normalizePath(filePath);
-        this.ensureFile(filePath);
-        if (!this.languageService)
+        const resolved = this.resolvePosition(filePath, line, character);
+        if (!resolved)
             return null;
-        const content = this.fileContents.get(normalized);
-        if (!content)
-            return null;
-        const position = this.lineCharToPosition(content, line, character);
-        const info = this.languageService.getQuickInfoAtPosition(normalized, position);
+        const { normalized, position, ls } = resolved;
+        const info = ls.getQuickInfoAtPosition(normalized, position);
         if (!info)
             return null;
         return {
@@ -262,7 +258,11 @@ export class TypeScriptClient {
         const content = this.fileContents.get(normalized);
         if (!content)
             return null;
-        return { normalized, position: this.lineCharToPosition(content, line, character), ls: this.languageService };
+        return {
+            normalized,
+            position: this.lineCharToPosition(content, line, character),
+            ls: this.languageService,
+        };
     }
     /**
      * Go to definition
@@ -302,7 +302,7 @@ export class TypeScriptClient {
         const defs = ls.getTypeDefinitionAtPosition(normalized, position);
         if (!defs)
             return [];
-        return defs.map((def) => ({ file: def.fileName || normalized, line: 0, character: 0 }));
+        return this.toLocations(defs, normalized);
     }
     /**
      * Find references
@@ -315,19 +315,33 @@ export class TypeScriptClient {
         const references = ls.getReferencesAtPosition(normalized, position);
         if (!references)
             return [];
-        return references.map((ref) => ({ file: ref.fileName, line: 0, character: 0 }));
+        return this.toLocations(references);
+    }
+    /** Map TS definition/reference entries to Location objects. */
+    toLocations(entries, fallbackFile) {
+        return entries.map((e) => ({ file: e.fileName || fallbackFile || "", line: 0, character: 0 }));
+    }
+    /**
+     * Shared preamble for tree-based LSP queries (symbols, folding).
+     */
+    resolveTree(filePath) {
+        const normalized = this.normalizePath(filePath);
+        this.ensureFile(filePath);
+        if (!this.languageService)
+            return null;
+        const tree = this.languageService.getNavigationTree(normalized);
+        if (!tree)
+            return null;
+        return { normalized, tree };
     }
     /**
      * Get document symbols
      */
     getSymbols(filePath) {
-        const normalized = this.normalizePath(filePath);
-        this.ensureFile(filePath);
-        if (!this.languageService)
+        const resolved = this.resolveTree(filePath);
+        if (!resolved)
             return [];
-        const tree = this.languageService.getNavigationTree(normalized);
-        if (!tree)
-            return [];
+        const { tree } = resolved;
         const symbols = [];
         const extract = (node, container) => {
             if (node.span) {
@@ -375,19 +389,16 @@ export class TypeScriptClient {
         const implementations = ls.getImplementationAtPosition(normalized, position);
         if (!implementations)
             return [];
-        return implementations.map((impl) => ({ file: impl.fileName, line: 0, character: 0 }));
+        return this.toLocations(implementations);
     }
     /**
      * Get folding ranges
      */
     getFoldingRanges(filePath) {
-        const normalized = this.normalizePath(filePath);
-        this.ensureFile(filePath);
-        if (!this.languageService)
+        const resolved = this.resolveTree(filePath);
+        if (!resolved)
             return [];
-        const tree = this.languageService.getNavigationTree(normalized);
-        if (!tree)
-            return [];
+        const { tree } = resolved;
         const ranges = [];
         const findFolds = (node) => {
             if (!node?.span)
