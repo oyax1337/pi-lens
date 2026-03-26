@@ -1,104 +1,144 @@
 # .pi-lens/architect.yaml
-# Basic architectural rules for TypeScript/JavaScript projects
-# Copy this to your project root and customize for your architecture.
+# Architectural rules for your project
+# Copy to your project root as .pi-lens/architect.yaml and customize.
 #
-# Pattern matching uses minimatch globs:
-#   **/*.ts       — all TS files
-#   src/**/*.ts   — all TS files under src/
-#   src/routes/** — everything under src/routes/
+# Structure is language-agnostic — regex patterns in must_not are language-specific.
+# Adapt patterns for your stack (JS/TS, Python, Go, Rust, etc.)
 
 version: "1.0"
 
+# =============================================================================
+# LANGUAGE-AGNOSTIC RULES (apply to all projects)
+# =============================================================================
+
 rules:
-  # --- Universal file size limit ---
+  # --- File size limit (all languages) ---
   - pattern: "**/*.{ts,tsx,js,jsx,py,go,rs}"
     max_lines: 750
+    must:
+      - "Keep files focused on a single responsibility"
+
+  # --- No hardcoded secrets (all languages) ---
+  - pattern: "**/*.{ts,tsx,js,jsx,py,go,rs}"
+    must_not:
+      - pattern: '(?:password|secret|api_?key|token|private_?key)\s*[:=]\s*["\'][^"\']{8,}["\']'
+        message: "No hardcoded secrets — use environment variables or a secrets manager"
+      - pattern: '(?:sk|pk)_[a-zA-Z0-9]{20,}'
+        message: "Hardcoded API key detected — use environment variables"
+
+  # --- No dead code ---
+  - pattern: "**/*.{ts,tsx,js,jsx}"
+    must_not:
+      - pattern: '^\s*//\s*(?:TODO|FIXME|HACK|XXX).*(?:later|tomorrow|eventually)'
+        message: "Deferred TODOs without context are debt — create an issue or fix now"
+
+  # =============================================================================
+  # JS/TS-SPECIFIC RULES (remove or adapt for other languages)
+  # =============================================================================
+
   # --- Routes / Controllers ---
   # Entry points should delegate, not implement
-  - pattern: "src/routes/**/*.ts"
+  - pattern: "**/routes/**/*.{ts,tsx,js,jsx}"
     must_not:
-      - pattern: 'import.*from.*["\'].*(?:models|db|database|prisma|typeorm|mongoose)'
+      - pattern: 'import.*from.*["\'](?:models|db|database|prisma|typeorm|mongoose)'
         message: "Routes must not access database directly — use a service or repository"
-      - pattern: 'import.*from.*["\'].*(?:bcrypt|jsonwebtoken|argon2)'
+      - pattern: 'import.*from.*["\'](?:bcrypt|jsonwebtoken|argon2)'
         message: "Routes must not handle auth directly — use an auth middleware/service"
+      - pattern: 'console\.log'
+        message: "Routes should use a logger, not console.log"
     must:
-      - "Use dependency injection for services"
       - "Keep route handlers thin — delegate to services"
 
   # --- Services ---
   # Services contain business logic, no framework coupling
-  - pattern: "src/services/**/*.ts"
+  - pattern: "**/services/**/*.{ts,tsx,js,jsx}"
     must_not:
       - pattern: 'import.*from.*["\'](?:express|fastify|koa|hono)'
         message: "Services must be framework-agnostic — no HTTP framework imports"
       - pattern: 'import.*from.*["\'](?:react|vue|svelte)'
         message: "Services must not import UI framework code"
-      - pattern: 'console\.(log|info)'
+      - pattern: 'console\.log'
         message: "Services should use a logger, not console.log"
-
-  # --- Repositories / Data Access ---
-  # Single responsibility: talk to data store only
-  - pattern: "src/repositories/**/*.ts"
-    must_not:
-      - pattern: 'import.*from.*["\'](?:express|fastify|koa|hono)'
-        message: "Repositories must not import HTTP frameworks"
     must:
-      - "Handle all database/table access for a single entity"
-      - "Return plain objects or DTOs, not ORM-specific types"
-
-  # --- Models / Entities ---
-  # Pure data definitions, no side effects
-  - pattern: "src/models/**/*.ts"
-    must_not:
-      - pattern: 'import.*from.*["\'](?:express|fastify)'
-        message: "Models must not import HTTP frameworks"
-      - pattern: 'console\.(log|info|warn|error)'
-        message: "Models must not have side effects (logging, network calls)"
-      - pattern: 'fetch\(|axios\.|http\.request'
-        message: "Models must not make network calls"
-    must:
-      - "Be pure data definitions (interfaces, types, schemas)"
+      - "Use dependency injection for testability"
 
   # --- UI / Components ---
-  # Keep presentation separate from logic
-  - pattern: "src/components/**/*.tsx"
+  - pattern: "**/components/**/*.{tsx,jsx}"
     must_not:
-      - pattern: 'import.*from.*["\'].*(?:models|db|database|prisma)'
+      - pattern: 'import.*from.*["\'](?:models|db|database|prisma)'
         message: "Components must not access database — use a data-fetching layer"
       - pattern: 'process\.env'
         message: "Components must not read env vars directly — use config"
     must:
       - "Handle loading and error states"
-      - "Keep business logic in hooks or services"
 
   # --- Tests ---
-  # Tests should be isolated and predictable
-  - pattern: "**/*.test.{ts,tsx}"
+  - pattern: "**/*.test.{ts,tsx,js,jsx}"
     must_not:
-      - pattern: 'import.*from.*["\'](?:\.\.\/)*src\/(config|secrets)'
+      - pattern: 'import.*from.*["\'](?:\.\./)*src/(config|secrets|env)'
         message: "Tests must not import real config/secrets — use mocks"
-    must:
-      - "Use descriptive test names"
-      - "Clean up after themselves (no shared mutable state)"
 
-  # --- Config ---
-  # Centralized, typed, no hardcoding
-  - pattern: "src/config/**/*.ts"
-    must_not:
-      - pattern: '(?:password|secret|api_?key|token)\s*[:=]\s*["\'][^"\']+["\']'
-        message: "No hardcoded secrets — use environment variables"
-    must:
-      - "Validate env vars at startup (fail fast if missing)"
-      - "Export typed config object"
+  # =============================================================================
+  # PYTHON-SPECIFIC RULES (remove if not using Python)
+  # =============================================================================
 
-  # --- Utilities ---
-  # Pure functions, no side effects
-  - pattern: "src/utils/**/*.ts"
+  # --- Django/Flask views (Python equivalent of routes) ---
+  - pattern: "**/views/**/*.py"
     must_not:
-      - pattern: 'console\.(log|info|warn|error)'
-        message: "Utils should be pure functions — no logging"
-      - pattern: 'process\.exit'
-        message: "Utils must not call process.exit"
+      - pattern: 'from\s+(?:models|db|database)\s+import'
+        message: "Views must not import models directly — use a service layer"
+      - pattern: 'from\s+django\.contrib\.auth\.hashers\s+import'
+        message: "Views must not handle password hashing — use a service"
     must:
-      - "Be pure functions when possible"
-      - "Have no hidden dependencies"
+      - "Keep view functions thin — delegate to services"
+
+  # --- Python services ---
+  - pattern: "**/services/**/*.py"
+    must_not:
+      - pattern: 'from\s+flask\s+import|from\s+fastapi\s+import'
+        message: "Services must be framework-agnostic — no web framework imports"
+      - pattern: 'print\('
+        message: "Services should use logging, not print()"
+    must:
+      - "Use Protocol or ABC for interface definitions"
+      - "Accept dependencies via constructor (dependency injection)"
+
+  # --- Django/Flask models ---
+  - pattern: "**/models/**/*.py"
+    must_not:
+      - pattern: 'from\s+(?:flask|fastapi|django\.http)\s+import'
+        message: "Models must not import web framework code"
+      - pattern: 'requests\.(get|post|put|delete)'
+        message: "Models must not make HTTP calls"
+    must:
+      - "Be pure data definitions"
+
+  # --- Python config ---
+  - pattern: "**/config/**/*.py"
+    must_not:
+      - pattern: '(?:PASSWORD|SECRET|API_KEY|TOKEN)\s*=\s*["\'][^"\']{8,}["\']'
+        message: "No hardcoded secrets — use os.environ or pydantic-settings"
+    must:
+      - "Validate required env vars at startup (fail fast)"
+
+  # =============================================================================
+  # GO-SPECIFIC RULES (remove if not using Go)
+  # =============================================================================
+
+  # --- Go handlers (HTTP entry points) ---
+  - pattern: "**/handlers/**/*.go"
+    must_not:
+      - pattern: 'import.*"database/sql"'
+        message: "Handlers must not import database drivers directly — use repository interface"
+    must:
+      - "Keep handler functions under 50 lines"
+      - "Return typed errors, not generic errors"
+
+  # --- Go services ---
+  - pattern: "**/services/**/*.go"
+    must_not:
+      - pattern: 'import.*"net/http"'
+        message: "Services should not import HTTP handlers — separate concerns"
+    must:
+      - "Accept interfaces, return concrete types"
+      - "Define interfaces at the consumer, not the provider"
