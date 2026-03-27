@@ -16,10 +16,10 @@ import {
 } from "../clients/scan-architectural-debt.js";
 import { createAutoLoop } from "../clients/auto-loop.js";
 
-// Auto-loop singleton for refactor command
+// Auto-loop singleton for refactor command (initialized at module load)
 let refactorLoop: ReturnType<typeof createAutoLoop> | null = null;
 
-function getRefactorLoop(pi: ExtensionAPI) {
+export function initRefactorLoop(pi: ExtensionAPI) {
 	if (!refactorLoop) {
 		refactorLoop = createAutoLoop(pi, {
 			name: "refactor",
@@ -32,7 +32,16 @@ function getRefactorLoop(pi: ExtensionAPI) {
 			completionPatterns: [
 				/✅ No architectural debt found/,
 			],
+			continuePrompt: "Continue to next worst offender with /lens-booboo-refactor --loop",
 		});
+		console.log("[pi-lens] Refactor auto-loop initialized");
+	}
+	return refactorLoop;
+}
+
+function getRefactorLoop(pi: ExtensionAPI) {
+	if (!refactorLoop) {
+		return initRefactorLoop(pi);
 	}
 	return refactorLoop;
 }

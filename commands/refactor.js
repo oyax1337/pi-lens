@@ -2,9 +2,9 @@ import * as nodeFs from "node:fs";
 import * as path from "node:path";
 import { extractCodeSnippet, scanArchitectViolations, scanComplexityMetrics, scanSkipViolations, scoreFiles, } from "../clients/scan-architectural-debt.js";
 import { createAutoLoop } from "../clients/auto-loop.js";
-// Auto-loop singleton for refactor command
+// Auto-loop singleton for refactor command (initialized at module load)
 let refactorLoop = null;
-function getRefactorLoop(pi) {
+export function initRefactorLoop(pi) {
     if (!refactorLoop) {
         refactorLoop = createAutoLoop(pi, {
             name: "refactor",
@@ -17,7 +17,15 @@ function getRefactorLoop(pi) {
             completionPatterns: [
                 /✅ No architectural debt found/,
             ],
+            continuePrompt: "Continue to next worst offender with /lens-booboo-refactor --loop",
         });
+        console.log("[pi-lens] Refactor auto-loop initialized");
+    }
+    return refactorLoop;
+}
+function getRefactorLoop(pi) {
+    if (!refactorLoop) {
+        return initRefactorLoop(pi);
     }
     return refactorLoop;
 }

@@ -5,15 +5,9 @@
  * re-run the command each time. Uses pi's event system (agent_end)
  * to trigger the next iteration automatically.
  *
- * Flow:
- * 1. Agent or user starts loop (e.g., "/lens-booboo-fix --loop")
- * 2. handleFix runs, generates plan, sends via sendUserMessage
- * 3. Agent sees plan and applies fixes
- * 4. agent_end fires → auto-loop checks for more work
- * 5. If more work: sends follow-up "run /lens-booboo-fix --loop again"
- * 6. Repeat until done or max iterations
- *
- * Inspired by pi-review-loop's event-driven approach.
+ * IMPORTANT: Must be initialized at extension load time (in index.ts),
+ * not lazily when the command is called. Event handlers need to be
+ * registered early to catch agent_end events.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -29,6 +23,8 @@ export interface LoopConfig {
 	exitPatterns: RegExp[];
 	/** Patterns that indicate completion with success */
 	completionPatterns?: RegExp[];
+	/** Additional text to include when prompting for next iteration */
+	continuePrompt?: string;
 }
 
 export interface LoopState {
@@ -37,7 +33,12 @@ export interface LoopState {
 	maxIterations: number;
 }
 
-export function createAutoLoop(pi: ExtensionAPI, config: LoopConfig) {
+export function createAutoLoop(pi: ExtensionAPI, config: LoopConfig): {
+	start: (ctx: ExtensionContext) => void;
+	stop: (ctx: ExtensionContext, reason: string) => void;
+	getState: () => LoopState;
+	setMaxIterations: (n: number) => void;
+} {
 	let state: LoopState = {
 		active: false,
 		iteration: 0,
@@ -53,6 +54,19 @@ export function createAutoLoop(pi: ExtensionAPI, config: LoopConfig) {
 		} else {
 			ctx.ui.setStatus(`loop-${config.name}`, undefined);
 		}
+	};
+
+	const stop = (ctx: ExtensionContext, reason: string) => {
+		const wasActive = state.active;
+		state = { active: false, iteration: 0, maxIterations: config.maxIterations };
+		updateStatus(ctx);
+		if (wasActive) {
+			ctx.ui.notify(`✅ ${config.name} loop ${reason}`, "info");
+		}
+	};
+
+	const complete = (ctx: ExtensionContext, reason: string) => {
+		stop(ctx, reason);
 	};
 
 	const start = (ctx: ExtensionContext) => {
@@ -72,31 +86,11 @@ export function createAutoLoop(pi: ExtensionAPI, config: LoopConfig) {
 			`🔄 Starting ${config.name} auto-loop (max ${state.maxIterations} iterations)...`,
 			"info",
 		);
-
-		// First iteration is triggered by the command itself
-		// The agent_end handler will handle subsequent iterations
-	};
-
-	const stop = (ctx: ExtensionContext, reason: string) => {
-		const wasActive = state.active;
-		state = { active: false, iteration: 0, maxIterations: config.maxIterations };
-		updateStatus(ctx);
-		if (wasActive) {
-			ctx.ui.notify(`✅ ${config.name} loop ${reason}`, "info");
-		}
-	};
-
-	const complete = (ctx: ExtensionContext, reason: string) => {
-		stop(ctx, reason);
 	};
 
 	const getState = (): LoopState => ({ ...state });
 
-	const incrementIteration = () => {
-		state.iteration++;
-	};
-
-	// --- Event Handlers ---
+	// --- Event Handlers (registered at module load time) ---
 
 	// Handle user interruption (any manual input stops the loop)
 	pi.on("input", async (event, ctx) => {
@@ -151,7 +145,7 @@ export function createAutoLoop(pi: ExtensionAPI, config: LoopConfig) {
 		}
 
 		// Check max iterations
-		incrementIteration();
+		state.iteration++;
 		if (state.iteration >= state.maxIterations) {
 			stop(ctx, `stopped (max iterations ${state.maxIterations} reached)`);
 			return;
@@ -159,8 +153,9 @@ export function createAutoLoop(pi: ExtensionAPI, config: LoopConfig) {
 
 		// Continue to next iteration - send command as follow-up
 		updateStatus(ctx);
+		const continueMsg = config.continuePrompt || `Run ${config.command} to continue.`;
 		pi.sendUserMessage(
-			`🔄 Auto-loop iteration ${state.iteration + 1}/${state.maxIterations}. Run ${config.command} to continue.`,
+			`🔄 Auto-loop (${state.iteration + 1}/${state.maxIterations}): ${continueMsg}`,
 			{ deliverAs: "followUp" },
 		);
 	});

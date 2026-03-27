@@ -25,7 +25,7 @@ import { TypeScriptClient } from "./clients/typescript-client.js";
 
 import { handleBooboo } from "./commands/booboo.js";
 import { handleFix } from "./commands/fix.js";
-import { handleRefactor } from "./commands/refactor.js";
+import { handleRefactor, initRefactorLoop } from "./commands/refactor.js";
 
 const _getExtensionDir = () => {
 	if (typeof __dirname !== "undefined") {
@@ -72,6 +72,9 @@ export default function (pi: ExtensionAPI) {
 	const architectClient = new ArchitectClient();
 	const goClient = new GoClient();
 	const rustClient = new RustClient();
+
+	// --- Initialize auto-loops (must be early for event handlers) ---
+	initRefactorLoop(pi);
 
 	// --- Flags ---
 
