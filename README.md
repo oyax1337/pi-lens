@@ -2,6 +2,18 @@
 
 Real-time code quality feedback for [pi](https://github.com/mariozechner/pi-coding-agent). Every write and edit is automatically analysed — diagnostics are injected directly into the tool result so the agent sees them without any extra steps.
 
+## Install
+
+```bash
+pi install npm:pi-lens
+```
+
+Or directly from git:
+
+```bash
+pi install git:github.com/apmantza/pi-lens
+```
+
 ---
 
 ## Features
