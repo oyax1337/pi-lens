@@ -2,7 +2,7 @@
  * AgentBehaviorClient for pi-lens
  *
  * Tracks tool call sequences and flags anti-patterns in real-time:
- * - Blind writes: editing/writing without reading first
+ * - Blind writes: editing or writing without reading first
  * - Thrashing: repeated identical tool calls with no progress
  *
  * No external dependencies — purely tracks tool call history.
