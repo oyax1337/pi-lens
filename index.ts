@@ -30,18 +30,42 @@ import { handleBooboo } from "./commands/booboo.js";
 import { handleFix } from "./commands/fix.js";
 import { handleRefactor, initRefactorLoop } from "./commands/refactor.js";
 
-/** Parse a unified diff to extract modified line ranges in the new file. */
+/** Parse a diff to extract modified line ranges in the new file.
+ * Handles pi's custom diff format:
+ *   "   1 /**"          - unchanged line with line number
+ *   "-  2 * old text"   - removed line
+ *   "+  2 * new text"   - added line
+ *   "     ..."          - skipped section
+ */
 function parseDiffRanges(diff: string): { start: number; end: number }[] {
-	const ranges: { start: number; end: number }[] = [];
+	const changedLines: number[] = [];
 	for (const line of diff.split("\n")) {
-		// @@ -oldStart,oldCount +newStart,newCount @@
-		const match = line.match(/^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,(\d+))?\s+@@/);
+		// Match lines like "+  2 * new text" or "-  2 * old text"
+		const match = line.match(/^[+-]\s+(\d+)\s/);
 		if (match) {
-			const start = Number.parseInt(match[1], 10);
-			const count = match[2] ? Number.parseInt(match[2], 10) : 1;
-			ranges.push({ start, end: start + count - 1 });
+			changedLines.push(Number.parseInt(match[1], 10));
 		}
 	}
+	
+	if (changedLines.length === 0) return [];
+	
+	// Convert to ranges (merge adjacent lines)
+	const sorted = [...new Set(changedLines)].sort((a, b) => a - b);
+	const ranges: { start: number; end: number }[] = [];
+	let rangeStart = sorted[0];
+	let rangeEnd = sorted[0];
+	
+	for (const line of sorted.slice(1)) {
+		if (line <= rangeEnd + 1) {
+			rangeEnd = line;
+		} else {
+			ranges.push({ start: rangeStart, end: rangeEnd });
+			rangeStart = line;
+			rangeEnd = line;
+		}
+	}
+	ranges.push({ start: rangeStart, end: rangeEnd });
+	
 	return ranges;
 }
 
@@ -1032,20 +1056,32 @@ export default function (pi: ExtensionAPI) {
 		const filePath = (event.input as { path?: string }).path;
 		const behaviorWarnings = agentBehaviorClient.recordToolCall(event.toolName, filePath);
 
-		if (event.toolName !== "write" && event.toolName !== "edit") return;
-		if (!filePath) return;
+		if (event.toolName !== "write" && event.toolName !== "edit") {
+			dbg(`tool_result: skipped turn tracking - toolName="${event.toolName}" (not write/edit)`);
+			return;
+		}
+		if (!filePath) {
+			dbg(`tool_result: skipped turn tracking - no filePath for toolName="${event.toolName}"`);
+			return;
+		}
+		dbg(`tool_result: tracking turn state for ${event.toolName} on ${filePath}`);
 
 		// --- Track modified ranges in turn state for async jscpd/madge at turn_end ---
 		const cwd = projectRoot;
 		try {
 			const details = event.details as { diff?: string } | undefined;
+			dbg(`tool_result: details.diff=${details?.diff ? 'present' : 'missing'}, details keys: ${Object.keys(event.details || {}).join(', ')}`);
 			if (event.toolName === "edit" && details?.diff) {
 				const diff = details.diff;
+				dbg(`tool_result: diff content (first 500 chars): ${diff.substring(0, 500)}`);
 				const ranges = parseDiffRanges(diff);
 				const importsChanged = /import\s/.test(diff) || /from\s+['"]/.test(diff);
+				dbg(`tool_result: parsed ${ranges.length} ranges, importsChanged=${importsChanged}`);
 				for (const range of ranges) {
+					dbg(`tool_result: adding range ${range.start}-${range.end} for ${filePath}`);
 					cacheManager.addModifiedRange(filePath, range, importsChanged, cwd);
 				}
+				dbg(`tool_result: turn state after add: ${JSON.stringify(cacheManager.readTurnState(cwd))}`);
 			} else if (event.toolName === "write" && nodeFs.existsSync(filePath)) {
 				const content = nodeFs.readFileSync(filePath, "utf-8");
 				const lineCount = content.split("\n").length;
@@ -1059,6 +1095,7 @@ export default function (pi: ExtensionAPI) {
 			}
 		} catch (err) {
 			dbg(`turn state tracking error: ${err}`);
+			dbg(`turn state tracking error stack: ${(err as Error).stack}`);
 		}
 
 		dbg(`tool_result fired for: ${filePath}`);

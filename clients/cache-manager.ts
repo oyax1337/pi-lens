@@ -1,5 +1,5 @@
 /**
- * CacheManager for pi-lens
+ * CacheManager for pi-lens.
  *
  * Manages persistent cache for scanner results and turn state.
  * Provides read/write/freshness checks for:

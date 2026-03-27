@@ -1,5 +1,5 @@
 /**
- * TODO Scanner for pi-local
+ * TODO Scanner for pi-local.
  *
  * Scans codebase for TODO, FIXME, HACK, XXX, and other annotations.
  * Helps me understand what's already flagged as problematic or incomplete.

@@ -268,7 +268,7 @@ export class ComplexityClient {
         const sourceText = sourceFile.getText();
         let count = 0;
         const aiPatterns = [
-            /[🔍✅📝🔧🐛⚠️🚀💡🎯📌🏷️🔑🏗️🧪🗑️🔄♻️📋🔖📊💬🔥💎⭐🌟🎯🎨🔧🛠️]/u,
+            /[🔍✅📝🔧🐛⚠️🚀💡🎯📌🏷️🔑🏗️🧪🗑️🔄♻️📋🔖📊💬🔥💎⭐🌟🎯🎨🔧🛠️]/,
             /\/\/\s*(Initialize|Setup|Clean up|Create|Define|Check if|Handle|Process|Validate|Return|Get|Set|Add|Remove|Update|Fetch)\b/i,
             /\/\/\s*(This function|This method|This code|Here we|Now we)\b/i,
             /\/\*\*?\s*(Overview|Summary|Description|Example|Usage)\s*\*?\//i,
@@ -594,7 +594,7 @@ export class ComplexityClient {
         }
         // Calculate Shannon entropy in bits: H = -sum(p * log2(p))
         let entropy = 0;
-        for (const count of freq.values()) {
+        for (const count of Array.from(freq.values())) {
             const p = count / tokens.length;
             if (p > 0) {
                 entropy -= p * Math.log2(p);

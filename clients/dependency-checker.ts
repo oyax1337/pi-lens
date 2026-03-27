@@ -101,7 +101,7 @@ export class DependencyChecker {
 			}
 		}
 
-		return [...new Set(deps)];
+		return Array.from(new Set(deps));
 	}
 
 	/**
