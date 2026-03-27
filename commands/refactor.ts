@@ -34,7 +34,7 @@ export function initRefactorLoop(pi: ExtensionAPI) {
 			],
 			continuePrompt: "Continue to next worst offender with /lens-booboo-refactor --loop",
 		});
-		console.log("[pi-lens] Refactor auto-loop initialized");
+		// refactor auto-loop initialized silently
 	}
 	return refactorLoop;
 }
