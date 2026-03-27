@@ -174,42 +174,30 @@ message: found
 		pattern: string;
 		functions: Array<{ name: string; file: string; line: number }>;
 	}> {
-		const normalized = new Map<
-			string,
-			Array<{ name: string; file: string; line: number }>
-		>();
+		const grouped = new Map<string, Array<{ name: string; file: string; line: number }>>();
 
 		for (const item of matches) {
-			const text = item.text || "";
-			const nameMatch = text.match(/function\s+(\w+)/);
-			if (!nameMatch?.[1]) continue;
+			const name = this.extractFunctionName(item.text);
+			if (!name) continue;
 
-			const signature = this.normalizeFunction(text);
+			const signature = this.normalizeFunction(item.text);
+			const line = (item.range?.start?.line || item.labels?.[0]?.range?.start?.line || 0) + 1;
 
-			if (!normalized.has(signature)) {
-				normalized.set(signature, []);
-			}
-
-			const line =
-				item.range?.start?.line || item.labels?.[0]?.range?.start?.line || 0;
-			normalized.get(signature)?.push({
-				name: nameMatch[1],
-				file: item.file,
-				line: line + 1,
-			});
+			const group = grouped.get(signature) ?? [];
+			group.push({ name, file: item.file, line });
+			grouped.set(signature, group);
 		}
 
-		const result_groups: Array<{
-			pattern: string;
-			functions: Array<{ name: string; file: string; line: number }>;
-		}> = [];
-		for (const [pattern, functions] of normalized) {
-			if (functions.length > 1) {
-				result_groups.push({ pattern, functions });
-			}
-		}
+		return Array.from(grouped.entries())
+			.filter(([_, functions]) => functions.length > 1)
+			.map(([pattern, functions]) => ({ pattern, functions }));
+	}
 
-		return result_groups;
+	/**
+	 * Extract function name from match text
+	 */
+	private extractFunctionName(text: string): string | null {
+		return text.match(/function\s+(\w+)/)?.[1] ?? null;
 	}
 
 	private normalizeFunction(text: string): string {
