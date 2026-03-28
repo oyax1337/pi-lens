@@ -958,28 +958,7 @@ export default function (pi: ExtensionAPI) {
 			dbg(`session_start jscpd: not available`);
 		}
 
-		// TypeScript type coverage — use cache if fresh
-		if (typeCoverageClient.isAvailable()) {
-			const cached = cacheManager.readCache<
-				ReturnType<TypeCoverageClient["scan"]>
-			>("type-coverage", cwd);
-			if (cached) {
-				dbg(`session_start type-coverage: cache hit`);
-				const tcReport = typeCoverageClient.formatResult(cached.data);
-				if (tcReport) parts.push(tcReport);
-			} else {
-				const startMs = Date.now();
-				const tcResult = typeCoverageClient.scan(cwd);
-				cacheManager.writeCache("type-coverage", tcResult, cwd, {
-					scanDurationMs: Date.now() - startMs,
-				});
-				const tcReport = typeCoverageClient.formatResult(tcResult);
-				dbg(`session_start type-coverage scan done`);
-				if (tcReport) parts.push(tcReport);
-			}
-		} else {
-			dbg(`session_start type-coverage: not available`);
-		}
+		// Note: type-coverage runs on-demand via /lens-booboo only (not at session_start)
 
 		// Scan for exported functions (cached for duplicate detection on write)
 		if (astGrepClient.isAvailable()) {
