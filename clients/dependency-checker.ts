@@ -63,7 +63,7 @@ export class DependencyChecker {
 
 		const result = spawnSync("npx", ["madge", "--version"], {
 			encoding: "utf-8",
-			timeout: 10000,
+			timeout: 5000,
 			shell: true,
 		});
 
@@ -179,6 +179,18 @@ export class DependencyChecker {
 	 * Only re-runs full madge check when imports change.
 	 */
 	checkFile(filePath: string, cwd?: string): DepCheckResult {
+		const normalized = path.resolve(filePath);
+
+		// Return early for non-existent files without running availability check
+		if (!fs.existsSync(normalized)) {
+			return {
+				hasCircular: false,
+				circular: [],
+				checked: false,
+				cacheHit: false,
+			};
+		}
+
 		if (!this.isAvailable()) {
 			return {
 				hasCircular: false,
@@ -188,7 +200,6 @@ export class DependencyChecker {
 			};
 		}
 
-		const normalized = path.resolve(filePath);
 		const projectRoot = cwd || process.cwd();
 
 		// Check if imports changed
@@ -293,11 +304,23 @@ export class DependencyChecker {
 	 * Full project scan (for /check-deps command)
 	 */
 	scanProject(cwd?: string): { circular: CircularDep[]; count: number } {
-		if (!this.isAvailable()) {
+		const projectRoot = cwd || process.cwd();
+
+		// Return early for non-existent or empty directories
+		if (!fs.existsSync(projectRoot)) {
+			return { circular: [], count: 0 };
+		}
+		const entries = fs.readdirSync(projectRoot);
+		const hasSourceFiles = entries.some(
+			(e) => /\.(ts|tsx|js|jsx)$/.test(e) && !e.endsWith(".d.ts"),
+		);
+		if (!hasSourceFiles) {
 			return { circular: [], count: 0 };
 		}
 
-		const projectRoot = cwd || process.cwd();
+		if (!this.isAvailable()) {
+			return { circular: [], count: 0 };
+		}
 
 		try {
 			const result = spawnSync(

@@ -4,11 +4,14 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { isToolCallEventType } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { AgentBehaviorClient } from "./clients/agent-behavior-client.js";
 import { ArchitectClient } from "./clients/architect-client.js";
 import { AstGrepClient } from "./clients/ast-grep-client.js";
 import { BiomeClient } from "./clients/biome-client.js";
+import { CacheManager } from "./clients/cache-manager.js";
 import { ComplexityClient } from "./clients/complexity-client.js";
 import { DependencyChecker } from "./clients/dependency-checker.js";
+import { dispatchLint } from "./clients/dispatch/integration.js";
 import { GoClient } from "./clients/go-client.js";
 import { buildInterviewer } from "./clients/interviewer.js";
 import { JscpdClient } from "./clients/jscpd-client.js";
@@ -17,8 +20,8 @@ import { MetricsClient } from "./clients/metrics-client.js";
 import {
 	captureSnapshot,
 	captureSnapshots,
-	getTrendSummary,
 	formatTrendCell,
+	getTrendSummary,
 } from "./clients/metrics-history.js";
 import { RuffClient } from "./clients/ruff-client.js";
 import { RustClient } from "./clients/rust-client.js";
@@ -27,13 +30,9 @@ import { TestRunnerClient } from "./clients/test-runner-client.js";
 import { TodoScanner } from "./clients/todo-scanner.js";
 import { TypeCoverageClient } from "./clients/type-coverage-client.js";
 import { TypeScriptClient } from "./clients/typescript-client.js";
-import { AgentBehaviorClient } from "./clients/agent-behavior-client.js";
-import { CacheManager } from "./clients/cache-manager.js";
-
 import { handleBooboo } from "./commands/booboo.js";
 import { handleFix } from "./commands/fix.js";
 import { handleRefactor, initRefactorLoop } from "./commands/refactor.js";
-import { dispatchLint } from "./clients/dispatch/integration.js";
 
 /** Parse a diff to extract modified line ranges in the new file.
  * Handles pi's custom diff format:
@@ -994,6 +993,13 @@ export default function (pi: ExtensionAPI) {
 		dbg(
 			`session_start: scans complete (${parts.length} part(s)), cached for commands`,
 		);
+
+		// Output the assembled parts to user
+		if (parts.length > 0) {
+			for (const part of parts) {
+				ctx.ui.notify(part, "info");
+			}
+		}
 
 		// --- Error debt: check if tests ran since last session ---
 		// If files were modified in previous turn, run tests and check for regression

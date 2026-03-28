@@ -16,6 +16,70 @@ pi install git:github.com/apmantza/pi-lens
 
 ---
 
+## What's New (v2.0)
+
+### Declarative Dispatch System
+
+The core linting engine has been redesigned from ~400 lines of nested `if/else` blocks into a clean, extensible dispatch architecture:
+
+```
+file → detectFileKind() → getRunnersForKind() → run all runners → aggregate output
+```
+
+**Key improvements:**
+- **Extensible**: Add new linters by dropping a runner file in `clients/dispatch/runners/` — no need to touch the core
+- **Unified output**: All tools report through the same format (🔴 blocking, 🟡 warning, ✅ fixed)
+- **Delta mode built-in**: Each runner supports baseline tracking to show only *new* violations
+- **Conditional execution**: Runners can have `when` conditions (e.g., only run when `--autofix` is enabled)
+
+**Runners:** `ts-lsp`, `biome`, `ruff`, `ast-grep`, `type-safety`, `architect`, `go-vet`, `rust-clippy`
+
+### Asynchronous Session Start
+
+Session initialization now runs all scans concurrently with caching:
+
+```
+session_start
+  ├─ TODO/FIXME scan (fast, uncached)
+  ├─ Knip dead code (cached 30 min)
+  ├─ jscpd duplicates (cached 30 min)
+  ├─ Type coverage (cached 30 min)
+  └─ Export scanning (async, for duplicate export detection)
+```
+
+Each scan runs independently — expensive scans (jscpd, knip) are cached in `.pi-lens/cache/` with 30-minute TTL. The agent sees results immediately without waiting for slow tools.
+
+### Inline Messaging
+
+Every `write` or `edit` operation returns structured feedback directly in the tool result:
+
+```typescript
+// tool_result handler runs dispatchLint() → formats output → appends to result
+return {
+  content: [...event.content, { type: "text", text: lspOutput }],
+};
+```
+
+**Message types:**
+| Prefix | Meaning |
+|--------|---------|
+| 🔴 | Blocking error — must fix before continuing |
+| 🟡 | Warning — should fix, but not blocking |
+| ✅ | Auto-fixed issue — no action needed |
+| 📊 | Silent metric — tracked but not shown |
+| 📐 | Architectural rule — reference only |
+
+### File Type Detection
+
+Centralized file-kind detection (`clients/file-kinds.ts`) replaces scattered regex checks:
+
+```typescript
+const kind = detectFileKind(filePath); // "jsts" | "python" | "go" | "rust" | ...
+const runners = getRunnersForKind(kind); // All applicable runners
+```
+
+---
+
 ## Features
 
 ### On every write / edit

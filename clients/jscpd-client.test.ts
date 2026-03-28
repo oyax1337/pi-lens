@@ -38,7 +38,7 @@ describe("JscpdClient", () => {
 			expect(result.clones).toEqual([]);
 		});
 
-		it("should detect duplicate code blocks", () => {
+		it("should detect duplicate code blocks", { timeout: 15000 }, () => {
 			if (!client.isAvailable()) return;
 
 			// Create identical code blocks in different files

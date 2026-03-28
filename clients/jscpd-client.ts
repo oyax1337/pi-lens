@@ -46,7 +46,7 @@ export class JscpdClient {
 		if (this.available !== null) return this.available;
 		const result = spawnSync("npx", ["jscpd", "--version"], {
 			encoding: "utf-8",
-			timeout: 10000,
+			timeout: 5000,
 			shell: true,
 		});
 		this.available = !result.error && result.status === 0;
@@ -58,6 +58,30 @@ export class JscpdClient {
 	 * Uses a temp output dir to capture JSON report.
 	 */
 	scan(cwd: string, minLines = 5, minTokens = 50): JscpdResult {
+		// Return early for non-existent or empty directories
+		if (!fs.existsSync(cwd)) {
+			return {
+				success: false,
+				clones: [],
+				duplicatedLines: 0,
+				totalLines: 0,
+				percentage: 0,
+			};
+		}
+		const entries = fs.readdirSync(cwd);
+		const hasSourceFiles = entries.some(
+			(e) => /\.(ts|tsx|js|jsx)$/.test(e) && !e.endsWith(".d.ts"),
+		);
+		if (!hasSourceFiles) {
+			return {
+				success: true,
+				clones: [],
+				duplicatedLines: 0,
+				totalLines: 0,
+				percentage: 0,
+			};
+		}
+
 		if (!this.isAvailable()) {
 			return {
 				success: false,

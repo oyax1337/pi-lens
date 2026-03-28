@@ -17,7 +17,6 @@ out/
 *.js
 *.js.map
 *.d.ts
-!*.test.js
 
 # Rust
 src/main.rs
