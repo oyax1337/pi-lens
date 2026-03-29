@@ -9,7 +9,6 @@ import type { AstGrepClient } from "../clients/ast-grep-client.js";
 import { createAutoLoop } from "../clients/auto-loop.js";
 import type { ComplexityClient } from "../clients/complexity-client.js";
 import {
-	extractCodeSnippet,
 	scanArchitectViolations,
 	scanComplexityMetrics,
 	scanSkipViolations,
@@ -130,12 +129,6 @@ export async function handleRefactor(
 	const metrics = metricsByFile.get(worstFile);
 	const archIssues = architectViolations.get(worstFile) ?? [];
 
-	const snippetResult =
-		issues.length > 0 ? extractCodeSnippet(worstFile, issues[0].line) : null;
-	const snippet = snippetResult?.snippet ?? "";
-	const snippetStart = snippetResult?.start ?? 1;
-	const snippetEnd = snippetResult?.end ?? 1;
-
 	const ruleGroups = new Map<string, number>();
 	for (const i of issues)
 		ruleGroups.set(i.rule, (ruleGroups.get(i.rule) ?? 0) + 1);
@@ -151,6 +144,9 @@ export async function handleRefactor(
 	const metricsSummary = metrics
 		? `MI: ${metrics.mi.toFixed(1)}, Cognitive: ${metrics.cognitive}, Nesting: ${metrics.nesting}`
 		: "";
+
+	// First violation line for quick reference
+	const firstViolationLine = issues.length > 0 ? issues[0].line : null;
 
 	// --- Compact terminal summary ---
 	const topFiles = scored
@@ -181,13 +177,9 @@ export async function handleRefactor(
 		archIssues.length > 0
 			? `**Architectural rules violated**:\n${archSummary}`
 			: "",
+		firstViolationLine ? `First violation at line ${firstViolationLine}` : "",
 		"",
-		`**Code** (\`${relFile}\` lines ${snippetStart}–${snippetEnd}):`,
-		"```typescript",
-		snippet,
-		"```",
-		"",
-		`📄 Full ranked list: .pi-lens/reports/refactor-ranked.tsv (${scored.length} files)`,
+		`📄 Full details: .pi-lens/reports/refactor-ranked.tsv — read \`${relFile}\` when ready`,
 		"",
 		"**Your job**:",
 		"1. Analyze this code — what's the most impactful refactoring for this file?",
