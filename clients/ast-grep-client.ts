@@ -258,8 +258,17 @@ message: found
 		return exports;
 	}
 
-	formatMatches(matches: AstGrepMatch[], isDryRun = false): string {
-		return this.runner.formatMatches(matches as SgMatch[], isDryRun);
+	formatMatches(
+		matches: AstGrepMatch[],
+		isDryRun = false,
+		showModeIndicator = false,
+	): string {
+		return this.runner.formatMatches(
+			matches as SgMatch[],
+			isDryRun,
+			50,
+			showModeIndicator,
+		);
 	}
 
 	/**

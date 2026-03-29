@@ -840,11 +840,11 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const isDryRun = !apply;
-			let output = astGrepClient.formatMatches(result.matches, isDryRun);
-			if (isDryRun && result.matches.length > 0)
-				output += "\n\n(Dry run - use apply=true to apply)";
-			if (apply && result.matches.length > 0)
-				output = `Applied ${result.matches.length} replacements:\n${output}`;
+			const output = astGrepClient.formatMatches(
+				result.matches,
+				isDryRun,
+				true, // showModeIndicator
+			);
 
 			return {
 				content: [{ type: "text", text: output }],

@@ -162,8 +162,21 @@ export class SgRunner {
 	/**
 	 * Format matches for display
 	 */
-	formatMatches(matches: SgMatch[], isDryRun = false, maxItems = 50): string {
-		if (matches.length === 0) return "No matches found";
+	formatMatches(
+		matches: SgMatch[],
+		isDryRun = false,
+		maxItems = 50,
+		showModeIndicator = false,
+	): string {
+		if (matches.length === 0) {
+			if (showModeIndicator) {
+				return isDryRun
+					? "[DRY-RUN] No matches found."
+					: "[APPLIED] No changes made (no matches found).";
+			}
+			return "No matches found";
+		}
+
 		const shown = matches.slice(0, maxItems);
 		const lines = shown.map((m) => {
 			const loc = `${m.file}:${m.range.start.line + 1}:${m.range.start.column + 1}`;
@@ -172,11 +185,21 @@ export class SgRunner {
 				? `${loc}\n  - ${text}\n  + ${m.replacement}`
 				: `${loc}: ${text}`;
 		});
+
 		if (matches.length > maxItems) {
 			lines.unshift(
 				`Found ${matches.length} matches (showing first ${maxItems}):`,
 			);
 		}
+
+		if (showModeIndicator) {
+			const prefix = isDryRun ? "[DRY-RUN]" : "[APPLIED]";
+			const suffix = isDryRun
+				? "\n\n(Dry run — use apply=true to apply changes)"
+				: "";
+			return `${prefix} ${matches.length} replacement(s):\n\n${lines.join("\n")}${suffix}`;
+		}
+
 		return lines.join("\n");
 	}
 }
