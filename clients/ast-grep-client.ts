@@ -92,16 +92,17 @@ export class AstGrepClient {
 		pattern: string,
 		lang: string,
 		paths: string[],
+		options?: { selector?: string; context?: number },
 	): Promise<{ matches: AstGrepMatch[]; error?: string }> {
-		return this.runner.exec([
-			"run",
-			"-p",
-			pattern,
-			"--lang",
-			lang,
-			"--json=compact",
-			...paths,
-		]);
+		const args = ["run", "-p", pattern, "--lang", lang, "--json=compact"];
+		if (options?.selector) {
+			args.push("--selector", options.selector);
+		}
+		if (options?.context !== undefined) {
+			args.push("--context", String(options.context));
+		}
+		args.push(...paths);
+		return this.runner.exec(args);
 	}
 
 	/**

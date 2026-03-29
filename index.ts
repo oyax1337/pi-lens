@@ -707,7 +707,7 @@ export default function (pi: ExtensionAPI) {
 		name: "ast_grep_search",
 		label: "AST Search",
 		description:
-			"Search code using AST-aware pattern matching. IMPORTANT: Use specific AST patterns, NOT text search. Examples:\n- Find function: 'function $NAME() { $$$BODY }'\n- Find call: 'fetchMetrics($ARGS)'\n- Find import: 'import { $NAMES } from \"$PATH\"'\n- Generic identifier (broad): 'fetchMetrics'\n\nAlways prefer specific patterns with context over bare identifiers. Use 'paths' to scope to specific files/folders.",
+			"Search code using AST-aware pattern matching. IMPORTANT: Use specific AST patterns, NOT text search. Examples:\n- Find function: 'function $NAME() { $$$BODY }'\n- Find call: 'fetchMetrics($ARGS)'\n- Find import: 'import { $NAMES } from \"$PATH\"'\n- Generic identifier (broad): 'fetchMetrics'\n\nAlways prefer specific patterns with context over bare identifiers. Use 'paths' to scope to specific files/folders. Use 'selector' to extract specific nodes (e.g., just the function name). Use 'context' to show surrounding lines.",
 		promptSnippet: "Use ast_grep_search for AST-aware code search",
 		parameters: Type.Object({
 			pattern: Type.String({
@@ -720,6 +720,17 @@ export default function (pi: ExtensionAPI) {
 			paths: Type.Optional(
 				Type.Array(Type.String(), {
 					description: "Specific files/folders to search",
+				}),
+			),
+			selector: Type.Optional(
+				Type.String({
+					description:
+						"Extract specific AST node kind (e.g., 'name', 'body', 'parameter'). Use with patterns like '$NAME($$$)' to extract just the name.",
+				}),
+			),
+			context: Type.Optional(
+				Type.Number({
+					description: "Show N lines before/after each match for context",
 				}),
 			),
 		}),
@@ -737,13 +748,18 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			const { pattern, lang, paths } = params as {
+			const { pattern, lang, paths, selector, context } = params as {
 				pattern: string;
 				lang: string;
 				paths?: string[];
+				selector?: string;
+				context?: number;
 			};
 			const searchPaths = paths?.length ? paths : [ctx.cwd || "."];
-			const result = await astGrepClient.search(pattern, lang, searchPaths);
+			const result = await astGrepClient.search(pattern, lang, searchPaths, {
+				selector,
+				context,
+			});
 
 			if (result.error) {
 				return {
