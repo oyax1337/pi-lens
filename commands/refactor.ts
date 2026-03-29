@@ -103,6 +103,27 @@ export async function handleRefactor(
 		return;
 	}
 
+	// --- Write ranked list to TSV for agent reference ---
+	const reportDir = path.join(process.cwd(), ".pi-lens", "reports");
+	nodeFs.mkdirSync(reportDir, { recursive: true });
+	const reportPath = path.join(reportDir, "refactor-ranked.tsv");
+
+	const tsvRows: string[] = [
+		"rank\tfile\tscore\tmi\tcognitive\tnesting\tviolations",
+	];
+	scored.slice(0, 50).forEach((f, i) => {
+		const m = metricsByFile.get(f.file);
+		const skipCount = skipByFile.get(f.file)?.length ?? 0;
+		const archCount = architectViolations?.get(f.file)?.length ?? 0;
+		const totalViolations = skipCount + archCount;
+		const relPath = path.relative(targetPath, f.file).replace(/\\/g, "/");
+		tsvRows.push(
+			`${i + 1}\t${relPath}\t${f.score}\t${m?.mi.toFixed(1) ?? "-"}\t${m?.cognitive ?? "-"}\t${m?.nesting ?? "-"}\t${totalViolations}`,
+		);
+	});
+	nodeFs.writeFileSync(reportPath, tsvRows.join("\n"), "utf-8");
+
+	// --- Current worst offender ---
 	const { file: worstFile, score } = scored[0];
 	const relFile = path.relative(targetPath, worstFile).replace(/\\/g, "/");
 	const issues = skipByFile.get(worstFile) ?? [];
@@ -131,6 +152,24 @@ export async function handleRefactor(
 		? `MI: ${metrics.mi.toFixed(1)}, Cognitive: ${metrics.cognitive}, Nesting: ${metrics.nesting}`
 		: "";
 
+	// --- Compact terminal summary ---
+	const topFiles = scored
+		.slice(0, 5)
+		.map((f, i) => {
+			const name = path.relative(targetPath, f.file).replace(/\\/g, "/");
+			return `  ${i + 1}. ${name} (score: ${f.score})`;
+		})
+		.join("\n");
+
+	ctx.ui.notify(
+		`🏗️ Worst: ${relFile} (score: ${score}) — ${scored.length} files with debt`,
+		"info",
+	);
+	console.log(
+		`\n📊 Top ${Math.min(scored.length, 5)} worst offenders:\n${topFiles}\n📄 Full ranked list: .pi-lens/reports/refactor-ranked.tsv\n`,
+	);
+
+	// --- Steer message for agent ---
 	const steer = [
 		`🏗️ BOOBOO REFACTOR — worst offender identified`,
 		"",
@@ -147,6 +186,8 @@ export async function handleRefactor(
 		"```typescript",
 		snippet,
 		"```",
+		"",
+		`📄 Full ranked list: .pi-lens/reports/refactor-ranked.tsv (${scored.length} files)`,
 		"",
 		"**Your job**:",
 		"1. Analyze this code — what's the most impactful refactoring for this file?",
