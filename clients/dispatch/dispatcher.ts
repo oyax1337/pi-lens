@@ -266,15 +266,10 @@ export async function dispatchForFile(
 	);
 	const fixedItems = allDiagnostics.filter((d) => d.semantic === "fixed");
 
-	// Format output — only blocking issues shown inline (warnings are noise)
-	// Warnings are tracked and surfaced via /lens-booboo, not on every write
+	// Format output — only blocking issues shown inline
+	// Warnings tracked but not shown (noise) — surfaced via /lens-booboo
 	let output = formatDiagnostics(blockers, "blocking");
 	output += formatDiagnostics(fixedItems, "fixed");
-
-	// Add compact warning count if present (just a count, not details)
-	if (warnings.length > 0) {
-		output += `\n📊 +${warnings.length} warning(s) — run /lens-booboo to review\n`;
-	}
 
 	return {
 		diagnostics: allDiagnostics,
