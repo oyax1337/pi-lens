@@ -423,31 +423,45 @@ export async function handleBooboo(
 			const maxCognitive = Math.max(...results.map((r) => r.cognitiveComplexity));
 			const minMI = Math.min(...results.map((r) => r.maintainabilityIndex));
 
-			const lowMI = results
-				.filter((r) => r.maintainabilityIndex < 60 && !isTestFile(r.filePath))
+			// Only flag files with SEVERE issues (like type coverage < 90% threshold)
+			// MI < 40 is "unmaintainable" (not < 60 which is just "poor")
+			const severeLowMI = results
+				.filter((r) => r.maintainabilityIndex < 40 && !isTestFile(r.filePath))
 				.sort((a, b) => a.maintainabilityIndex - b.maintainabilityIndex);
-			const highCognitive = results
-				.filter((r) => r.cognitiveComplexity > 20 && !isTestFile(r.filePath))
+			// Cognitive > 30 is very high (not > 20 which is moderately complex)
+			const veryHighCognitive = results
+				.filter((r) => r.cognitiveComplexity > 30 && !isTestFile(r.filePath))
 				.sort((a, b) => b.cognitiveComplexity - a.cognitiveComplexity);
+			// Deep nesting > 5 levels is concerning
+			const deepNesting = results
+				.filter((r) => r.maxNestingDepth > 5 && !isTestFile(r.filePath))
+				.sort((a, b) => b.maxNestingDepth - a.maxNestingDepth);
 
 			let findings = 0;
 
-			if (lowMI.length > 0) {
-				findings += lowMI.length;
+			if (severeLowMI.length > 0) {
+				findings += severeLowMI.length;
 				summaryItems.push({
-					category: "Low MI",
-					count: lowMI.length,
-					severity: lowMI.some((f) => f.maintainabilityIndex < 20)
-						? "🔴"
-						: "🟡",
+					category: "Low Maintainability",
+					count: severeLowMI.length,
+					severity: "🔴",
 					fixable: false,
 				});
 			}
-			if (highCognitive.length > 0) {
-				findings += highCognitive.length;
+			if (veryHighCognitive.length > 0) {
+				findings += veryHighCognitive.length;
 				summaryItems.push({
-					category: "High Complexity",
-					count: highCognitive.length,
+					category: "Very High Complexity",
+					count: veryHighCognitive.length,
+					severity: "🔴",
+					fixable: true,
+				});
+			}
+			if (deepNesting.length > 0) {
+				findings += deepNesting.length;
+				summaryItems.push({
+					category: "Deep Nesting",
+					count: deepNesting.length,
 					severity: "🟡",
 					fixable: true,
 				});
@@ -472,29 +486,41 @@ export async function handleBooboo(
 			fullSection += `| Max Nesting Depth | ${maxNesting} |\n`;
 			fullSection += `| Total Files | ${results.length} |\n\n`;
 
-			if (lowMI.length > 0) {
-				fullSection += `### Low Maintainability (MI < 60)\n\n| File | MI | Cognitive | Cyclomatic | Nesting |\n|------|-----|-----------|------------|--------|\n`;
-				for (const f of lowMI) {
+			// Report severe issues (thresholds match findings count)
+			if (severeLowMI.length > 0) {
+				fullSection += `### Low Maintainability (MI < 40)\n\n| File | MI | Cognitive | Cyclomatic | Nesting |\n|------|-----|-----------|------------|--------|\n`;
+				for (const f of severeLowMI) {
 					fullSection += `| ${f.filePath} | ${f.maintainabilityIndex.toFixed(1)} | ${f.cognitiveComplexity} | ${f.cyclomaticComplexity} | ${f.maxNestingDepth} |\n`;
 				}
 				fullSection += "\n";
 			}
 
-			if (highCognitive.length > 0) {
-				fullSection += `### High Cognitive Complexity (> 20)\n\n| File | Cognitive | MI | Cyclomatic | Nesting |\n|------|-----------|-----|------------|--------|\n`;
-				for (const f of highCognitive) {
+			if (veryHighCognitive.length > 0) {
+				fullSection += `### Very High Cognitive Complexity (> 30)\n\n| File | Cognitive | MI | Cyclomatic | Nesting |\n|------|-----------|-----|------------|--------|\n`;
+				for (const f of veryHighCognitive) {
 					fullSection += `| ${f.filePath} | ${f.cognitiveComplexity} | ${f.maintainabilityIndex.toFixed(1)} | ${f.cyclomaticComplexity} | ${f.maxNestingDepth} |\n`;
 				}
 				fullSection += "\n";
 			}
 
-			fullSection += `### All Files\n\n| File | MI | Cognitive | Cyclomatic | Nesting | Entropy |\n|------|-----|-----------|------------|---------|--------|\n`;
-			for (const f of results.sort(
-				(a, b) => a.maintainabilityIndex - b.maintainabilityIndex,
-			)) {
-				fullSection += `| ${f.filePath} | ${f.maintainabilityIndex.toFixed(1)} | ${f.cognitiveComplexity} | ${f.cyclomaticComplexity} | ${f.maxNestingDepth} | ${f.codeEntropy.toFixed(2)} |\n`;
+			if (deepNesting.length > 0) {
+				fullSection += `### Deep Nesting (> 5 levels)\n\n| File | Nesting | Cognitive | MI |\n|------|---------|-----------|-----|\n`;
+				for (const f of deepNesting) {
+					fullSection += `| ${f.filePath} | ${f.maxNestingDepth} | ${f.cognitiveComplexity} | ${f.maintainabilityIndex.toFixed(1)} |\n`;
+				}
+				fullSection += "\n";
 			}
-			fullSection += "\n";
+
+			// Only show "All Files" table in verbose mode - it's informational noise
+			if (pi.getFlag("lens-verbose")) {
+				fullSection += `### All Files\n\n| File | MI | Cognitive | Cyclomatic | Nesting | Entropy |\n|------|-----|-----------|------------|---------|--------|\n`;
+				for (const f of results.sort(
+					(a, b) => a.maintainabilityIndex - b.maintainabilityIndex,
+				)) {
+					fullSection += `| ${f.filePath} | ${f.maintainabilityIndex.toFixed(1)} | ${f.cognitiveComplexity} | ${f.cyclomaticComplexity} | ${f.maxNestingDepth} | ${f.codeEntropy.toFixed(2)} |\n`;
+				}
+				fullSection += "\n";
+			}
 
 			if (aiSlopIssues.length > 0) {
 				fullSection += `### AI Slop Indicators\n\n`;

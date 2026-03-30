@@ -68,6 +68,7 @@ export async function handleFixFromBooboo(
 
 	let jsonFiles: string[] = [];
 	let detailedReport = "";
+	let reportRelPath = ""; // Will hold relative path to markdown report
 	
 	try {
 		const files = nodeFs.readdirSync(reviewDir);
@@ -82,17 +83,15 @@ export async function handleFixFromBooboo(
 		}
 
 		const latestReviewPath = path.join(reviewDir, jsonFiles[0]);
-		console.error(`[fix-from-booboo] Loading review: ${latestReviewPath}`);
 		
 		const fileContent = nodeFs.readFileSync(latestReviewPath, "utf-8");
-		console.error(`[fix-from-booboo] File size: ${fileContent.length} bytes`);
 		
 		latestReview = JSON.parse(fileContent) as BoobooReview;
-		console.error(`[fix-from-booboo] Parsed successfully, has meta: ${!!latestReview?.meta}`);
 		
 		// Load detailed markdown report for specific findings
 		const mdFile = jsonFiles[0].replace(".json", ".md");
 		const mdPath = path.join(reviewDir, mdFile);
+		reportRelPath = path.relative(targetPath, mdPath).replace(/\\/g, "/");
 		try {
 			detailedReport = nodeFs.readFileSync(mdPath, "utf-8");
 		} catch {
@@ -108,9 +107,6 @@ export async function handleFixFromBooboo(
 		ctx.ui.notify("❌ Failed to parse booboo review. Run `/lens-booboo` again.", "error");
 		return;
 	}
-
-	// Debug: log the structure we received
-	console.error("[fix-from-booboo] Review structure:", JSON.stringify(latestReview, null, 2).substring(0, 500));
 
 	// Check if meta exists
 	if (!latestReview.meta) {
@@ -354,29 +350,47 @@ export async function handleFixFromBooboo(
 
 	const message = outputParts.join("\n");
 	
-	// Send to agent with detailed tasks
+	// Always show summary to user in UI first
+	ctx.ui.notify(message, "info");
+	
+	// If there are agent tasks, also send a compact prompt to the agent
 	if (agentTasks.length > 0) {
-		let agentPrompt = message + "\n\n" + "=".repeat(50) + "\n\n";
-		agentPrompt += "**AGENT TASK QUEUE** - Work through these in priority order:\n\n";
+		// Sort by priority
+		agentTasks.sort((a, b) => a.priority - b.priority);
 		
-		for (let i = 0; i < agentTasks.length; i++) {
-			const task = agentTasks[i];
-			agentPrompt += `--- TASK ${i + 1}/${agentTasks.length} [${task.type.toUpperCase()}] ---\n`;
-			agentPrompt += task.prompt + "\n\n";
+		// Compact task list - just type and brief description
+		const compactTasks = agentTasks.map((t, i) => {
+			const briefDesc = t.type === "complexity" ? "reduce cognitive complexity" :
+				t.type === "architectural" ? "fix architectural violations" :
+				t.type === "dead-code" ? "remove unused code" :
+				t.type === "types" ? "add type annotations" :
+				t.type === "ast-grep" ? "fix design smells" : "fix issues";
+			return `${i + 1}. [P${t.priority}] ${t.type}: ${briefDesc}`;
+		}).join("\n");
+		
+		// Context-optimized prompt (~500 chars vs 4000+ before)
+		const agentPrompt = `🔧 /lens-booboo-fix: ${totalIssues} issues, ${fixableCount} fixable
+
+Auto-fixes: ${fixedCount > 0 ? `${fixedCount} issues fixed` : "none applied"}
+
+${agentTasks.length} tasks queued (priority order):
+${compactTasks}
+
+${deferredToRefactor.length > 0 ? `\nDeferred (${deferredToRefactor.length}): Use /lens-booboo-refactor for major structural changes\n` : ""}
+📄 Read ${reportRelPath} for detailed findings and file locations.
+
+Work through tasks in priority order (P1 highest). Read specific sections of the report as needed.`;
+		
+		try {
+			if (ctx.isIdle()) {
+				pi.sendUserMessage(agentPrompt);
+			} else {
+				pi.sendUserMessage(agentPrompt, { deliverAs: "steer" });
+			}
+		} catch (err) {
+			console.error("[fix-from-booboo] sendUserMessage failed:", err);
+			// Error already logged, UI already notified with summary
 		}
-		
-		agentPrompt += "**INSTRUCTIONS:**\n";
-		agentPrompt += "1. Start with Priority 1 tasks (dead code, AST-grep fixes)\n";
-		agentPrompt += "2. Then Priority 2 (complexity, architectural)\n";
-		agentPrompt += "3. Finally Priority 3 (type coverage)\n";
-		agentPrompt += "4. For each task: analyze the issue, propose a fix, and implement it\n";
-		agentPrompt += "5. Run tests after significant changes\n";
-		
-		pi.sendUserMessage(agentPrompt);
-	} else if (deferredToRefactor.length > 0 || informational.length > 0) {
-		pi.sendUserMessage(message);
-	} else {
-		ctx.ui.notify(message, "info");
 	}
 }
 
@@ -427,7 +441,8 @@ function extractComplexityFiles(section: string): Array<{file: string; cognitive
 			files.push({ file: match[1].trim(), cognitive: parseInt(match[2]) });
 		}
 	}
-	return files.filter(f => f.cognitive > 20).sort((a, b) => b.cognitive - a.cognitive);
+	// Match report threshold: Very High Cognitive Complexity (> 30)
+	return files.filter(f => f.cognitive > 30).sort((a, b) => b.cognitive - a.cognitive);
 }
 
 function extractDeadCodeItems(section: string): Array<{type: string; name: string; file?: string}> {

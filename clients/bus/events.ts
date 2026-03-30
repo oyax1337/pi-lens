@@ -7,8 +7,6 @@
  * - LSP clients publish LspDiagnostic events  
  * - Aggregators subscribe and build reports
  * - UI subscribes for real-time display
- * 
- * Reference: https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/lsp/index.ts
  */
 
 import { z } from "zod";
@@ -141,8 +139,6 @@ export const RunnerCompleted = BusEvent.define(
  * Fired when LSP publishes diagnostics
  * Published by: LSPClient (via textDocument/publishDiagnostics)
  * Subscribed by: diagnostic aggregator
- * 
- * Inspired by OpenCode: packages/opencode/src/lsp/client.ts
  */
 export const LspDiagnostic = BusEvent.define(
 	"lsp.diagnostic",

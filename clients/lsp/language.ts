@@ -2,7 +2,6 @@
  * Language ID Mappings for LSP
  * 
  * Maps file extensions to LSP language identifiers.
- * Based on OpenCode: packages/opencode/src/lsp/language.ts
  */
 
 export const LANGUAGE_EXTENSIONS: Record<string, string> = {

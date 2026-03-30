@@ -51,8 +51,8 @@ export interface FileArchitectResult {
 
 export class ArchitectClient {
 	private config: ArchitectConfig | null = null;
-	private configPath: string | null = null;
 	private isUserConfig: boolean = false;
+	private configPath: string | undefined;
 	private log: (msg: string) => void;
 
 	constructor(verbose = false) {

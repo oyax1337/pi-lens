@@ -5,8 +5,6 @@
  * - Concurrent runner execution
  * - Timeout handling
  * - Error recovery
- * 
- * Reference: https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/lsp/index.ts
  */
 
 import { Effect } from "effect";

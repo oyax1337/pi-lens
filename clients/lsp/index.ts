@@ -6,8 +6,6 @@
  * - Effect-TS service composition
  * - Bus event integration
  * - Resource cleanup
- * 
- * Based on OpenCode: packages/opencode/src/lsp/index.ts
  */
 
 import { Effect } from "effect";

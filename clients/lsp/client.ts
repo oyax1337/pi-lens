@@ -6,8 +6,6 @@
  * - Document synchronization (didOpen, didChange)
  * - Diagnostics with debouncing
  * - Request/response handling
- * 
- * Based on OpenCode: packages/opencode/src/lsp/client.ts
  */
 
 import {

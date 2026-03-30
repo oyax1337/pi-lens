@@ -1,11 +1,9 @@
 /**
  * Event Bus for pi-lens
  * 
- * Decoupled pub/sub system inspired by OpenCode's bus architecture.
+ * Decoupled pub/sub system for diagnostic events.
  * Enables loose coupling between diagnostic producers (runners, LSP clients)
  * and consumers (UI, aggregators, history trackers).
- * 
- * Reference: https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/bus/bus.ts
  */
 
 import type { z } from "zod";

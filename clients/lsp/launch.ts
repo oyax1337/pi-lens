@@ -5,8 +5,6 @@
  * - Direct binary execution
  * - Node.js scripts (npx/bun)
  * - Package manager execution
- * 
- * Based on OpenCode: packages/opencode/src/lsp/launch.ts
  */
 
 import { spawn, type SpawnOptions, type ChildProcess } from "child_process";

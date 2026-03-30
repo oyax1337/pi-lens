@@ -5,8 +5,6 @@
  * - Root detection (monorepo support)
  * - Auto-installation strategies
  * - Platform-specific handling
- * 
- * Based on OpenCode: packages/opencode/src/lsp/server.ts
  */
 
 import path from "path";
@@ -35,7 +33,6 @@ const __dirname = dirname(__filename);
 
 /**
  * Walk up the tree looking for project root markers
- * Inspired by OpenCode's NearestRoot function
  */
 export function createRootDetector(
 	includePatterns: string[],
