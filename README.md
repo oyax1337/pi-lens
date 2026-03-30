@@ -18,16 +18,71 @@ pi install git:github.com/apmantza/pi-lens
 
 ## Features
 
+### LSP Support (NEW) — 31 Language Servers
+
+Enable full Language Server Protocol support with `--lens-lsp`:
+
+| Category | Languages |
+|----------|-----------|
+| **Core** | TypeScript, Python, Go, Rust, Ruby, PHP, C#, F#, Java, Kotlin |
+| **Native** | C/C++, Zig, Swift, Haskell, OCaml, Lua, Dart |
+| **Functional** | Elixir, Gleam, Clojure, Haskell |
+| **DevOps** | Terraform, Nix, Docker, Bash |
+| **Config** | YAML, JSON, Prisma |
+| **Web** | Vue, Svelte, CSS/SCSS/Sass/Less |
+
+**Auto-installation:** When `--lens-lsp` is enabled, required language servers are automatically installed on first use (via npm/pip) to `.pi-lens/tools/`.
+
+**Usage:**
+```bash
+pi --lens-lsp                    # Enable LSP
+pi --lens-lsp --lens-effect      # LSP + concurrent execution
+pi --lens-lsp --lens-bus         # LSP + event bus diagnostics
+```
+
+**Custom servers:** Add your own LSP servers via `.pi-lens/lsp.json`:
+```json
+{
+  "servers": {
+    "graphql": {
+      "name": "GraphQL Language Server",
+      "extensions": [".graphql", ".gql"],
+      "command": "graphql-lsp",
+      "args": ["server", "--method=stream"]
+    }
+  }
+}
+```
+
+See [docs/LSP_CONFIG.md](docs/LSP_CONFIG.md) for full configuration guide.
+
+---
+
+### Architecture (Phases)
+
+pi-lens uses a modern event-driven architecture with three optional phases:
+
+| Phase | Flag | Description |
+|-------|------|-------------|
+| **Phase 1: Bus** | `--lens-bus` | Event-driven pub/sub for diagnostics |
+| **Phase 2: Effect** | `--lens-effect` | Concurrent runner execution with structured concurrency |
+| **Phase 3: LSP** | `--lens-lsp` | 31 Language Server Protocol clients |
+
+**Recommended:** `pi --lens-lsp --lens-effect` for best performance.
+
+---
+
 ### On every write / edit
 
-Every file write/edit triggers the **dispatcher-runner system** in delta mode:
+Every file write/edit triggers the **dispatcher-runner system**:
 
 **Execution flow:**
 1. **Secrets scan** (pre-flight) — Hardcoded secrets block immediately
-2. **Dispatch system** — Routes file to appropriate runners by `FileKind`
-3. **Structural patterns** (tree-sitter) — Fast AST-based checks (50ms)
-4. **Runners execute** by priority (5 → 50):
-   - TypeScript type-checking (`ts-lsp`)
+2. **LSP integration** (Phase 3, with `--lens-lsp`) — Real-time type errors from language servers
+3. **Dispatch system** — Routes file to appropriate runners by `FileKind`
+4. **Structural patterns** (tree-sitter) — Fast AST-based checks (50ms)
+5. **Runners execute** by priority (5 → 50):
+   - TypeScript type-checking (`ts-lsp` — built-in or LSP)
    - Python type-checking (`pyright`)
    - Linting (`biome`, `ruff`)
    - Structural analysis (`ast-grep-napi`, `ast-grep`)
@@ -35,6 +90,10 @@ Every file write/edit triggers the **dispatcher-runner system** in delta mode:
    - AI slop detection (`python-slop`)
    - Architecture rules (`architect`)
    - Go/Rust analysis (`go-vet`, `rust-clippy`)
+
+**With `--lens-effect`:** All independent runners execute concurrently via Effect-TS.
+
+**With `--lens-bus`:** Runners publish diagnostic events; aggregators build real-time reports.
 
 **Delta mode behavior:**
 - **First write:** All issues tracked and stored in baseline
@@ -89,17 +148,19 @@ Before the dispatch runners execute, pi-lens performs **fast structural analysis
 
 **Status:** Shows inline in tool results (non-blocking warnings). Also included in `/lens-booboo` reports.
 
+---
+
 ### At Session Start
 
 When pi starts a new session, pi-lens performs initialization scans to establish baselines and surface existing technical debt:
 
 **Initialization sequence:**
 1. **Reset session state** — Clear metrics and complexity baselines
-2. **Detect available tools** — Biome, ast-grep, Ruff, Knip, jscpd, Madge, type-coverage, Go, Rust
-3. **Load architect rules** — If `architect.yml` or `.architect.yml` present
-4. **Detect test runner** — Jest, Vitest, Pytest, etc.
-5. **Error ownership reminder** — "Fix errors even if you didn't cause them"
-6. **Scan project rules** — `.claude/rules/`, `.agents/rules/`, `CLAUDE.md`, `AGENTS.md`
+2. **Initialize LSP** (with `--lens-lsp`) — Detect and auto-install language servers
+3. **Initialize Bus** (with `--lens-bus`) — Start event aggregation
+4. **Detect available tools** — Biome, ast-grep, Ruff, Knip, jscpd, Madge, type-coverage, Go, Rust
+5. **Load architect rules** — If `architect.yml` or `.architect.yml` present
+6. **Detect test runner** — Jest, Vitest, Pytest, etc.
 
 **Cached scans** (with 5-min TTL):
 | Scan | Tool | Cached | Purpose |
@@ -114,6 +175,8 @@ When pi starts a new session, pi-lens performs initialization scans to establish
 - Blocks agent until tests pass again
 
 **Output:** Scan results appear in session startup notification
+
+---
 
 ### Code Review
 
@@ -147,48 +210,11 @@ Full codebase analysis with **10 tracked runners** producing a comprehensive rep
 /lens-booboo ./src        # Scan specific path
 ```
 
-### Automated Fixes (/lens-booboo-fix)
-
-```
-/lens-booboo-fix [--apply]
-```
-
-**Reads the latest `/lens-booboo` review and applies sequential fixes.**
-
-**Execution flow:**
-1. Load latest booboo review from `.pi-lens/reviews/booboo-{timestamp}.json`
-2. Apply Biome/Ruff auto-fixes for mechanical issues
-3. Report findings that need manual review (duplicates, complexity, dead code)
-4. Prompt AI to fix remaining structural issues
-
-**Fixes applied automatically:**
-- ✅ Biome formatting/lint fixes (JS/TS/JSON)
-- ✅ Ruff auto-fixes (Python)
-
-**Requires manual review:**
-- 🔧 AST-grep design smells (structural changes)
-- 🔧 Duplicate code blocks (extract shared logic)
-- 🔧 High complexity files (refactor needed)
-- 🗑️ Dead code (unused exports — safe to remove after review)
-
-**Prerequisite:** Must run `/lens-booboo` first to generate the review file.
-
 ---
 
 ### Delta Review (/lens-booboo-delta)
 
-```
-/lens-booboo-delta [path] [--apply]
-```
-
-**One-shot review of git-changed files only.**
-
-Unlike `/lens-booboo` (full codebase), this only scans files modified since the last commit:
-- Uses `git diff HEAD --name-only` to find changed files
-- Applies same 10-runner analysis but only on changed files
-- Faster for quick checks on work-in-progress
-
-**Use case:** Check your current work before committing, without scanning the entire codebase.
+> ⚠️ **DISABLED** — This command is currently disabled. Use `/lens-booboo` for code quality analysis.
 
 ---
 
@@ -221,13 +247,7 @@ Unlike `/lens-booboo` (full codebase), this only scans files modified since the 
 **Why only corresponding tests?**
 Running the full suite on every edit would be too slow. Targeted testing gives immediate feedback for the code being edited.
 
-### Interactive Refactoring
-
-```
-/lens-booboo-refactor
-```
-
-Interactive architectural refactoring session. Scans for worst offenders by debt score, opens browser interview with AI-generated options, and implements changes with user confirmation.
+---
 
 ### Complexity Metrics
 
@@ -252,6 +272,8 @@ pi-lens calculates comprehensive code quality metrics for every source file:
 - `/lens-booboo` — Shows complexity table for all files
 - `tool_result` — Complexity tracked per file, AI slop warnings inline
 
+---
+
 ### Delta-mode feedback
 
 All runners operate in **delta mode**:
@@ -262,6 +284,36 @@ All runners operate in **delta mode**:
 ---
 
 ## Architecture
+
+### Three-Phase System
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     PHASE 1: EVENT BUS                       │
+│  • Runners publish DiagnosticFound events                   │
+│  • Aggregators subscribe and build reports                  │
+│  • Real-time progress tracking                               │
+│  Flag: --lens-bus                                            │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     PHASE 2: EFFECT-TS                     │
+│  • Concurrent runner execution with Effect.all             │
+│  • Per-runner timeout handling (30s default)               │
+│  • Graceful error recovery                                   │
+│  Flag: --lens-effect                                         │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     PHASE 3: LSP                           │
+│  • 31 Language Server Protocol clients                       │
+│  • Auto-installation on first use                            │
+│  • Debounced diagnostics (150ms)                           │
+│  Flag: --lens-lsp                                            │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ### Runner System
 
@@ -354,12 +406,13 @@ pi-lens uses a **dispatcher-runner architecture** for extensible multi-language 
 ### JavaScript / TypeScript
 
 Fully supported with multiple runners:
-- TypeScript language server (type checking)
+- TypeScript language server (type checking) — **with `--lens-lsp`: typescript-language-server**
 - Biome (linting + formatting)
 - @ast-grep/napi (structural analysis, 100x faster than CLI)
 - Knip (dead code)
 - jscpd (duplicates)
 - type-coverage (`any` detection)
+- **LSP extras (with `--lens-lsp`):** ESLint, Vue, Svelte, CSS/SCSS
 
 ### Python
 
@@ -376,6 +429,40 @@ Fully supported with multiple runners:
 
 - `cargo clippy` (linting)
 - Full support via rust-clippy runner
+
+### Other Languages (with `--lens-lsp`)
+
+| Language | LSP Server | Auto-install |
+|----------|------------|--------------|
+| Ruby | ruby-lsp / solargraph | Manual |
+| PHP | intelephense | npm |
+| C# | csharp-ls | Manual |
+| F# | fsautocomplete | Manual |
+| Java | JDTLS | Manual |
+| Kotlin | kotlin-language-server | Manual |
+| Swift | sourcekit-lsp | Xcode required |
+| Dart | dart | SDK required |
+| Lua | lua-language-server | Manual |
+| C/C++ | clangd | Manual |
+| Zig | zls | Manual |
+| Haskell | haskell-language-server | Manual |
+| Elixir | elixir-ls | Manual |
+| Gleam | gleam | Manual |
+| OCaml | ocamllsp | Manual |
+| Clojure | clojure-lsp | Manual |
+| Terraform | terraform-ls | Manual |
+| Nix | nixd | Manual |
+| Bash | bash-language-server | npm |
+| Docker | dockerfile-language-server | npm |
+| YAML | yaml-language-server | npm |
+| JSON | vscode-json-languageserver | npm |
+| Prisma | @prisma/language-server | npm |
+| Vue | @vue/language-server | npm |
+| Svelte | svelte-language-server | npm |
+| ESLint | vscode-eslint | npm |
+| CSS/SCSS | vscode-css-languageserver | npm |
+
+**Auto-install:** Core tools (typescript-language-server, pyright, biome, etc.) auto-install when `--lens-lsp` is enabled. Others require manual installation.
 
 ---
 
@@ -420,13 +507,41 @@ pi-lens works out of the box for TypeScript/JavaScript. For full language suppor
 | Command | Status | Description |
 |---------|--------|-------------|
 | `/lens-booboo` | ✅ Active | Full codebase review (10-part analysis) |
-| `/lens-booboo-fix` | ✅ Active | Fix issues from last `/lens-booboo` review |
-| `/lens-booboo-delta` | ✅ Active | Review git-changed files only |
-| `/lens-booboo-refactor` | ✅ Active | Interactive architectural refactoring |
+| `/lens-booboo-fix` | ❌ Disabled | ~~Fix issues from last review~~ — use `/lens-booboo` |
+| `/lens-booboo-delta` | ❌ Disabled | ~~Review git-changed files~~ — use `/lens-booboo` |
+| `/lens-booboo-refactor` | ❌ Disabled | ~~Interactive refactoring~~ — use `/lens-booboo` |
 | `/lens-format` | ✅ Active | Apply Biome formatting |
 | `/lens-tdi` | ✅ Active | Technical Debt Index and trends |
 | `/lens-rate` | ⚠️ Deprecated | ~~Code quality score~~ — use `/lens-booboo` |
 | `/lens-metrics` | ⚠️ Deprecated | ~~Complexity metrics~~ — use `/lens-booboo` |
+
+---
+
+## Flags
+
+| Flag | Description |
+|------|-------------|
+| `--lens-verbose` | Enable console logging |
+| `--lens-lsp` | **Enable LSP** (31 language servers) |
+| `--lens-bus` | **Enable event bus** (diagnostic aggregation) |
+| `--lens-effect` | **Enable Effect-TS** (concurrent execution) |
+| `--lens-bus-debug` | Verbose bus event logging |
+| `--autofix-biome` | Auto-fix lint issues with Biome |
+| `--autofix-ruff` | Auto-fix lint issues with Ruff (Python) |
+| `--no-tests` | Disable test runner on write |
+| `--no-madge` | Skip circular dependency checks |
+| `--no-ast-grep` | Skip ast-grep structural analysis |
+| `--no-biome` | Skip Biome linting |
+| `--no-lsp` | Skip TypeScript/Python LSP type checking |
+| `--error-debt` | Track test regressions across sessions |
+
+**Recommended combinations:**
+```bash
+pi --lens-lsp                    # LSP only
+pi --lens-lsp --lens-effect      # LSP + concurrent execution
+pi --lens-lsp --lens-bus         # LSP + event tracking
+pi --lens-lsp --lens-effect --lens-bus  # Full stack
+```
 
 ---
 
@@ -484,7 +599,7 @@ Rules live in `rules/ast-grep-rules/rules/`. All rules are YAML files you can ed
 **Type Safety** (type-aware checks via `type-safety-client.ts`)
 `switch-exhaustiveness` — detects missing cases in union type switches (inline blocker)
 
-**Design Smells** (architectural — handled by `/lens-booboo-refactor`)
+**Design Smells** (architectural — handled by `/lens-booboo`)
 `long-method`, `long-parameter-list`, `large-class`
 
 **AI Slop Detection**
@@ -502,22 +617,6 @@ The LSP walks up from the edited file's directory until it finds a `tsconfig.jso
 - `strict: true`
 
 The compiler options are refreshed automatically when you switch between projects within a session.
-
----
-
-## Flags
-
-| Flag | Description |
-|------|-------------|
-| `--lens-verbose` | Enable console logging |
-| `--autofix-biome` | Auto-fix lint issues with Biome |
-| `--autofix-ruff` | Auto-fix lint issues with Ruff (Python) |
-| `--no-tests` | Disable test runner on write |
-| `--no-madge` | Skip circular dependency checks |
-| `--no-ast-grep` | Skip ast-grep structural analysis |
-| `--no-biome` | Skip Biome linting |
-| `--no-lsp` | Skip TypeScript/Python LSP type checking |
-| `--error-debt` | Track test regressions across sessions |
 
 ---
 
@@ -692,28 +791,42 @@ Tracks which files were edited in the current agent turn for:
 ```
 pi-lens/
 ├── clients/              # Lint tool wrappers and utilities
+│   ├── bus/              # Event bus system (Phase 1)
+│   │   ├── bus.ts
+│   │   ├── events.ts
+│   │   └── integration.ts
 │   ├── dispatch/         # Dispatcher and runners
 │   │   ├── dispatcher.ts
 │   │   └── runners/      # Individual runners
 │   │       ├── ast-grep-napi.ts      # Fast TS/JS runner
 │   │       ├── python-slop.ts        # Python slop detection
-│   │       ├── ts-slop.ts            # TS slop (CLI fallback)
+│   │       ├── ts-lsp.ts             # TS type checking
 │   │       ├── biome.ts
 │   │       ├── ruff.ts
 │   │       ├── pyright.ts
 │   │       ├── go-vet.ts
 │   │       └── rust-clippy.ts
+│   ├── lsp/              # LSP client system (Phase 3)
+│   │   ├── client.ts
+│   │   ├── server.ts     # 31 LSP server definitions
+│   │   ├── language.ts
+│   │   ├── launch.ts
+│   │   └── config.ts     # Custom LSP configuration
+│   ├── installer/          # Auto-installation (Phase 4)
+│   │   └── index.ts
+│   ├── services/           # Effect-TS services (Phase 2)
+│   │   ├── runner-service.ts
+│   │   └── effect-integration.ts
 │   ├── complexity-client.ts
 │   ├── type-safety-client.ts
 │   └── secrets-scanner.ts
 ├── commands/             # pi commands
 │   ├── booboo.ts
-│   ├── fix-simplified.ts
-│   └── lens-booboo.ts
+│   └── fix-simplified.ts
+├── docs/                 # Documentation
+│   └── LSP_CONFIG.md     # LSP configuration guide
 ├── rules/                # AST-grep rules
-│   ├── ast-grep-rules/   # General structural rules
-│   ├── ts-slop-rules/    # TypeScript slop patterns
-│   └── python-slop-rules/# Python slop patterns
+│   └── ast-grep-rules/   # General structural rules
 ├── index.ts              # Main entry point
 └── package.json
 ```
@@ -726,9 +839,12 @@ See [CHANGELOG.md](CHANGELOG.md) for full history.
 
 ### Latest Highlights
 
+- **LSP Support:** 31 Language Server Protocol clients with auto-installation
+- **Event Bus:** Decoupled pub/sub for diagnostic events
+- **Effect-TS:** Concurrent runner execution with structured concurrency
 - **NAPI Runner:** 100x faster TypeScript/JavaScript analysis (~9ms vs ~1200ms)
 - **Slop Detection:** 30+ TypeScript and 40+ Python patterns for AI-generated code quality issues
-- **Deprecated Commands:** `/lens-rate` and `/lens-metrics` deprecated in favor of `/lens-booboo`
+- **Disabled Commands:** `/lens-booboo-fix`, `/lens-booboo-delta`, `/lens-booboo-refactor` disabled in favor of `/lens-booboo`
 
 ---
 
