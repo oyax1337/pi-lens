@@ -58,7 +58,7 @@ export class SgRunner {
 
 			const proc = fullCommand
 				? spawn(fullCommand, { stdio: ["ignore", "pipe", "pipe"], shell: true })
-				: spawn("npx", ["sg", ...args], { stdio: ["ignore", "pipe", "pipe"] });
+				: spawn(process.platform === "win32" ? "npx.cmd" : "npx", ["sg", ...args], { stdio: ["ignore", "pipe", "pipe"] });
 
 			let stdout = "";
 			let stderr = "";

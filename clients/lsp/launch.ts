@@ -34,13 +34,24 @@ export function launchLSP(
 	const cwd = options.cwd ?? process.cwd();
 	const env = { ...process.env, ...options.env };
 
-	const proc = spawn(command, args, {
-		cwd,
-		env,
-		stdio: ["pipe", "pipe", "pipe"],
-		detached: false,
-		windowsHide: true,
-	});
+	const isWindows = process.platform === "win32";
+
+	const proc = isWindows
+		? spawn(`${command} ${args.map(a => a.includes(" ") ? `"${a}"` : a).join(" ")}`, [], {
+				cwd,
+				env,
+				stdio: ["pipe", "pipe", "pipe"],
+				detached: false,
+				windowsHide: true,
+				shell: true,
+			})
+		: spawn(command, args, {
+				cwd,
+				env,
+				stdio: ["pipe", "pipe", "pipe"],
+				detached: false,
+				windowsHide: true,
+			});
 
 	if (!proc.stdin || !proc.stdout || !proc.stderr) {
 		throw new Error(`Failed to spawn LSP server: ${command}`);
@@ -63,10 +74,11 @@ export function launchViaPackageManager(
 	args: string[] = [],
 	options: SpawnOptions = {}
 ): LSPProcess {
-	// Prefer bun if available, fall back to npx
-	const manager = process.env.BUN_INSTALL 
-		? { cmd: "bun", args: ["x", packageName, ...args] }
-		: { cmd: "npx", args: ["-y", packageName, ...args] };
+	// Prefer bun if available, fall back to npx (use .cmd on Windows)
+	const isWindows = process.platform === "win32";
+	const manager = process.env.BUN_INSTALL
+		? { cmd: isWindows ? "bun.exe" : "bun", args: ["x", packageName, ...args] }
+		: { cmd: isWindows ? "npx.cmd" : "npx", args: ["-y", packageName, ...args] };
 
 	return launchLSP(manager.cmd, manager.args, options);
 }
@@ -90,7 +102,9 @@ export function launchViaPython(
 	args: string[] = [],
 	options: SpawnOptions = {}
 ): LSPProcess {
-	return launchLSP("python", ["-m", moduleName, ...args], options);
+	// On Windows, prefer 'py' launcher, fall back to 'python'
+	const pythonCmd = process.platform === "win32" ? "py" : "python3";
+	return launchLSP(pythonCmd, ["-m", moduleName, ...args], options);
 }
 
 /**

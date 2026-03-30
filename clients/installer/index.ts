@@ -36,6 +36,7 @@ import { spawn } from "child_process";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { findCommand } from "../safe-spawn.js";
 
 // Global installation directory for pi-lens tools
 const TOOLS_DIR = path.join(process.cwd(), ".pi-lens", "tools");
@@ -197,7 +198,11 @@ async function isCommandAvailable(
 	args: string[] = ["--version"]
 ): Promise<boolean> {
 	return new Promise((resolve) => {
-		const proc = spawn(command, args, { stdio: "ignore" });
+		// On Windows, use shell: true to handle .cmd files
+		const isWindows = process.platform === "win32";
+		const proc = isWindows
+			? spawn(`${command} ${args.join(" ")}`, [], { stdio: "ignore", shell: true })
+			: spawn(command, args, { stdio: "ignore" });
 		proc.on("exit", (code) => resolve(code === 0));
 		proc.on("error", () => resolve(false));
 	});
@@ -271,8 +276,11 @@ async function installNpmTool(
 			);
 		}
 
-		// Install via npm or bun
-		const pm = process.env.BUN_INSTALL ? "bun" : "npm";
+		// Install via npm or bun (use .cmd on Windows)
+		const isWindows = process.platform === "win32";
+		const pm = process.env.BUN_INSTALL
+			? isWindows ? "bun.exe" : "bun"
+			: isWindows ? "npm.cmd" : "npm";
 		const proc = spawn(pm, ["install", packageName], {
 			cwd: TOOLS_DIR,
 			stdio: ["ignore", "pipe", "pipe"],
