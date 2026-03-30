@@ -383,6 +383,58 @@ Scans file content for potential secrets using regex patterns:
 
 ---
 
+## Exclusion Criteria
+
+pi-lens automatically excludes certain files from analysis to reduce noise and focus on production code.
+
+### Test Files
+
+All runners respect test file exclusions — both in the dispatch system (`skipTestFiles: true`) and the `/lens-booboo` command.
+
+**Excluded patterns:**
+```
+**/*.test.ts      **/*.test.tsx      **/*.test.js      **/*.test.jsx
+**/*.spec.ts      **/*.spec.tsx      **/*.spec.js      **/*.spec.jsx
+**/*.poc.test.ts  **/*.poc.test.tsx
+**/test-utils.ts  **/test-*.ts
+**/__tests__/**  **/tests/**  **/test/**
+```
+
+**Why:** Test files intentionally duplicate patterns (test fixtures, mock setups) and have different complexity standards. Including them creates false positives.
+
+### Build Artifacts (TypeScript Projects)
+
+In TypeScript projects (detected by `tsconfig.json` presence), compiled `.js` files are excluded:
+
+```
+**/*.js   **/*.jsx   (when corresponding .ts/.tsx exists)
+```
+
+**Why:** In TS projects, `.js` files are build artifacts. Analyzing them duplicates every issue (once in source `.ts`, once in compiled `.js`).
+
+**Note:** In pure JavaScript projects (no `tsconfig.json`), `.js` files are **included** as they are the source files.
+
+### Excluded Directories
+
+| Directory | Reason |
+|-----------|--------|
+| `node_modules/` | Third-party dependencies |
+| `.git/` | Version control metadata |
+| `dist/`, `build/` | Build outputs |
+| `.pi-lens/`, `.pi/` | pi agent internal files |
+| `.next/`, `.ruff_cache/` | Framework/build caches |
+| `coverage/` | Test coverage reports |
+
+### Per-Runner Exclusion Summary
+
+| Runner | Test Files | Build Artifacts | Directories |
+|--------|-----------|-----------------|-------------|
+| **dispatch runners** | ✅ `skipTestFiles` | ✅ `.js` excluded in TS | ✅ `EXCLUDED_DIRS` |
+| **booboo /lens-booboo** | ✅ `shouldIncludeFile()` | ✅ `isTsProject` check | ✅ `EXCLUDED_DIRS` |
+| **Secrets scan** | ❌ No exclusion (security) | ❌ No exclusion | ✅ Dirs excluded |
+
+---
+
 ## Caching Architecture
 
 pi-lens uses a multi-layer caching strategy to avoid redundant work:
