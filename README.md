@@ -90,23 +90,28 @@ pi-lens uses a **dispatcher-runner architecture** for extensible multi-language 
 
 ### Available Runners
 
-| Runner | Language | Priority | Mode | Description |
-|--------|----------|----------|------|-------------|
-| **ts-lsp** | TypeScript | 5 | Pre-write | TypeScript language server protocol checks |
-| **pyright** | Python | 5 | Pre-write | Python type checking |
-| **biome** | TS/JS | 10 | Pre-write | Linting and formatting |
-| **ruff** | Python | 10 | Pre-write | Python linting |
-| **ast-grep-napi** | TS/JS | 15 | Pre-write | **100x faster** structural analysis via @ast-grep/napi |
-| **python-slop** | Python | 25 | Pre-write | AI slop detection (~40 patterns) |
-| **go-vet** | Go | 20 | Pre-write | Go static analysis |
-| **rust-clippy** | Rust | 20 | Pre-write | Rust linting |
-| **ast-grep-cli** | All | 30 | Post-write | Fallback structural analysis |
-| **secrets** | All | - | Pre-write | Secret scanning in any file type |
+| Runner | Language | Priority | Output | Description |
+|--------|----------|----------|--------|-------------|
+| **ts-lsp** | TypeScript | 5 | Blocking | TypeScript errors (hard stops) |
+| **pyright** | Python | 5 | Blocking | Python type errors (hard stops) |
+| **biome** | TS/JS | 10 | Warning | Linting issues (delta-tracked) |
+| **ruff** | Python | 10 | Warning | Python linting (delta-tracked) |
+| **ast-grep-napi** | TS/JS | 15 | Warning | **100x faster** structural analysis |
+| **python-slop** | Python | 25 | Warning | AI slop detection (~40 patterns) |
+| **go-vet** | Go | 20 | Warning | Go static analysis |
+| **rust-clippy** | Rust | 20 | Warning | Rust linting |
+| **similarity** | TS | 35 | Silent | Semantic duplicate detection (metrics only) |
+| **architect** | All | 40 | Warning | Architectural rule violations |
+| **secrets** | All | - | Blocking | Secret scanning (hard stops) |
+| **type-safety** | TS | 20 | Mixed | Switch exhaustiveness (blocking), other (warning) |
 
-### Runner Modes
+> **Note:** `ts-slop` and `ast-grep-cli` runners are disabled — functionality merged into `ast-grep-napi` (100x faster).
 
-- **Pre-write:** Runs before file is saved (blocking)
-- **Post-write:** Runs after file is saved (non-blocking, delta mode)
+### Runner Output Semantics
+
+- **Blocking:** Hard stop — agent must fix before continuing (🔴 STOP)
+- **Warning:** Tracked in delta mode, surfaced via `/lens-booboo` (not inline to reduce noise)
+- **Delta mode:** Only NEW issues since turn start are tracked (pre-existing issues don't spam)
 
 ---
 
