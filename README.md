@@ -20,14 +20,33 @@ pi install git:github.com/apmantza/pi-lens
 
 ### On every write / edit
 
-Every file write is automatically checked. Blocking issues appear inline:
+Every file write/edit triggers the **dispatcher-runner system** in delta mode:
 
+**Execution flow:**
+1. **Secrets scan** (pre-flight) — Hardcoded secrets block immediately
+2. **Dispatch system** — Routes file to appropriate runners by `FileKind`
+3. **Runners execute** by priority (5 → 50):
+   - TypeScript type-checking (`ts-lsp`)
+   - Python type-checking (`pyright`)
+   - Linting (`biome`, `ruff`)
+   - Structural analysis (`ast-grep-napi`, `ast-grep`)
+   - Type safety (`type-safety`)
+   - AI slop detection (`python-slop`)
+   - Architecture rules (`architect`)
+   - Go/Rust analysis (`go-vet`, `rust-clippy`)
+
+**Delta mode behavior:**
+- **First write:** All issues tracked and stored in baseline
+- **Subsequent edits:** Only **NEW** issues shown (pre-existing issues filtered out)
+- **Goal:** Don't spam agent with issues they didn't cause
+
+**Output shown inline:**
 ```
 🔴 STOP — 1 issue(s) must be fixed:
   L23: var total = sum(items); — use 'let' or 'const'
 ```
 
-**Runners:** TypeScript type-checking, Python type-checking (pyright), linting (ruff, biome), secrets scan, architectural rules, slop detection.
+> **Note:** Only **blocking** issues (`ts-lsp`, `pyright` errors, `type-safety` switch errors, secrets) appear inline. Warnings are tracked but not shown inline (noise reduction) — run `/lens-booboo` to see all warnings.
 
 ### Automated Fixes
 
