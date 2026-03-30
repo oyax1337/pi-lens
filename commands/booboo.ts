@@ -122,7 +122,7 @@ export async function handleBooboo(
 	const tracker = new RunnerTracker({
 		onProgress: (runner, index) => {
 			ctx.ui.notify(
-				`🔍 [${index + 1}/9] ${runner.name}...`,
+				`🔍 [${index + 1}/10] ${runner.name}...`,
 				"info",
 			);
 		},
