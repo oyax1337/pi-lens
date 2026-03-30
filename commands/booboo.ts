@@ -100,9 +100,25 @@ export async function handleBooboo(
 					"--globs",
 					"!**/*.spec.ts",
 					"--globs",
+					"!**/*.poc.test.ts",
+					"--globs",
 					"!**/test-utils.ts",
 					"--globs",
+					"!**/test-*.ts",
+					"--globs",
+					"!**/__tests__/**",
+					"--globs",
+					"!**/tests/**",
+					"--globs",
 					"!**/.pi-lens/**",
+					"--globs",
+					"!**/.pi/**",
+					"--globs",
+					"!**/node_modules/**",
+					"--globs",
+					"!**/.git/**",
+					"--globs",
+					"!**/.ruff_cache/**",
 					targetPath,
 				],
 				{
@@ -538,11 +554,29 @@ export async function handleBooboo(
 							"build",
 							".next",
 							".pi-lens",
+							".pi",
+							".ruff_cache",
+							"__tests__",
+							"tests",
+							"test",
+							"venv",
+							".venv",
+							"coverage",
+							"__pycache__",
 						].includes(entry.name)
 					)
 						continue;
 					archScanDir(full);
 				} else if (/\.(ts|tsx|js|jsx|py|go|rs)$/.test(entry.name)) {
+					// Skip test files
+					if (
+						entry.name.includes(".test.") ||
+						entry.name.includes(".spec.") ||
+						entry.name.includes(".poc.") ||
+						entry.name.startsWith("test-") ||
+						entry.name.includes("test-utils")
+					)
+						continue;
 					const relPath = path.relative(targetPath, full).replace(/\\/g, "/");
 					const content = nodeFs.readFileSync(full, "utf-8");
 					const lineCount = content.split("\n").length;
