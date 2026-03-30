@@ -11,6 +11,7 @@ import type { ComplexityClient } from "../clients/complexity-client.js";
 import type { DependencyChecker } from "../clients/dependency-checker.js";
 import type { JscpdClient } from "../clients/jscpd-client.js";
 import type { KnipClient } from "../clients/knip-client.js";
+import { EXCLUDED_DIRS, isTestFile } from "../clients/file-utils.js";
 import {
 	buildProjectIndex,
 	type ProjectIndex,
@@ -546,37 +547,12 @@ export async function handleBooboo(
 			for (const entry of nodeFs.readdirSync(dir, { withFileTypes: true })) {
 				const full = path.join(dir, entry.name);
 				if (entry.isDirectory()) {
-					if (
-						[
-							"node_modules",
-							".git",
-							"dist",
-							"build",
-							".next",
-							".pi-lens",
-							".pi",
-							".ruff_cache",
-							"__tests__",
-							"tests",
-							"test",
-							"venv",
-							".venv",
-							"coverage",
-							"__pycache__",
-						].includes(entry.name)
-					)
-						continue;
+					// Use centralized exclusions from file-utils
+					if (EXCLUDED_DIRS.includes(entry.name)) continue;
 					archScanDir(full);
 				} else if (/\.(ts|tsx|js|jsx|py|go|rs)$/.test(entry.name)) {
-					// Skip test files
-					if (
-						entry.name.includes(".test.") ||
-						entry.name.includes(".spec.") ||
-						entry.name.includes(".poc.") ||
-						entry.name.startsWith("test-") ||
-						entry.name.includes("test-utils")
-					)
-						continue;
+					// Skip test files using centralized checker
+					if (isTestFile(full)) continue;
 					const relPath = path.relative(targetPath, full).replace(/\\/g, "/");
 					const content = nodeFs.readFileSync(full, "utf-8");
 					const lineCount = content.split("\n").length;
