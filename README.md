@@ -131,15 +131,22 @@ Sequential automated fixing:
 **Behavior:**
 - **On file write:** Detects corresponding test file and runs it
 - **Pattern matching:** `file.ts` → `file.test.ts` or `__tests__/file.test.ts`
-- **Output:** Inline pass/fail with failure details
+- **Output:** Inline pass/fail with failure details (shown with lint results)
 - **Flag:** Use `--no-tests` to disable automatic test running
 
-**Example output:**
+**Execution flow:**
+1. Agent writes `src/utils.ts`
+2. pi-lens finds `src/utils.test.ts` (or `__tests__/utils.test.ts`)
+3. Runs only that test file (not full suite)
+4. Results appear inline:
 ```
 [tests] 3 passed, 1 failed (42ms)
   ✓ should calculate total
   ✗ should handle empty array (expected 0, got undefined)
 ```
+
+**Why only corresponding tests?**
+Running the full suite on every edit would be too slow. Targeted testing gives immediate feedback for the code being edited.
 
 ### Interactive Refactoring
 
