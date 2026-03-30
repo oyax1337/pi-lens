@@ -338,10 +338,10 @@ export async function handleBooboo(
 		const minMI = Math.min(...results.map((r) => r.maintainabilityIndex));
 
 		const lowMI = results
-			.filter((r) => r.maintainabilityIndex < 60)
+			.filter((r) => r.maintainabilityIndex < 60 && !isTestFile(r.filePath))
 			.sort((a, b) => a.maintainabilityIndex - b.maintainabilityIndex);
 		const highCognitive = results
-			.filter((r) => r.cognitiveComplexity > 20)
+			.filter((r) => r.cognitiveComplexity > 20 && !isTestFile(r.filePath))
 			.sort((a, b) => b.cognitiveComplexity - a.cognitiveComplexity);
 
 		let _summary = `[Complexity] ${results.length} file(s) scanned\n`;
@@ -509,30 +509,46 @@ export async function handleBooboo(
 	const dupeCount = summaryItems.find(s => s.category === "Duplicates")?.count ?? 0;
 	ctx.ui.notify(`✓ Part 6: Duplicate code (${dupeCount} blocks)`, "info");
 
-	// Part 7: Type coverage
+	// Part 7: Type coverage (report as percentage, not individual any types)
 	if (clients.typeCoverage.isAvailable()) {
 		const tcResult = clients.typeCoverage.scan(targetPath);
 		if (tcResult.percentage < 100) {
-			const untyped = tcResult.total - tcResult.typed;
+			// Count files with <90% coverage instead of individual any types
+			const filesWithLowCoverage = new Set(
+				tcResult.untypedLocations
+					.filter(() => tcResult.percentage < 90)
+					.map(u => u.file)
+			).size;
 			summaryItems.push({
-				category: "Untyped",
-				count: untyped,
+				category: "Type Coverage",
+				count: filesWithLowCoverage || 1, // At least 1 if any issues
 				severity: tcResult.percentage < 90 ? "🟡" : "ℹ️",
 				fixable: false,
 			});
 			let fullSection = `## Type Coverage\n\n**${tcResult.percentage.toFixed(1)}% typed** (${tcResult.typed}/${tcResult.total} identifiers)\n\n`;
-			if (tcResult.untypedLocations.length > 0) {
-				fullSection += `### Untyped Identifiers\n\n| File | Line | Column | Name |\n|------|------|--------|------|\n`;
-				for (const u of tcResult.untypedLocations) {
-					fullSection += `| ${u.file} | ${u.line} | ${u.column} | ${u.name} |\n`;
+			// Group by file and show top 10 files only
+			const byFile: Record<string, number> = {};
+			for (const u of tcResult.untypedLocations) {
+				byFile[u.file] = (byFile[u.file] || 0) + 1;
+			}
+			const sortedFiles = Object.entries(byFile)
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 10);
+			if (sortedFiles.length > 0) {
+				fullSection += `### Top Files by Untyped Count\n\n| File | Untyped Count |\n|------|---------------|\n`;
+				for (const [file, count] of sortedFiles) {
+					fullSection += `| ${file} | ${count} |\n`;
+				}
+				if (Object.keys(byFile).length > 10) {
+					fullSection += `| ... | +${Object.keys(byFile).length - 10} more files |\n`;
 				}
 			}
 			fullSection += "\n";
 			fullReport.push(fullSection);
 		}
 	}
-	const typeCoverageCount = summaryItems.find(s => s.category === "Untyped")?.count ?? 0;
-	ctx.ui.notify(`✓ Part 7: Type coverage (${typeCoverageCount} untyped)`, "info");
+	const typeCoverageCount = summaryItems.find(s => s.category === "Type Coverage")?.count ?? 0;
+	ctx.ui.notify(`✓ Part 7: Type coverage (${typeCoverageCount} files low)`, "info");
 
 	// Part 8: Circular deps
 	if (!pi.getFlag("no-madge") && clients.depChecker.isAvailable()) {
