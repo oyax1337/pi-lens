@@ -9,7 +9,7 @@ Real-time code quality feedback for [pi](https://github.com/mariozechner/pi-codi
 2. **Scans for secrets** — blocks on hardcoded API keys, tokens, passwords
 3. **Runs linters** — Biome (TS/JS), Ruff (Python), plus structural analysis
 4. **Detects code smells** — empty catch blocks, debuggers, nested ternaries, etc.
-5. **Only shows NEW issues** — filters out pre-existing problems so you don't get spammed
+5. **Only shows NEW issues** — delta-mode tracks baselines and filters pre-existing problems (reduces noise)
 
 **Blocking issues** (type errors, secrets) appear inline and stop the agent until fixed. **Warnings** are tracked but hidden inline — run `/lens-booboo` to see them all.
 
@@ -19,8 +19,7 @@ Real-time code quality feedback for [pi](https://github.com/mariozechner/pi-codi
 # Install
 pi install npm:pi-lens
 
-# Standard mode (TypeScript/Python built-in type checking)
-pi
+# Standard mode (built-in TypeScript type-checking, Python via pyright CLI)
 
 # Full LSP mode (31 language servers)
 pi --lens-lsp
