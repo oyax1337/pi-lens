@@ -58,6 +58,8 @@ jscpd-report.json
 # Local development tracking files
 featurestoadd.md
 OPENCODE_GAP_ANALYSIS.md
+OPENCODE_GAP_ANALYSIS_CORRECTED.md
+STYLE_GUIDE_IDEAS.md
 refactoring.md
 newfeatures.md
 plan-reuse.md
