@@ -55,4 +55,10 @@ jscpd-report.json
 
 # docs folder entirely
 docs/
+# Test artifacts
+test-*.ts
+test-*.js
+test-*.md
+test-*.sh
 test-filetime/
+
