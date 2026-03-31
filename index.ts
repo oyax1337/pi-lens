@@ -44,7 +44,6 @@ import { formatSecrets, scanForSecrets } from "./clients/secrets-scanner.js";
 import { dispatchLintWithEffect } from "./clients/services/effect-integration.js";
 import { TestRunnerClient } from "./clients/test-runner-client.js";
 import { TodoScanner } from "./clients/todo-scanner.js";
-import { TreeSitterClient } from "./clients/tree-sitter-client.js";
 import { TypeCoverageClient } from "./clients/type-coverage-client.js";
 import { TypeScriptClient } from "./clients/typescript-client.js";
 import { handleBooboo } from "./commands/booboo.js";
@@ -1174,74 +1173,6 @@ export default function (pi: ExtensionAPI) {
 							lspOutput += `\n\n${testOutput}`;
 						}
 					}
-				}
-			}
-		}
-
-		// --- Tree-sitter structural patterns (post-write check) ---
-		// Lightweight check for complex patterns ast-grep struggles with
-		if (
-			fileContent &&
-			(filePath.endsWith(".ts") ||
-				filePath.endsWith(".tsx") ||
-				filePath.endsWith(".js"))
-		) {
-			const treeSitterClient = new TreeSitterClient();
-			if (treeSitterClient.isAvailable()) {
-				await treeSitterClient.init();
-				const languageId = filePath.endsWith(".tsx")
-					? "tsx"
-					: filePath.endsWith(".ts")
-						? "typescript"
-						: "javascript";
-
-				const structuralIssues: string[] = [];
-
-				// Quick check 1: Promise chain depth (more than 2 levels)
-				const promiseMatches = await treeSitterClient.structuralSearch(
-					"$PROMISE.then($$$H1).catch($$$H2).then($$$H3)",
-					languageId,
-					path.dirname(filePath),
-					{ maxResults: 5, fileFilter: (f) => f === filePath },
-				);
-				if (promiseMatches.length > 0) {
-					structuralIssues.push(
-						`Deep promise chain (3+ levels) - consider async/await`,
-					);
-				}
-
-				// Quick check 2: Mixed async/await + .then()
-				const asyncMatches = await treeSitterClient.structuralSearch(
-					"async function $NAME($$$PARAMS) { $BODY }",
-					languageId,
-					path.dirname(filePath),
-					{ maxResults: 10, fileFilter: (f) => f === filePath },
-				);
-				for (const match of asyncMatches) {
-					const body = match.captures.BODY || "";
-					if (body.includes("await") && body.match(/\.\s*then\s*\(/)) {
-						structuralIssues.push(
-							`Mixed async/await + promise chains - use consistent async style`,
-						);
-						break; // Only report once per file
-					}
-				}
-
-				// Quick check 3: Deep nesting (3+ levels)
-				const nestingMatches = await treeSitterClient.structuralSearch(
-					"if ($C1) { if ($C2) { if ($C3) { $$$BODY } } }",
-					languageId,
-					path.dirname(filePath),
-					{ maxResults: 3, fileFilter: (f) => f === filePath },
-				);
-				if (nestingMatches.length > 0) {
-					structuralIssues.push(
-						`Deep nesting (3+ levels) - consider early returns`,
-					);
-				}
-
-				if (structuralIssues.length > 0) {
-					lspOutput += `\n\n🔍 Structural Patterns:\n${structuralIssues.map((i) => `  ⚠️ ${i}`).join("\n")}`;
 				}
 			}
 		}

@@ -173,10 +173,9 @@ Every file write/edit triggers multiple analysis phases:
 2. **LSP integration** (Phase 3, with `--lens-lsp`) — Real-time type errors from language servers
 3. **Dispatch system** — Routes file to appropriate runners by `FileKind`
 4. **Runners execute** by priority (lower = earlier). See [Runners](#runners) section for full list.
-5. **Tree-sitter structural patterns** (post-write) — Fast AST-based checks for patterns ast-grep misses
-6. **Test runner detection** (post-write) — Detects Jest/Vitest/Pytest and runs relevant tests
+5. **Test runner detection** (post-write) — Detects Jest/Vitest/Pytest and runs relevant tests
 
-**With `--lens-effect`:** Dispatch runners execute concurrently via Effect-TS (steps 3-4). Tree-sitter and test runner remain sequential (steps 5-6).
+**With `--lens-effect`:** Dispatch runners execute concurrently via Effect-TS. Test runner remains sequential (step 5).
 
 **Delta mode behavior:**
 - **First write:** All issues tracked and stored in baseline
@@ -230,50 +229,19 @@ pi-lens uses a **dispatcher-runner architecture** for extensible multi-language 
 
 **Disabled runners:** `ts-slop` (merged into `ast-grep-napi`)
 
----
+**Tree-sitter runner patterns** (priority 14, AST-based structural analysis):
 
-### Structural Patterns (Tree-sitter)
+TypeScript/JavaScript (10 patterns):
+- 🔴 **Error**: empty-catch, hardcoded-secrets, eval
+- 🟡 **Warning**: debugger, await-in-loop, console-statement, long-parameter-list, nested-ternary, deep-promise-chain
 
-Tree-sitter performs **fast AST-based pattern matching** using the `tree-sitter` runner (priority 14). It executes all query files from `rules/tree-sitter-queries/` for comprehensive structural analysis.
+Python (6 patterns):
+- 🔴 **Error**: bare-except, mutable-default-arg, eval-exec, unreachable-except  
+- 🟡 **Warning**: wildcard-import, is-vs-equals
 
-#### TypeScript/JavaScript Patterns
+**Note:** Two patterns from the old hardcoded checks (mixed async/await + .then(), deep nesting 3+ levels) are not yet in YAML files. These can be added to `rules/tree-sitter-queries/typescript/`.
 
-| Pattern | Severity | What it finds |
-|---------|----------|---------------|
-| **Empty catch** | 🔴 Error | `catch (err) {}` — swallowing errors silently |
-| **Debugger** | 🟡 Warning | `debugger;` — debug leftover |
-| **Await in loop** | 🟡 Warning | `for (...) { await ... }` — sequential execution |
-| **Hardcoded secrets** | 🔴 Error | `const api_key = "..."` — security risk |
-| **Eval** | 🔴 Error | `eval(userInput)` — code injection |
-| **Console statement** | 🟡 Warning | `console.log` — debug leftover |
-| **Long parameter list** | 🟡 Warning | 6+ parameters — use object pattern |
-| **Nested ternary** | 🟡 Warning | `a ? b ? c : d : e` — unreadable code |
-| **Deep promise chain** | 🟡 Warning | `.then().catch().then()` — 3+ levels, use async/await |
-| **Mixed async styles** | 🟡 Warning | `await` + `.then()` in same function — be consistent |
-| **Deep nesting** | 🟡 Warning | `if { if { if { } } }` — 3+ levels, extract functions |
-
-#### Python Patterns
-
-| Pattern | Severity | What it finds |
-|---------|----------|---------------|
-| **Bare except** | 🔴 Error | `except:` — catches SystemExit/KeyboardInterrupt |
-| **Mutable default arg** | 🔴 Error | `def f(x=[])` — shared mutable state |
-| **Wildcard import** | 🟡 Warning | `from module import *` — namespace pollution |
-| **Eval/exec** | 🔴 Error | `eval(user_input)` — code injection |
-| **Is vs equals** | 🟡 Warning | `is "literal"` should be `==` |
-| **Unreachable except** | 🔴 Error | Specific except after bare except (unreachable) |
-
-**Why tree-sitter is separate:**
-- **Speed:** 50-100ms for comprehensive pattern matching
-- **AST precision:** Catches structural patterns regex can't handle  
-- **Multi-language:** Native TypeScript, TSX, and Python support
-- **YAML queries:** Easy to add new patterns without code changes
-
-**Status:** 
-- 🔴 **Error** severity = **blocking** (shown inline, agent must fix)
-- 🟡 **Warning** severity = **non-blocking** (shown in `/lens-booboo`)
-
-**Custom queries:** Add `.yml` files to `.pi-lens/rules/tree-sitter-queries/{typescript,python}/`
+**Custom tree-sitter queries:** Add `.yml` files to `.pi-lens/rules/tree-sitter-queries/{typescript,python}/`
 
 #### Custom ast-grep Rules
 
