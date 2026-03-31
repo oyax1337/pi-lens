@@ -630,10 +630,18 @@ export class TreeSitterClient {
 					const bodyNode = captures.BODY;
 					if (bodyNode) {
 						const bodyText = bodyNode.text;
-						// Check if body contains both await AND .then(
+						// Check if body contains both await AND (.then() or .catch())
 						const hasAwait = bodyText.includes("await");
-						const hasThen = /\.\s*then\s*\(/.test(bodyText);
-						if (!hasAwait || !hasThen) continue; // Skip if not mixed
+						const hasPromiseChain = /\.\s*(then|catch)\s*\(/.test(bodyText);
+						if (!hasAwait || !hasPromiseChain) continue; // Skip if not mixed
+					}
+				}
+
+				if (postFilter === "not_dbg_method") {
+					const methodNode = captures.METHOD;
+					if (methodNode) {
+						const methodName = methodNode.text;
+						if (methodName === "dbg") continue; // Skip console.dbg()
 					}
 				}
 

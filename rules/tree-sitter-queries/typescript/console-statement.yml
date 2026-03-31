@@ -20,6 +20,9 @@ query: |
       property: (property_identifier) @METHOD)
     arguments: (arguments) @ARGS)
 
+# Post-filter: Exclude debug function names like "dbg"
+post_filter: not_dbg_method
+
 metavars:
   - OBJ
   - METHOD
