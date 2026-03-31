@@ -53,6 +53,7 @@ jscpd-report.json
 !README.md
 !CHANGELOG.md
 !AST_GREP_RULES.md
+!featurestoadd.md
 !skills/**/*.md
 
 # docs folder entirely
