@@ -26,6 +26,17 @@ export interface LSPProcess {
 const isWindows = process.platform === "win32";
 
 /**
+ * Attach error handler to a spawned process to prevent ENOENT crashes
+ * This catches "command not found" errors and other spawn failures
+ */
+function _attachErrorHandler(proc: ChildProcess, context: string): void {
+	proc.on("error", (err) => {
+		// Log the error but don't crash - the caller should handle this gracefully
+		console.error(`[lsp] Spawn error for ${context}:`, err.message);
+	});
+}
+
+/**
  * Spawn an LSP server process
  *
  * Key fixes for Windows:
@@ -89,10 +100,8 @@ export function launchLSP(
 		throw new Error(`Failed to spawn LSP server: ${command}`);
 	}
 
-	// Attach error handler to prevent unhandled 'error' events when process fails to spawn
-	proc.on("error", (_err) => {
-		// Error is already logged by the caller (spawnClient), just prevent crash
-	});
+	// Attach error handler to prevent ENOENT crashes
+	_attachErrorHandler(proc, command);
 
 	return {
 		process: proc,
@@ -138,6 +147,9 @@ export function launchViaPackageManager(
 			windowsHide: true,
 			shell: true,
 		});
+
+		// Attach error handler to prevent ENOENT crashes
+		_attachErrorHandler(proc, packageName);
 
 		return {
 			process: proc,
