@@ -1,6 +1,6 @@
 /**
  * LSP Client for pi-lens
- * 
+ *
  * Handles JSON-RPC communication with language servers:
  * - Initialize/shutdown lifecycle
  * - Document synchronization (didOpen, didChange)
@@ -8,17 +8,16 @@
  * - Request/response handling
  */
 
+import { pathToFileURL } from "node:url";
+import type { MessageConnection } from "vscode-jsonrpc";
 import {
 	createMessageConnection,
 	StreamMessageReader,
 	StreamMessageWriter,
 } from "vscode-jsonrpc/node.js";
-import type { MessageConnection } from "vscode-jsonrpc";
-import path from "path";
-import { pathToFileURL } from "url";
-import type { LSPProcess } from "./launch.js";
 import { DiagnosticFound } from "../bus/events.js";
-import { uriToPath, normalizeMapKey } from "./path-utils.js";
+import type { LSPProcess } from "./launch.js";
+import { normalizeMapKey, uriToPath } from "./path-utils.js";
 
 // --- Types ---
 
@@ -49,7 +48,7 @@ export interface LSPClientInfo {
 // --- Constants ---
 
 const DIAGNOSTICS_DEBOUNCE_MS = 150;
-const INITIALIZE_TIMEOUT_MS = 45_000;
+const INITIALIZE_TIMEOUT_MS = 120_000; // 2 minutes (was 45s) - allows time for npx to download packages
 
 // --- Client Factory ---
 
@@ -64,7 +63,7 @@ export async function createLSPClient(options: {
 	// Create JSON-RPC connection
 	const connection = createMessageConnection(
 		new StreamMessageReader(lspProcess.stdout),
-		new StreamMessageWriter(lspProcess.stdin)
+		new StreamMessageWriter(lspProcess.stdin),
 	);
 
 	// Track diagnostics per file
@@ -72,40 +71,50 @@ export async function createLSPClient(options: {
 	const pendingDiagnostics = new Map<string, ReturnType<typeof setTimeout>>();
 
 	// Handle incoming diagnostics with debouncing
-	connection.onNotification("textDocument/publishDiagnostics", (params: { uri: string; diagnostics?: LSPDiagnostic[] }) => {
-		const filePath = uriToPath(params.uri);
-		const newDiags: LSPDiagnostic[] = params.diagnostics || [];
+	connection.onNotification(
+		"textDocument/publishDiagnostics",
+		(params: { uri: string; diagnostics?: LSPDiagnostic[] }) => {
+			const filePath = uriToPath(params.uri);
+			const newDiags: LSPDiagnostic[] = params.diagnostics || [];
 
-		// Debounce: clear existing timer and set new one
-		const existingTimer = pendingDiagnostics.get(filePath);
-		if (existingTimer) clearTimeout(existingTimer);
+			// Debounce: clear existing timer and set new one
+			const existingTimer = pendingDiagnostics.get(filePath);
+			if (existingTimer) clearTimeout(existingTimer);
 
-		const timer = setTimeout(() => {
-			diagnostics.set(filePath, newDiags);
-			pendingDiagnostics.delete(filePath);
+			const timer = setTimeout(() => {
+				diagnostics.set(filePath, newDiags);
+				pendingDiagnostics.delete(filePath);
 
-			// Publish to bus
-			// Defensive: filter out malformed diagnostics that may lack range
-			const validDiags = newDiags.filter((d) => d.range?.start?.line !== undefined);
-			DiagnosticFound.publish({
-				runnerId: serverId,
-				filePath,
-				diagnostics: validDiags.map((d) => ({
-					id: `${serverId}:${d.code ?? "unknown"}:${d.range.start.line}`,
-					message: d.message,
+				// Publish to bus
+				// Defensive: filter out malformed diagnostics that may lack range
+				const validDiags = newDiags.filter(
+					(d) => d.range?.start?.line !== undefined,
+				);
+				DiagnosticFound.publish({
+					runnerId: serverId,
 					filePath,
-					line: d.range.start.line + 1,
-					column: d.range.start.character + 1,
-					severity: severityFromNumber(d.severity),
-					semantic: d.severity === 1 ? "blocking" : d.severity === 2 ? "warning" : "silent",
-					tool: serverId,
-				})),
-				durationMs: 0,
-			});
-		}, DIAGNOSTICS_DEBOUNCE_MS);
+					diagnostics: validDiags.map((d) => ({
+						id: `${serverId}:${d.code ?? "unknown"}:${d.range.start.line}`,
+						message: d.message,
+						filePath,
+						line: d.range.start.line + 1,
+						column: d.range.start.character + 1,
+						severity: severityFromNumber(d.severity),
+						semantic:
+							d.severity === 1
+								? "blocking"
+								: d.severity === 2
+									? "warning"
+									: "silent",
+						tool: serverId,
+					})),
+					durationMs: 0,
+				});
+			}, DIAGNOSTICS_DEBOUNCE_MS);
 
-		pendingDiagnostics.set(filePath, timer);
-	});
+			pendingDiagnostics.set(filePath, timer);
+		},
+	);
 
 	// Handle server requests
 	connection.onRequest("workspace/workspaceFolders", () => [
@@ -117,7 +126,9 @@ export async function createLSPClient(options: {
 
 	connection.onRequest("client/registerCapability", async () => {});
 	connection.onRequest("client/unregisterCapability", async () => {});
-	connection.onRequest("workspace/configuration", async () => [initialization ?? {}]);
+	connection.onRequest("workspace/configuration", async () => [
+		initialization ?? {},
+	]);
 	connection.onRequest("window/workDoneProgress/create", async () => {});
 
 	// Start listening
@@ -160,7 +171,7 @@ export async function createLSPClient(options: {
 			},
 			initializationOptions: initialization,
 		}),
-		INITIALIZE_TIMEOUT_MS
+		INITIALIZE_TIMEOUT_MS,
 	);
 
 	// Send initialized notification
@@ -234,10 +245,13 @@ export async function createLSPClient(options: {
 			// Use bus subscription like OpenCode - more reliable than polling
 			return new Promise((resolve) => {
 				let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-				
+
 				// Subscribe to diagnostic events from this server
 				const unsub = DiagnosticFound.subscribe((event) => {
-					if (event.properties.filePath === normalizedPath && event.properties.runnerId === serverId) {
+					if (
+						event.properties.filePath === normalizedPath &&
+						event.properties.runnerId === serverId
+					) {
 						// Debounce to allow LSP to send follow-up diagnostics (e.g., semantic after syntax)
 						if (debounceTimer) clearTimeout(debounceTimer);
 						debounceTimer = setTimeout(() => {
@@ -267,7 +281,9 @@ export async function createLSPClient(options: {
 			try {
 				await connection.sendRequest("shutdown");
 				await connection.sendNotification("exit");
-			} catch { /* ignore */ }
+			} catch {
+				/* ignore */
+			}
 
 			connection.dispose();
 			lspProcess.process.kill();
@@ -279,21 +295,34 @@ export async function createLSPClient(options: {
 
 // Using shared path utilities from path-utils.ts
 
-function severityFromNumber(sev: number): "error" | "warning" | "info" | "hint" {
+function severityFromNumber(
+	sev: number,
+): "error" | "warning" | "info" | "hint" {
 	switch (sev) {
-		case 1: return "error";
-		case 2: return "warning";
-		case 3: return "info";
-		case 4: return "hint";
-		default: return "error";
+		case 1:
+			return "error";
+		case 2:
+			return "warning";
+		case 3:
+			return "info";
+		case 4:
+			return "hint";
+		default:
+			return "error";
 	}
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+): Promise<T> {
 	return Promise.race([
 		promise,
 		new Promise<T>((_, reject) =>
-			setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
+			setTimeout(
+				() => reject(new Error(`Timeout after ${timeoutMs}ms`)),
+				timeoutMs,
+			),
 		),
 	]);
 }

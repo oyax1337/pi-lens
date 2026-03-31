@@ -1,6 +1,6 @@
 /**
  * LSP Service Layer for pi-lens
- * 
+ *
  * Manages multiple LSP clients per workspace with:
  * - Auto-spawning based on file type
  * - Effect-TS service composition
@@ -11,11 +11,9 @@
 import { Effect } from "effect";
 import type { LSPClientInfo } from "./client.js";
 import { createLSPClient } from "./client.js";
-import { getServerById, type LSPServerInfo } from "./server.js";
-import { getServersForFileWithConfig, initLSPConfig } from "./config.js";
+import { getServersForFileWithConfig } from "./config.js";
 import { getLanguageId } from "./language.js";
-import { launchLSP } from "./launch.js";
-import { RunnerStarted, RunnerCompleted, DiagnosticFound } from "../bus/events.js";
+import type { LSPServerInfo } from "./server.js";
 
 // --- Types ---
 
@@ -59,7 +57,8 @@ export class LSPService {
 			if (!root) continue;
 
 			// Normalize root path for consistent cache key on Windows
-			const normalizedRoot = process.platform === "win32" ? root.toLowerCase() : root;
+			const normalizedRoot =
+				process.platform === "win32" ? root.toLowerCase() : root;
 			const key = `${server.id}:${normalizedRoot}`;
 
 			// Check cache first (fast path)
@@ -101,7 +100,11 @@ export class LSPService {
 	/**
 	 * Internal: spawn a client for a server/root combination
 	 */
-	private async spawnClient(server: LSPServerInfo, root: string, key: string): Promise<SpawnedServer | undefined> {
+	private async spawnClient(
+		server: LSPServerInfo,
+		root: string,
+		key: string,
+	): Promise<SpawnedServer | undefined> {
 		try {
 			const spawned = await server.spawn(root);
 			if (!spawned) {
@@ -119,7 +122,14 @@ export class LSPService {
 			this.state.clients.set(key, client);
 			return { client, info: server };
 		} catch (err) {
-			console.error(`[lsp] Failed to spawn ${server.id}:`, err);
+			const errorMsg = err instanceof Error ? err.message : String(err);
+			if (errorMsg.includes("Timeout")) {
+				console.error(
+					`[lsp] ${server.id} timed out during initialization (${errorMsg}). The server may be downloading or the project is large. Skipping.`,
+				);
+			} else {
+				console.error(`[lsp] Failed to spawn ${server.id}:`, err);
+			}
 			this.state.broken.add(key);
 			return undefined;
 		}
@@ -149,7 +159,9 @@ export class LSPService {
 	/**
 	 * Get diagnostics for a file
 	 */
-	async getDiagnostics(filePath: string): Promise<import("./client.js").LSPDiagnostic[]> {
+	async getDiagnostics(
+		filePath: string,
+	): Promise<import("./client.js").LSPDiagnostic[]> {
 		const spawned = await this.getClientForFile(filePath);
 		if (!spawned) return [];
 
@@ -195,7 +207,7 @@ export class LSPService {
 	 * Get status of all active clients
 	 */
 	getStatus(): Array<{ serverId: string; root: string; connected: boolean }> {
-		return Array.from(this.state.clients.entries()).map(([key, client]) => {
+		return Array.from(this.state.clients.entries()).map(([key, _client]) => {
 			const [serverId, root] = key.split(":");
 			return { serverId, root, connected: true };
 		});
