@@ -1,6 +1,33 @@
 # pi-lens
 
-Real-time code quality feedback for [pi](https://github.com/mariozechner/pi-coding-agent). Every write and edit is automatically analysed — diagnostics are injected directly into the tool result so the agent sees them without any extra steps.
+Real-time code quality feedback for [pi](https://github.com/mariozechner/pi-coding-agent). Every file write and edit is automatically analyzed — type errors, security issues, lint violations, and code smells appear instantly in the agent's tool results.
+
+## What pi-lens Does
+
+**For every file you edit:**
+1. **Type-checks** TypeScript, Python, Go, Rust (and 27 more languages with `--lens-lsp`)
+2. **Scans for secrets** — blocks on hardcoded API keys, tokens, passwords
+3. **Runs linters** — Biome (TS/JS), Ruff (Python), plus structural analysis
+4. **Detects code smells** — empty catch blocks, debuggers, nested ternaries, etc.
+5. **Only shows NEW issues** — filters out pre-existing problems so you don't get spammed
+
+**Blocking issues** (type errors, secrets) appear inline and stop the agent until fixed. **Warnings** are tracked but hidden inline — run `/lens-booboo` to see them all.
+
+## Quick Start
+
+```bash
+# Install
+pi install npm:pi-lens
+
+# Standard mode (TypeScript/Python built-in type checking)
+pi
+
+# Full LSP mode (31 language servers)
+pi --lens-lsp
+
+# Fastest mode (LSP + concurrent execution)
+pi --lens-lsp --lens-effect
+```
 
 ## Install
 
@@ -40,21 +67,7 @@ pi --lens-lsp --lens-effect      # LSP + concurrent execution
 pi --lens-lsp --lens-bus         # LSP + event bus diagnostics
 ```
 
-**Custom servers:** Add your own LSP servers via `.pi-lens/lsp.json`:
-```json
-{
-  "servers": {
-    "graphql": {
-      "name": "GraphQL Language Server",
-      "extensions": [".graphql", ".gql"],
-      "command": "graphql-lsp",
-      "args": ["server", "--method=stream"]
-    }
-  }
-}
-```
-
-See [docs/LSP_CONFIG.md](docs/LSP_CONFIG.md) for full configuration guide.
+See [docs/LSP_CONFIG.md](docs/LSP_CONFIG.md) for configuration options.
 
 ---
 
@@ -212,12 +225,6 @@ Full codebase analysis with **10 tracked runners** producing a comprehensive rep
 
 ---
 
-### Delta Review (/lens-booboo-delta)
-
-> ⚠️ **DISABLED** — This command is currently disabled. Use `/lens-booboo` for code quality analysis.
-
----
-
 ### Test Runner
 
 **Auto-detected test runners:**
@@ -364,9 +371,9 @@ All runners operate in **delta mode**:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Key Differences from Old Architecture:**
-- **One generic client** — No language-specific code in client.ts (following OpenCode pattern)
-- **Server-specific spawn** — Each language handles its own quirks (npx, local binary, venv, etc.)
+**Key Design Decisions:**
+- **One generic client** — Language-agnostic JSON-RPC handler shared by all LSP servers
+- **Server-specific spawn** — Each language handles its own quirks (npx, local binary, venv detection)
 - **Bus-based waiting** — `waitForDiagnostics()` uses event subscription instead of polling
 - **No artificial delays** — Pyright's 3s indexing happens server-side; client waits via bus
 
@@ -565,35 +572,38 @@ pi-lens works out of the box for TypeScript/JavaScript. For full language suppor
 
 ## Commands
 
-| Command | Status | Description |
-|---------|--------|-------------|
-| `/lens-booboo` | ✅ Active | Full codebase review (10-part analysis) |
-| `/lens-booboo-fix` | ❌ Disabled | ~~Fix issues from last review~~ — use `/lens-booboo` |
-| `/lens-booboo-delta` | ❌ Disabled | ~~Review git-changed files~~ — use `/lens-booboo` |
-| `/lens-booboo-refactor` | ❌ Disabled | ~~Interactive refactoring~~ — use `/lens-booboo` |
-| `/lens-format` | ✅ Active | Apply Biome formatting |
-| `/lens-tdi` | ✅ Active | Technical Debt Index and trends |
-| `/lens-rate` | ⚠️ Deprecated | ~~Code quality score~~ — use `/lens-booboo` |
-| `/lens-metrics` | ⚠️ Deprecated | ~~Complexity metrics~~ — use `/lens-booboo` |
+| Command | Description |
+|---------|-------------|
+| `/lens-booboo` | Full codebase review (10 analysis runners) |
+| `/lens-format` | Apply Biome formatting |
+| `/lens-tdi` | Technical Debt Index and trends |
 
 ---
 
-## Flags
+## Execution Modes
+
+| Mode | Command | What happens |
+|------|---------|--------------|
+| **Standard** (default) | `pi` | Built-in TS/Python type-checking, sequential execution |
+| **Full LSP** | `pi --lens-lsp` | Real LSP servers (31 languages), sequential execution |
+| **Fastest** | `pi --lens-lsp --lens-effect` | Real LSP + concurrent execution (all runners in parallel) |
+| **Debug** | `pi --lens-lsp --lens-bus` | Real LSP + event bus tracking (for troubleshooting) |
+
+### Flag Reference
 
 | Flag | Description |
 |------|-------------|
-| `--lens-verbose` | Enable console logging |
-| `--lens-lsp` | **Enable LSP** (31 language servers) |
-| `--lens-bus` | **Enable event bus** (diagnostic aggregation) |
-| `--lens-effect` | **Enable Effect-TS** (concurrent execution) |
-| `--lens-bus-debug` | Verbose bus event logging |
+| `--lens-lsp` | Use real Language Server Protocol servers instead of built-in type-checking |
+| `--lens-effect` | Run all runners **concurrently** (faster) instead of sequentially |
+| `--lens-bus` | Enable event bus for diagnostic aggregation (development/debugging) |
+| `--lens-verbose` | Enable detailed console logging |
 | `--autofix-biome` | Auto-fix lint issues with Biome |
 | `--autofix-ruff` | Auto-fix lint issues with Ruff (Python) |
-| `--no-tests` | Disable test runner on write |
+| `--no-tests` | Disable automatic test running on file write |
 | `--no-madge` | Skip circular dependency checks |
 | `--no-ast-grep` | Skip ast-grep structural analysis |
 | `--no-biome` | Skip Biome linting |
-| `--no-lsp` | Skip TypeScript/Python LSP type checking |
+| `--no-lsp` | Skip TypeScript/Python type checking |
 | `--error-debt` | Track test regressions across sessions |
 
 **Recommended combinations:**
@@ -900,12 +910,10 @@ See [CHANGELOG.md](CHANGELOG.md) for full history.
 
 ### Latest Highlights
 
-- **LSP Support:** 31 Language Server Protocol clients with auto-installation
-- **Event Bus:** Decoupled pub/sub for diagnostic events
-- **Effect-TS:** Concurrent runner execution with structured concurrency
-- **NAPI Runner:** 100x faster TypeScript/JavaScript analysis (~9ms vs ~1200ms)
+- **LSP Support:** 31 Language Server Protocol clients with auto-installation (14 auto-install, 17 manual)
+- **Concurrent Execution:** Effect-TS-based parallel runner execution with `--lens-effect`
+- **NAPI Runner:** 100x faster TypeScript/JavaScript structural analysis (~9ms vs ~1200ms)
 - **Slop Detection:** 30+ TypeScript and 40+ Python patterns for AI-generated code quality issues
-- **Disabled Commands:** `/lens-booboo-fix`, `/lens-booboo-delta`, `/lens-booboo-refactor` disabled in favor of `/lens-booboo`
 
 ---
 
