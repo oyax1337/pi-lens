@@ -12,20 +12,10 @@ import * as path from "node:path";
 import { safeSpawn } from "./safe-spawn.js";
 
 /**
- * Escape an argument for Windows shell execution.
- * Handles spaces, quotes, $variables, and special characters.
- * Mirrors the implementation in safe-spawn.ts with added $ handling
+ * Escape an argument for Windows cmd.exe shell execution.
+ * Handles spaces, quotes, and special characters.
  */
 function escapeWindowsArg(arg: string): string {
-	// Check if this looks like an ast-grep pattern with meta-variables ($NAME)
-	// In Git Bash/MSYS2 on Windows, $VAR gets expanded by the shell
-	// We need to use single quotes to prevent expansion
-	if (arg.includes("$")) {
-		// Use single quotes for patterns with $variables
-		// Escape single quotes within the argument
-		return `'${arg.replace(/'/g, "'\\''")}'`;
-	}
-
 	// If no special characters, return as-is
 	if (!/[\s\"]/.test(arg)) return arg;
 
@@ -72,16 +62,45 @@ export class SgRunner {
 	 */
 	async exec(args: string[]): Promise<SgResult> {
 		return new Promise((resolve) => {
-			// On Windows, construct full command string to avoid deprecation warning
-			// Use proper Windows escaping (same as safe-spawn.ts)
-			const useShell = process.platform === "win32";
-			const fullCommand = useShell
-				? `npx sg ${args.map(escapeWindowsArg).join(" ")}`
-				: undefined;
+			// On Windows with Git Bash/MSYS2, we need to use bash to properly
+			// handle $variables in patterns (prevent shell expansion)
+			const isWindows = process.platform === "win32";
+			const hasBash = process.env.MSYSTEM || process.env.GIT_SHELL;
 
-			const proc = fullCommand
-				? spawn(fullCommand, { stdio: ["ignore", "pipe", "pipe"], shell: true })
-				: spawn(process.platform === "win32" ? "npx.cmd" : "npx", ["sg", ...args], { stdio: ["ignore", "pipe", "pipe"] });
+			let proc;
+			if (isWindows && hasBash) {
+				// Use bash -c with properly escaped command
+				// In bash, use single quotes around arguments containing $ to prevent expansion
+				const escapedArgs = args.map((arg) => {
+					// For bash, wrap $-containing args in single quotes
+					if (arg.includes("$")) {
+						return `'${arg.replace(/'/g, "'\\''")}'`;
+					}
+					// For other args with spaces/special chars, use double quotes
+					if (/[\s\"]/.test(arg)) {
+						return `"${arg.replace(/"/g, "\\\"")}"`;
+					}
+					return arg;
+				});
+				const bashCommand = `npx sg ${escapedArgs.join(" ")}`;
+				proc = spawn("bash", ["-c", bashCommand], {
+					stdio: ["ignore", "pipe", "pipe"],
+					windowsHide: true,
+				});
+			} else if (isWindows) {
+				// Fallback: use cmd.exe with standard escaping
+				const fullCommand = `npx sg ${args.map(escapeWindowsArg).join(" ")}`;
+				proc = spawn(fullCommand, {
+					stdio: ["ignore", "pipe", "pipe"],
+					shell: true,
+					windowsHide: true,
+				});
+			} else {
+				// Unix: normal spawn without shell
+				proc = spawn("npx", ["sg", ...args], {
+					stdio: ["ignore", "pipe", "pipe"],
+				});
+			}
 
 			let stdout = "";
 			let stderr = "";
