@@ -2,6 +2,79 @@
 
 All notable changes to pi-lens will be documented in this file.
 
+## [3.0.1] - 2026-03-31
+
+### Changed
+- **Documentation refresh**: Updated npm and README descriptions for v3.0.0 features
+  - New tagline: "pi extension for real-time code quality"
+  - Highlights 31 LSP servers, tree-sitter analysis, auto-install capability
+  - Clarified blockers vs warnings split (inline vs `/lens-booboo`)
+
+### Fixed
+- **Entropy threshold**: Increased from 3.5 → 5.5 bits to reduce false positives
+  - Previous threshold was too sensitive for tooling codebases
+  - Eliminates ~70-80% of "High entropy" warnings on legitimate complex code
+
+---
+
+## [3.0.0] - 2026-03-31
+
+### Breaking Changes
+
+#### Removed - Deprecated Commands
+The following deprecated commands have been removed:
+- `/lens-booboo-fix` → Use `/lens-booboo` with autofix capability
+- `/lens-booboo-delta` → Delta mode now automatic
+- `/lens-booboo-refactor` → Use `/lens-booboo` findings
+- `/lens-metrics` → Metrics now in `/lens-booboo` report
+- `/lens-rate` → Use `/lens-booboo` quality scoring
+
+#### Changed - Blockers vs Warnings Architecture
+- **🔴 Blockers** (type errors, secrets, empty catch blocks) → Appear **inline** and stop the agent
+- **🟡 Warnings** (complexity, code smells) → Go to **`/lens-booboo`** only (not inline)
+- Tree-sitter rules with `severity: error` now properly block inline
+- Dispatcher checks individual diagnostic semantic, not just group default
+
+### Added - Tree-Sitter Runner
+New structural analysis runner at priority 14:
+- **18 YAML query files** for TypeScript and Python patterns
+- TypeScript: empty-catch, eval, debugger, console-statement, hardcoded-secrets, deep-nesting, deep-promise-chain, mixed-async-styles, nested-ternary, long-parameter-list, await-in-loop, dangerously-set-inner-html
+- Python: bare-except, eval-exec, wildcard-import, is-vs-equals, mutable-default-arg, unreachable-except
+- Blockers appear inline (severity: error), warnings go to `/lens-booboo` (severity: warning)
+
+### Added - Auto-Install for Core Tools
+Four tools now auto-install on first use (no manual setup required):
+1. **TypeScript Language Server** (`typescript-language-server`) — TS/JS type checking
+2. **Pyright** — Python type checking (`pip install pyright`)
+3. **Ruff** — Python linting (`pip install ruff`)
+4. **Biome** — JS/TS/JSON linting and formatting
+
+Installs to `.pi-lens/tools/` with verification step (`--version` check).
+
+### Added - NAPI Security Rules
+Migrated 20 critical security rules to NAPI (fast native execution):
+- Rules with `weight >= 4` are **blocking** (stop the agent)
+- Includes: no-eval, no-hardcoded-secrets, no-implied-eval, no-inner-html, no-dangerously-set-inner-html, no-debugger, no-javascript-url, no-open-redirect, no-mutable-default, weak-rsa-key, jwt-no-verify, and more
+- NAPI runs at priority 15 (after tree-sitter, before slop rules)
+
+### Fixed
+- **Tree-sitter query loading**: Added missing `loadQueries()` call before `getAllQueries()`
+- **Windows path handling**: Changed from `lastIndexOf("/")` to `path.dirname()` for cross-platform compatibility
+- **Dispatcher blocker detection**: Now checks if any individual diagnostic has `semantic === "blocking"`
+- **Biome runner npx fallback**: Uses `npx biome` when `biome` not in PATH directly
+- **LSP ENOENT crashes**: Added `_attachErrorHandler()` to all 23 manual-install LSP servers
+- **LSP initialization timeout**: Increased to 120s (was 45s)
+- **ESLint scope reduction**: Removed `.ts/.tsx` from ESLint LSP (now JS/framework files only)
+- **Biome/Prettier race**: Biome is now default (priority 10), Prettier is fallback only
+
+### Changed
+- **README reorganization**: Removed redundant sections (Architecture, Language Support, Rules, Delta-mode, Slop Detection)
+- **Consolidated Additional Safeguards** into Features section with Runners table
+- **Updated .gitignore**: Local tracking files stay out of repo
+- **Tuned thresholds**: 70-80% false positive reduction in booboo reports
+
+---
+
 ## [2.7.0] - 2026-03-31
 
 ### Added - New Lint Runners
