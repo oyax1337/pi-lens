@@ -112,7 +112,40 @@ git commit -m "feat(symbol): add shared type definitions"
 
 ---
 
-## Task 2: Create Tree-sitter Symbol Extractor
+## Task 2: Add getLanguage() to TreeSitterClient
+
+**Files:**
+- Modify: `clients/tree-sitter-client.ts`
+
+**Step 1: Add public getLanguage method**
+
+Add to `TreeSitterClient` class:
+
+```typescript
+/**
+ * Get loaded language for symbol extraction
+ */
+getLanguage(languageId: string): TreeSitterLanguage | null {
+  return this.languages.get(languageId) || null;
+}
+```
+
+**Step 2: Verify compilation**
+
+Run: `npx tsc --noEmit clients/tree-sitter-client.ts`
+
+Expected: No errors
+
+**Step 3: Commit**
+
+```bash
+git add clients/tree-sitter-client.ts
+git commit -m "feat(tree-sitter): add getLanguage() for symbol extraction"
+```
+
+---
+
+## Task 3: Create Tree-sitter Symbol Extractor
 
 **Files:**
 - Create: `clients/tree-sitter-symbol-extractor.ts`
@@ -128,6 +161,7 @@ Create `clients/tree-sitter-symbol-extractor.ts`:
  */
 
 import * as path from "node:path";
+import type { TreeSitterClient } from "./tree-sitter-client.js";
 import type { Symbol, SymbolKind, SymbolRef } from "./symbol-types.js";
 
 // Tree-sitter query patterns for symbol extraction
@@ -248,28 +282,32 @@ export interface ExtractedSymbols {
 }
 
 export class TreeSitterSymbolExtractor {
-  // biome-ignore lint/suspicious/noExplicitAny: Language type from web-tree-sitter
-  private language: any;
   private languageId: string;
+  private client: TreeSitterClient;
   // biome-ignore lint/suspicious/noExplicitAny: Query type from web-tree-sitter
   private defQuery: any;
   // biome-ignore lint/suspicious/noExplicitAny: Query type from web-tree-sitter
   private refQuery: any;
 
-  constructor(languageId: string, language: unknown) {
+  constructor(languageId: string, client: TreeSitterClient) {
     this.languageId = languageId;
-    // biome-ignore lint/suspicious/noExplicitAny: Language type
-    this.language = language as any;
+    this.client = client;
   }
 
   async init(): Promise<boolean> {
     try {
+      // Get language from client
+      const language = this.client.getLanguage(this.languageId);
+      if (!language) return false;
+
       const { Query } = await import("web-tree-sitter");
       const queries = SYMBOL_QUERIES[this.languageId];
       if (!queries) return false;
 
-      this.defQuery = new Query(this.language, queries.defs);
-      this.refQuery = new Query(this.language, queries.refs);
+      // biome-ignore lint/suspicious/noExplicitAny: Language type
+      this.defQuery = new Query(language as any, queries.defs);
+      // biome-ignore lint/suspicious/noExplicitAny: Language type
+      this.refQuery = new Query(language as any, queries.refs);
       return true;
     } catch (err) {
       console.error(`[symbol-extractor] Failed to init ${this.languageId}:`, err);
@@ -458,7 +496,7 @@ git commit -m "feat(symbol): add tree-sitter symbol extractor"
 
 ---
 
-## Task 3: Create SymbolService with Cache Integration
+## Task 4: Create SymbolService with Cache Integration
 
 **Files:**
 - Create: `clients/symbol-service.ts`
@@ -903,12 +941,8 @@ export class SymbolService {
     const tree = await this.treeSitter.parseFile(filePath, languageId);
     if (!tree) return;
 
-    // Create extractor and extract symbols
-    // biome-ignore lint/suspicious/noExplicitAny: Language loading
-    const language = (this.treeSitter as any).languages.get(languageId);
-    if (!language) return;
-
-    const extractor = new TreeSitterSymbolExtractor(languageId, language);
+    // Create extractor using client (client.getLanguage called in init)
+    const extractor = new TreeSitterSymbolExtractor(languageId, this.treeSitter);
     const initialized = await extractor.init();
     if (!initialized) return;
 
@@ -1120,7 +1154,7 @@ git commit -m "feat(symbol): add SymbolService with cache integration"
 
 ---
 
-## Task 4: Add Symbol Queries to Tree-sitter Query Loader
+## Task 5: Add Symbol Queries to Tree-sitter Query Loader
 
 **Files:**
 - Read first: `clients/tree-sitter-query-loader.ts`
@@ -1288,7 +1322,7 @@ git commit -m "feat(symbol): add tree-sitter queries for symbol extraction"
 
 ---
 
-## Task 5: Create Impact Runner
+## Task 6: Create Impact Runner
 
 **Files:**
 - Create: `clients/dispatch/runners/impact.ts`
@@ -1439,7 +1473,7 @@ git commit -m "feat(impact): add impact runner for caller analysis"
 
 ---
 
-## Task 6: Enhance Similarity Runner with Signature Data
+## Task 7: Enhance Similarity Runner with Signature Data
 
 **Files:**
 - Modify: `clients/dispatch/runners/similarity.ts`
@@ -1589,7 +1623,7 @@ git commit -m "feat(similarity): add signature pre-filter from SymbolService"
 
 ---
 
-## Task 7: Add Tests for SymbolService
+## Task 8: Add Tests for SymbolService
 
 **Files:**
 - Create: `clients/symbol-service.test.ts`
@@ -1764,7 +1798,7 @@ git commit -m "test(symbol): add SymbolService unit tests"
 
 ---
 
-## Task 8: Integration Test - End-to-End
+## Task 9: Integration Test - End-to-End
 
 **Files:**
 - Create: `clients/__tests__/symbol-integration.test.ts`
@@ -1926,7 +1960,7 @@ git commit -m "test(symbol): add integration tests"
 
 ---
 
-## Task 9: Documentation Update
+## Task 10: Documentation Update
 
 **Files:**
 - Modify: `AGENTS.md` (add symbol service section)
@@ -1998,14 +2032,16 @@ git commit -m "docs: add SymbolService and call graph documentation"
 
 After completing all tasks, pi-lens will have:
 
-1. **SymbolService** - Core service for symbol extraction and queries
-2. **Tree-sitter integration** - Queries for TS, Python, Rust
-3. **Call graph** - Caller/callee tracking with cycle detection
-4. **Impact runner** - Warns about callers when editing functions
-5. **Enhanced similarity** - Signature pre-filter for better matching
-6. **Caching** - 24hr TTL, incremental updates via turn-state
-7. **Tests** - Unit and integration tests
-8. **Documentation** - AGENTS.md updated
+1. **Symbol Types** - Shared type definitions
+2. **TreeSitterClient Enhancement** - Added getLanguage() method
+3. **Symbol Extractor** - Tree-sitter queries for symbol extraction
+4. **SymbolService** - Core service with cache integration
+5. **Tree-sitter Queries** - YAML query files for symbols
+6. **Impact runner** - Warns about callers when editing functions
+7. **Enhanced similarity** - Signature pre-filter for better matching
+8. **Caching** - 24hr TTL, incremental updates via turn-state
+9. **Tests** - Unit and integration tests
+10. **Documentation** - AGENTS.md updated
 
 **Performance targets:**
 - Cache hit: <50ms
