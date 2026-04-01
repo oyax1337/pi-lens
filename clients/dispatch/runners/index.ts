@@ -4,8 +4,8 @@
 
 import { registerRunner } from "../dispatcher.js";
 import architectRunner from "./architect.js";
-import astGrepRunner from "./ast-grep.js";
-// Import all runners
+// CONSOLIDATED: ast-grep-napi replaces ast-grep CLI for dispatch
+// CLI version kept for ast_grep_search/ast_grep_replace tools only
 import astGrepNapiRunner from "./ast-grep-napi.js";
 import biomeRunner from "./biome.js";
 import configValidationRunner from "./config-validation.js";
@@ -29,6 +29,7 @@ import typeSafetyRunner from "./type-safety.js";
 registerRunner(tsLspRunner); // TypeScript type-checking (priority 5)
 registerRunner(pyrightRunner); // Python type-checking (priority 5)
 registerRunner(configValidationRunner); // Config/env validation (priority 8)
+// CONSOLIDATED: ast-grep-napi replaces ast-grep CLI for dispatch (100x faster)
 registerRunner(astGrepNapiRunner); // TS/JS structural analysis via NAPI (priority 15)
 registerRunner(biomeRunner); // Biome formatting/linting (priority 10)
 registerRunner(oxlintRunner); // Oxlint fast JS/TS linter (priority 12)
@@ -38,7 +39,8 @@ registerRunner(tsSlopRunner); // DISABLED - TypeScript slop via CLI (disabled, u
 registerRunner(pythonSlopRunner); // Python slop via CLI (priority 25)
 registerRunner(typeSafetyRunner); // Type safety checks (priority 20)
 registerRunner(shellcheckRunner); // Shell script linting (priority 20)
-registerRunner(astGrepRunner); // Other languages via CLI (priority 30)
+// DISABLED: registerRunner(astGrepRunner); // Replaced by ast-grep-napi for dispatch
+// CLI ast-grep kept for ast_grep_search/ast_grep_replace tools only
 registerRunner(similarityRunner); // Semantic reuse detection (priority 35)
 registerRunner(architectRunner); // Architectural rules (priority 40)
 registerRunner(spellcheckRunner); // Spellcheck for markdown/docs (priority 30)

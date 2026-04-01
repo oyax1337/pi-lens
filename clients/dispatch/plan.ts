@@ -27,12 +27,11 @@ export const TOOL_PLANS: Record<string, ToolPlan> = {
 			{ mode: "all", runnerIds: ["ts-lsp"], filterKinds: ["jsts"] },
 			// Then biome or oxlint for fast linting (user preference)
 			{ mode: "fallback", runnerIds: ["biome-lint", "oxlint"] },
-			// Fast structural analysis via NAPI (weight >= 4 is blocking)
+			// Fast structural analysis via NAPI (replaces CLI - 100x faster)
 			{ mode: "all", runnerIds: ["ast-grep-napi"] },
 			// Type safety checks
 			{ mode: "fallback", runnerIds: ["type-safety"] },
-			// Comprehensive structural analysis via CLI (severity: error is blocking)
-			{ mode: "fallback", runnerIds: ["ast-grep"] },
+			// Note: ast-grep CLI kept for ast_grep_search/ast_grep_replace tools only
 			// Architectural rules
 			{ mode: "fallback", runnerIds: ["architect"] },
 		],
