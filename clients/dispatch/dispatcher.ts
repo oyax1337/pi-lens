@@ -17,8 +17,8 @@
 import type { FileKind } from "../file-kinds.js";
 import { detectFileKind } from "../file-kinds.js";
 import { isTestFile } from "../file-utils.js";
+import { logLatency } from "../latency-logger.js";
 import { safeSpawn } from "../safe-spawn.js";
-import { logLatency, type LatencyEntry } from "../latency-logger.js";
 import type {
 	BaselineStore,
 	Diagnostic,
@@ -263,6 +263,15 @@ export async function dispatchForFile(
 	let stopped = false;
 	const runnerLatencies: RunnerLatency[] = [];
 
+	// DEBUG: Log dispatch start
+	logLatency({
+		type: "phase",
+		filePath: ctx.filePath,
+		phase: "dispatch_start",
+		durationMs: 0,
+		metadata: { groupCount: groups.length, kind: ctx.kind },
+	});
+
 	for (const group of groups) {
 		if (stopped && ctx.pi.getFlag("stop-on-error")) {
 			break;
@@ -317,6 +326,17 @@ export async function dispatchForFile(
 				runnerId,
 				startTime: runnerStart,
 				endTime: runnerEnd,
+				durationMs: duration,
+				status: result.status,
+				diagnosticCount: result.diagnostics.length,
+				semantic: result.semantic ?? semantic,
+			});
+
+			// IMMEDIATE LOG: Each runner result (for debugging)
+			logLatency({
+				type: "runner",
+				filePath: ctx.filePath,
+				runnerId,
 				durationMs: duration,
 				status: result.status,
 				diagnosticCount: result.diagnostics.length,
