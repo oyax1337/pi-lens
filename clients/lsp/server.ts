@@ -326,7 +326,19 @@ export const GoServer: LSPServerInfo = {
 			{ cwd: root },
 			async () => await launchLSP("gopls", [], { cwd: root }),
 		);
-		return proc ? { process: proc } : undefined;
+		// gopls works best with minimal initialization options
+		// The client capabilities fix (workspaceFolders: true) is the key fix
+		return proc
+			? {
+					process: proc,
+					initialization: {
+						// Disable experimental features that may cause issues
+						ui: {
+							semanticTokens: true,
+						},
+					},
+				}
+			: undefined;
 	},
 };
 
@@ -343,7 +355,20 @@ export const RustServer: LSPServerInfo = {
 			{ cwd: root },
 			async () => await launchLSP("rust-analyzer", [], { cwd: root }),
 		);
-		return proc ? { process: proc } : undefined;
+		// rust-analyzer needs minimal initialization to avoid capability mismatches
+		return proc
+			? {
+					process: proc,
+					initialization: {
+						// Disable features that may conflict with our client capabilities
+						cargo: {
+							buildScripts: { enable: true },
+						},
+						procMacro: { enable: true },
+						diagnostics: { enable: true },
+					},
+				}
+			: undefined;
 	},
 };
 

@@ -207,10 +207,7 @@ export async function createLSPClient(options: {
 					workDoneProgress: true,
 				},
 				workspace: {
-					workspaceFolders: {
-						supported: true,
-						changeNotifications: true,
-					},
+					workspaceFolders: true, // Simple boolean for broader compatibility
 					configuration: true,
 					didChangeWatchedFiles: {
 						dynamicRegistration: true,
