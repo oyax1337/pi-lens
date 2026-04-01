@@ -47,7 +47,15 @@ export class AstGrepClient {
 	}
 
 	/**
-	 * Check if ast-grep CLI is available
+	 * Check if ast-grep CLI is available, auto-install if not
+	 */
+	async ensureAvailable(): Promise<boolean> {
+		return this.runner.ensureAvailable();
+	}
+
+	/**
+	 * Check if ast-grep CLI is available (legacy sync method)
+	 * Prefer ensureAvailable() for auto-install behavior
 	 */
 	isAvailable(): boolean {
 		if (this.available !== null) return this.available;

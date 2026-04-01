@@ -709,8 +709,8 @@ export default function (pi: ExtensionAPI) {
 		dbg(`session_start TODO scan: ${todoResult.items.length} items`);
 		if (todoReport) parts.push(todoReport);
 
-		// Dead code scan — use cache if fresh
-		if (knipClient.isAvailable()) {
+		// Dead code scan — use cache if fresh, auto-install if needed
+		if (await knipClient.ensureAvailable()) {
 			const cached = cacheManager.readCache<ReturnType<KnipClient["analyze"]>>(
 				"knip",
 				cwd,
@@ -735,8 +735,8 @@ export default function (pi: ExtensionAPI) {
 			dbg(`session_start Knip: not available`);
 		}
 
-		// Duplicate code detection — use cache if fresh
-		if (jscpdClient.isAvailable()) {
+		// Duplicate code detection — use cache if fresh, auto-install if needed
+		if (await jscpdClient.ensureAvailable()) {
 			const cached = cacheManager.readCache<ReturnType<JscpdClient["scan"]>>(
 				"jscpd",
 				cwd,
@@ -764,7 +764,7 @@ export default function (pi: ExtensionAPI) {
 		// Note: type-coverage runs on-demand via /lens-booboo only (not at session_start)
 
 		// Scan for exported functions (cached for duplicate detection on write)
-		if (astGrepClient.isAvailable()) {
+		if (await astGrepClient.ensureAvailable()) {
 			const exports = await astGrepClient.scanExports(cwd, "typescript");
 			dbg(`session_start exports scan: ${exports.size} functions found`);
 			for (const [name, file] of exports) {
@@ -1498,7 +1498,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// madge: only check files where imports changed
-		if (depChecker.isAvailable()) {
+		if (await depChecker.ensureAvailable()) {
 			const madgeFiles = cacheManager.getFilesForMadge(cwd);
 			if (madgeFiles.length > 0) {
 				dbg(
