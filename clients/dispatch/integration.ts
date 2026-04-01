@@ -6,8 +6,20 @@
  */
 
 import { detectFileKind } from "../file-kinds.js";
-import { createBaselineStore, createDispatchContext } from "./dispatcher.js";
+import {
+	clearLatencyReports,
+	createBaselineStore,
+	createDispatchContext,
+	type DispatchLatencyReport,
+	formatLatencyReport,
+	getLatencyReports,
+	type RunnerLatency,
+} from "./dispatcher.js";
 import type { PiAgentAPI } from "./types.js";
+
+export type { DispatchLatencyReport, RunnerLatency };
+// Re-export latency tracking types and functions
+export { clearLatencyReports, formatLatencyReport, getLatencyReports };
 
 // Import runners to register them
 import "./runners/index.js";

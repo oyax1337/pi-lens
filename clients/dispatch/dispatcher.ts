@@ -164,15 +164,103 @@ function filterDelta<T extends { id: string }>(
 	return { new: newItems, fixed };
 }
 
+// --- Latency Logger ---
+
+export interface RunnerLatency {
+	runnerId: string;
+	startTime: number;
+	endTime: number;
+	durationMs: number;
+	status: "succeeded" | "failed" | "skipped" | "when_skipped";
+	diagnosticCount: number;
+	semantic: string;
+}
+
+export interface DispatchLatencyReport {
+	filePath: string;
+	fileKind: string | undefined;
+	overallStartMs: number;
+	overallEndMs: number;
+	totalDurationMs: number;
+	runners: RunnerLatency[];
+	stoppedEarly: boolean;
+	totalDiagnostics: number;
+	blockers: number;
+	warnings: number;
+}
+
+const latencyReports: DispatchLatencyReport[] = [];
+
+export function getLatencyReports(): DispatchLatencyReport[] {
+	return [...latencyReports];
+}
+
+export function clearLatencyReports(): void {
+	latencyReports.length = 0;
+}
+
+export function formatLatencyReport(report: DispatchLatencyReport): string {
+	const lines: string[] = [];
+	lines.push(
+		`\n═══════════════════════════════════════════════════════════════`,
+	);
+	lines.push(`📊 DISPATCH LATENCY REPORT: ${report.filePath.split("/").pop()}`);
+	lines.push(
+		`   Kind: ${report.fileKind || "unknown"} | Total: ${report.totalDurationMs}ms`,
+	);
+	lines.push(`───────────────────────────────────────────────────────────────`);
+	lines.push(
+		`Runner                          Duration  Status    Issues  Semantic`,
+	);
+	lines.push(`───────────────────────────────────────────────────────────────`);
+
+	for (const r of report.runners) {
+		const name = r.runnerId.padEnd(30);
+		const dur = `${r.durationMs}ms`.padStart(8);
+		const status = r.status.padStart(9);
+		const issues = String(r.diagnosticCount).padStart(6);
+		const sem = r.semantic.padStart(8);
+		const slowMarker =
+			r.durationMs > 500 ? " 🔥" : r.durationMs > 100 ? " ⚡" : "";
+		lines.push(`${name}${dur}${status}${issues}${sem}${slowMarker}`);
+	}
+
+	lines.push(`───────────────────────────────────────────────────────────────`);
+	lines.push(
+		`Total: ${report.runners.length} runners | Stopped early: ${report.stoppedEarly}`,
+	);
+	lines.push(
+		`Diagnostics: ${report.totalDiagnostics} (${report.blockers} blockers, ${report.warnings} warnings)`,
+	);
+
+	// Show top 3 slowest
+	const sorted = [...report.runners].sort(
+		(a, b) => b.durationMs - a.durationMs,
+	);
+	if (sorted.length > 0 && sorted[0].durationMs > 100) {
+		lines.push(`\n🐌 Slowest runners:`);
+		for (const r of sorted.slice(0, 3)) {
+			if (r.durationMs > 50) {
+				lines.push(`   ${r.runnerId}: ${r.durationMs}ms (${r.status})`);
+			}
+		}
+	}
+
+	lines.push(`═══════════════════════════════════════════════════════════════`);
+	return lines.join("\n");
+}
+
 // --- Main Dispatch Function ---
 
 export async function dispatchForFile(
 	ctx: DispatchContext,
 	groups: RunnerGroup[],
 ): Promise<DispatchResult> {
+	const _overallStart = Date.now();
 	const allDiagnostics: Diagnostic[] = [];
 	const _fixed: Diagnostic[] = [];
 	let stopped = false;
+	const runnerLatencies: RunnerLatency[] = [];
 
 	for (const group of groups) {
 		if (stopped && ctx.pi.getFlag("stop-on-error")) {
@@ -190,15 +278,56 @@ export async function dispatchForFile(
 		const semantic = group.semantic ?? "warning";
 
 		for (const runnerId of runnerIds) {
+			const runnerStart = Date.now();
 			const runner = getRunner(runnerId);
-			if (!runner) continue;
+			if (!runner) {
+				runnerLatencies.push({
+					runnerId,
+					startTime: runnerStart,
+					endTime: Date.now(),
+					durationMs: 0,
+					status: "skipped",
+					diagnosticCount: 0,
+					semantic: "unknown",
+				});
+				continue;
+			}
 
 			// Check preconditions
 			if (runner.when && !(await runner.when(ctx))) {
+				runnerLatencies.push({
+					runnerId,
+					startTime: runnerStart,
+					endTime: Date.now(),
+					durationMs: Date.now() - runnerStart,
+					status: "when_skipped",
+					diagnosticCount: 0,
+					semantic: runner.id,
+				});
 				continue;
 			}
 
 			const result = await runRunner(ctx, runner, semantic);
+			const runnerEnd = Date.now();
+			const duration = runnerEnd - runnerStart;
+
+			// Track latency for this runner
+			runnerLatencies.push({
+				runnerId,
+				startTime: runnerStart,
+				endTime: runnerEnd,
+				durationMs: duration,
+				status: result.status,
+				diagnosticCount: result.diagnostics.length,
+				semantic: result.semantic ?? semantic,
+			});
+
+			// Log slow runners immediately for real-time debugging
+			if (duration > 500) {
+				ctx.log(
+					`⚠️ SLOW RUNNER: ${runnerId} took ${duration}ms (${result.status}, ${result.diagnostics.length} issues)`,
+				);
+			}
 
 			// Apply delta mode filtering
 			let diagnostics = result.diagnostics;
@@ -242,6 +371,32 @@ export async function dispatchForFile(
 	// Warnings tracked but not shown (noise) — surfaced via /lens-booboo
 	let output = formatDiagnostics(blockers, "blocking");
 	output += formatDiagnostics(fixedItems, "fixed");
+
+	// Generate and store latency report
+	const overallEnd = Date.now();
+	const latencyReport: DispatchLatencyReport = {
+		filePath: ctx.filePath,
+		fileKind: ctx.kind,
+		overallStartMs: _overallStart,
+		overallEndMs: overallEnd,
+		totalDurationMs: overallEnd - _overallStart,
+		runners: runnerLatencies,
+		stoppedEarly: stopped,
+		totalDiagnostics: allDiagnostics.length,
+		blockers: blockers.length,
+		warnings: warnings.length,
+	};
+
+	// Store for later analysis
+	latencyReports.push(latencyReport);
+
+	// Keep only last 100 reports to prevent memory bloat
+	if (latencyReports.length > 100) {
+		latencyReports.shift();
+	}
+
+	// Always log to stderr for real-time monitoring
+	console.error(formatLatencyReport(latencyReport));
 
 	return {
 		diagnostics: allDiagnostics,

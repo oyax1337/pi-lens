@@ -927,6 +927,10 @@ export default function (pi: ExtensionAPI) {
 
 	// Real-time feedback on file writes/edits
 	pi.on("tool_result", async (event) => {
+		// LATENCY TRACKING: Start overall timer for this tool_result
+		const toolResultStart = Date.now();
+		const toolName = event.toolName;
+
 		// Track tool call for behavior analysis (all tool types)
 		const filePath = (event.input as { path?: string }).path;
 		const behaviorWarnings = agentBehaviorClient.recordToolCall(
@@ -1070,6 +1074,10 @@ export default function (pi: ExtensionAPI) {
 			const secretFindings = scanForSecrets(fileContent, filePath);
 			if (secretFindings.length > 0) {
 				const secretsOutput = formatSecrets(secretFindings, filePath);
+				const elapsed = Date.now() - toolResultStart;
+				console.error(
+					`[LATENCY] ${toolName} on ${filePath.split("/").pop()}: ${elapsed}ms (BLOCKED by secrets)`,
+				);
 				return {
 					content: [
 						...event.content,
@@ -1223,7 +1231,14 @@ export default function (pi: ExtensionAPI) {
 			lspOutput += `\n\n${agentBehaviorClient.formatWarnings(behaviorWarnings)}`;
 		}
 
-		if (!lspOutput) return;
+		// LATENCY TRACKING: Log timing before returning
+		const elapsed = Date.now() - toolResultStart;
+		if (!lspOutput) {
+			console.error(`[LATENCY] ${toolName} on ${filePath.split("/").pop()}: ${elapsed}ms (no output)`);
+			return;
+		}
+
+		console.error(`[LATENCY] ${toolName} on ${filePath.split("/").pop()}: ${elapsed}ms (completed)`);
 
 		return {
 			content: [...event.content, { type: "text" as const, text: lspOutput }],
