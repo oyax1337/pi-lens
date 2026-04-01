@@ -529,7 +529,7 @@ export async function formatFile(
 		}
 
 		// Run formatter
-		const result = safeSpawn(cmd[0], cmd.slice(1), { timeout: 15000 });
+		const result = safeSpawn(cmd[0], cmd.slice(1), { timeout: 15000, cwd });
 
 		if (result.error) {
 			return {
