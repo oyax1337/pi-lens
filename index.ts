@@ -9,17 +9,9 @@ import { AgentBehaviorClient } from "./clients/agent-behavior-client.js";
 import { ArchitectClient } from "./clients/architect-client.js";
 import { AstGrepClient } from "./clients/ast-grep-client.js";
 import { BiomeClient } from "./clients/biome-client.js";
-import {
-	enableDebug as enableBusDebug,
-	FileModified,
-	initBusIntegration,
-	SessionStarted,
-	TurnEnded,
-} from "./clients/bus/index.js";
 import { CacheManager } from "./clients/cache-manager.js";
 import { ComplexityClient } from "./clients/complexity-client.js";
 import { DependencyChecker } from "./clients/dependency-checker.js";
-import { dispatchLintWithBus } from "./clients/dispatch/bus-dispatcher.js";
 import { dispatchLint } from "./clients/dispatch/integration.js";
 import { createFileTime, FileTimeError } from "./clients/file-time.js";
 import {
@@ -45,7 +37,6 @@ import {
 import { RustClient } from "./clients/rust-client.js";
 import { getSourceFiles } from "./clients/scan-utils.js";
 import { formatSecrets, scanForSecrets } from "./clients/secrets-scanner.js";
-import { dispatchLintWithEffect } from "./clients/services/effect-integration.js";
 import { TestRunnerClient } from "./clients/test-runner-client.js";
 import { TodoScanner } from "./clients/todo-scanner.js";
 import { TypeCoverageClient } from "./clients/type-coverage-client.js";
@@ -247,25 +238,6 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerFlag("no-rust", {
 		description: "Disable Rust linting (cargo check)",
-		type: "boolean",
-		default: false,
-	});
-
-	// Internal flag for development/debugging (not surfaced to users)
-	pi.registerFlag("lens-bus", {
-		description: "[Internal] Enable event bus system",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("lens-bus-debug", {
-		description: "Enable verbose bus event logging",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("lens-effect", {
-		description: "Enable Effect-TS concurrent runner execution (Phase 2)",
 		type: "boolean",
 		default: false,
 	});
@@ -781,19 +753,6 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		_verbose = !!pi.getFlag("lens-verbose");
 		dbg("session_start fired");
-
-		// Initialize event bus system (Phase 1)
-		const busEnabled = pi.getFlag("lens-bus");
-		if (busEnabled) {
-			const busDebug = pi.getFlag("lens-bus-debug");
-			initBusIntegration(pi, { debug: !!busDebug });
-			if (busDebug) enableBusDebug(true);
-			SessionStarted.publish({
-				cwd: ctx.cwd ?? process.cwd(),
-				timestamp: Date.now(),
-			});
-			dbg("session_start: bus integration initialized");
-		}
 
 		// Reset session state
 		metricsClient.reset();
@@ -1319,14 +1278,6 @@ export default function (pi: ExtensionAPI) {
 		phaseEnd("format", { formattersUsed, formatChanged });
 
 		// --- Publish file modified event to bus (Phase 1) ---
-		if (pi.getFlag("lens-bus")) {
-			FileModified.publish({
-				filePath,
-				content: fileContent,
-				changeType: event.toolName === "edit" ? "edit" : "write",
-			});
-		}
-
 		// --- LSP integration (Phase 3) ---
 		if (pi.getFlag("lens-lsp") && fileContent) {
 			const lspService = getLSPService();
@@ -1418,18 +1369,7 @@ export default function (pi: ExtensionAPI) {
 		// Phase 2: Replaced ~400 lines of if/else with unified dispatch system
 		dbg(`dispatch: running lint tools for ${filePath}`);
 
-		// Select dispatcher based on flags:
-		// - lens-effect: Effect-TS concurrent execution (Phase 2)
-		// - lens-bus: Bus-enabled dispatcher (Phase 1)
-		// - default: Original sequential dispatcher
-		let dispatchOutput: string;
-		if (pi.getFlag("lens-effect")) {
-			dispatchOutput = await dispatchLintWithEffect(filePath, projectRoot, pi);
-		} else if (pi.getFlag("lens-bus")) {
-			dispatchOutput = await dispatchLintWithBus(filePath, projectRoot, pi);
-		} else {
-			dispatchOutput = await dispatchLint(filePath, projectRoot, pi);
-		}
+		const dispatchOutput = await dispatchLint(filePath, projectRoot, pi);
 
 		if (dispatchOutput) {
 			lspOutput += `\n\n${dispatchOutput}`;
@@ -1447,8 +1387,6 @@ export default function (pi: ExtensionAPI) {
 		}
 		phaseEnd("dispatch_lint", {
 			hasOutput: !!dispatchOutput,
-			effect: pi.getFlag("lens-effect"),
-			bus: pi.getFlag("lens-bus"),
 		});
 
 		// --- Test runner: run corresponding tests on write ---
@@ -1642,15 +1580,6 @@ export default function (pi: ExtensionAPI) {
 		const cwd = ctx.cwd ?? process.cwd();
 		const turnState = cacheManager.readTurnState(cwd);
 		const files = Object.keys(turnState.files);
-
-		// Publish turn ended event to bus (Phase 1)
-		if (pi.getFlag("lens-bus") && files.length > 0) {
-			TurnEnded.publish({
-				cwd,
-				modifiedFiles: files,
-				timestamp: Date.now(),
-			});
-		}
 
 		if (files.length === 0) return;
 
