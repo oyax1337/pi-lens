@@ -356,9 +356,11 @@ export default function (pi: ExtensionAPI) {
 				`Total cognitive complexity: ${tdi.totalCognitive}`,
 				``,
 				`Debt breakdown:`,
-				`  Maintainability: ${tdi.byCategory.maintainability}%`,
-				`  Complexity: ${tdi.byCategory.complexity}%`,
+				`  Maintainability: ${tdi.byCategory.maintainability}% (MI-based)`,
+				`  Cognitive: ${tdi.byCategory.cognitive}%`,
 				`  Nesting: ${tdi.byCategory.nesting}%`,
+				`  Max Cyclomatic: ${tdi.byCategory.maxCyclomatic}% (worst function)`,
+				`  Entropy: ${tdi.byCategory.entropy}% (code unpredictability)`,
 				``,
 				tdi.score <= 30
 					? "✅ Codebase is healthy!"
