@@ -1060,6 +1060,37 @@ export default function (pi: ExtensionAPI) {
 				});
 			}
 		}
+
+		// --- Pre-write duplicate detection ---
+		// Check if new content redefines functions that already exist elsewhere.
+		// Uses cachedExports (populated at session_start via ast-grep scan).
+		if (isToolCallEventType("write", event) && cachedExports.size > 0) {
+			const newContent = (event.input as { content?: string }).content;
+			if (newContent) {
+				const dupeWarnings: string[] = [];
+				const exportRe =
+					/export\s+(?:async\s+)?(?:function|class|const|let|type|interface)\s+(\w+)/g;
+				let m: RegExpExecArray | null;
+				while ((m = exportRe.exec(newContent))) {
+					const name = m[1];
+					const existingFile = cachedExports.get(name);
+					if (
+						existingFile &&
+						path.resolve(existingFile) !== path.resolve(filePath)
+					) {
+						dupeWarnings.push(
+							`\`${name}\` already exists in ${path.relative(projectRoot, existingFile)}`,
+						);
+					}
+				}
+				if (dupeWarnings.length > 0) {
+					return {
+						block: true,
+						reason: `🔴 STOP — Redefining existing export(s). Import instead:\n${dupeWarnings.map((w) => `  • ${w}`).join("\n")}`,
+					};
+				}
+			}
+		}
 	});
 
 	// Real-time feedback on file writes/edits
