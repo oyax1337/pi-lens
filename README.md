@@ -793,6 +793,67 @@ pi-lens/
 
 ---
 
+## Skills
+
+pi-lens includes two built-in skills that guide the LLM on when to use specific tools:
+
+### ast-grep
+
+**Purpose:** Guide AST-aware pattern matching for semantic code search/replace.
+
+**When to load:** Use `/skill:ast-grep` when performing structural code searches (finding function calls, class methods, imports) or replacements across files.
+
+**Key guidance:**
+- Use `$VAR` for single nodes, `$$$` for multiple
+- Patterns must be **complete valid code** (not fragments)
+- **Workflow:** Search → Dry-run (`apply: false`) → Apply (`apply: true`)
+- **Error "Multiple AST nodes":** Use metavariables like `it($TEST)` not raw text like `it"test"`
+
+```typescript
+// ✅ GOOD: Complete code with metavariables
+ast_grep_search
+  pattern: "console.log($MSG)"
+  lang: typescript
+  paths: ["src/"]
+
+// ❌ BAD: Incomplete pattern
+pattern: "console.log("  // Missing args/body
+```
+
+### lsp-navigation
+
+**Purpose:** Guide code intelligence via Language Server Protocol.
+
+**When to load:** Use `/skill:lsp-navigation` for understanding code structure — definitions, references, types, call hierarchy.
+
+**Key guidance:**
+- **LSP is PRIMARY** for code intelligence — NOT grep/glob/ast-grep
+- Requires `--lens-lsp` flag
+- Call hierarchy: `prepareCallHierarchy` → `incomingCalls`/`outgoingCalls`
+
+| Task | Use LSP | Use Other |
+|------|---------|-----------|
+| "Where is this defined?" | `definition` | — |
+| "Find all usages" | `references` | — |
+| "What type is this?" | `hover` | — |
+| "Who calls this function?" | `prepareCallHierarchy` → `incomingCalls` | — |
+| Find patterns (console.log) | — | `ast_grep_search` |
+| Find TODO comments | — | `grep` |
+
+```typescript
+// ✅ Code intelligence → LSP
+lsp_navigation
+  operation: "references"
+  filePath: "src/utils.ts"
+  line: 42
+  character: 10
+
+// ❌ Don't use LSP for text patterns
+pattern: "TODO"  // Use grep instead
+```
+
+---
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for full history.

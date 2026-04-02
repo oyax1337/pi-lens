@@ -5,6 +5,17 @@ All notable changes to pi-lens will be documented in this file.
 ## [3.6.0] - 2026-04-02
 
 ### Added
+- **LSP Call Hierarchy Support** — Added 3 new operations to `lsp_navigation` tool:
+  - `prepareCallHierarchy` — Get callable item at position
+  - `incomingCalls` — Find all functions/methods that CALL this function
+  - `outgoingCalls` — Find all functions/methods CALLED by this function
+  - Use case: "Who calls this function?" and "What does this function depend on?"
+- **LSP Navigation Skill** — New built-in skill (`skills/lsp-navigation/SKILL.md`) that guides LLM on when to use LSP for code intelligence vs other tools
+- **AST-Grep Skill Improvements** — Enhanced `skills/ast-grep/SKILL.md` with:
+  - Testing Tips section (Search → Dry-run → Apply workflow)
+  - Metavariable selection guide ($ vs $$$)
+  - Specific guidance for "Multiple AST nodes" error
+- **Skills Registration** — Extension now registers `skills/` directory via `resources_discover` event, exposing both `ast-grep` and `lsp-navigation` skills to pi
 - **Enhanced TDI (Technical Debt Index) with 5-factor formula** — Now captures "worst offender" functions and code unpredictability:
   - **Max Cyclomatic (10%)**: Catches worst function complexity (avg hides bad apples)
   - **Entropy (5%)**: Measures code unpredictability/vocabulary richness in bits
