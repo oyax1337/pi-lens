@@ -10,7 +10,7 @@
 3. **Scans for secrets** — Blocks on hardcoded API keys, tokens, passwords
 4. **Runs linters** — Biome (TS/JS), Ruff (Python), plus structural analysis
 5. **Tree-sitter analysis** — Deep structural patterns (empty catch, eval, deep nesting, mixed async styles)
-6. **Auto-installs** — TypeScript, Python, Biome, Ruff tools install automatically on first use
+6. **Auto-installs** — TypeScript, Python, Biome, Ruff, and analysis tools auto-install on first use
 7. **Only shows NEW issues** — Delta-mode tracks baselines and filters pre-existing problems
 
 **🔴 Blockers** (type errors, secrets, empty catches) appear inline and stop the agent until fixed.  
@@ -128,7 +128,7 @@ Enable full Language Server Protocol support with `--lens-lsp`:
 | **Config** | YAML, JSON, Prisma |
 | **Web** | Vue, Svelte, CSS/SCSS/Sass/Less |
 
-**Auto-installation (4 core tools):** TypeScript, Python, and formatting tools auto-install on first use to `.pi-lens/tools/`. Other LSP servers are launched via `npx` when available or require manual installation.
+**Auto-installation (8 tools):** TypeScript, Python, Biome, Ruff, and analysis tools (Madge, jscpd, ast-grep, Knip) auto-install on first use to `.pi-lens/tools/`. Other LSP servers are launched via `npx` when available or require manual installation.
 
 **Usage:**
 ```bash
