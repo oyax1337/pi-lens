@@ -29,7 +29,7 @@
 		"jscpd",
 		"knip"
 	],
-	"author": "R3LiC",
+	"author": "Apostolos Mantzaris",
 	"license": "MIT",
 	"files": [
 		"index.ts",
