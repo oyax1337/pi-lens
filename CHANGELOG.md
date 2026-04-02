@@ -2,6 +2,15 @@
 
 All notable changes to pi-lens will be documented in this file.
 
+## [3.6.1] - 2026-04-02
+
+### Changed
+- **Updated package description** — More concise: "Real-time code feedback for pi — LSP, linters, formatters, type-checking, structural analysis & booboo"
+
+### Repository
+- **AGENTS.md is now local-only** — Removed from git repo and added to `.gitignore` so it stays local to each developer's environment
+- **Cleaned up debug files** — Removed old test files (`_debug-*.ts`, `_trigger-test.ts`, `_test-*.ts`) from repo
+
 ## [3.6.0] - 2026-04-02
 
 ### Added
