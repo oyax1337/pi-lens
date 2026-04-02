@@ -131,28 +131,6 @@ const TOOLS: ToolDefinition[] = [
 		packageName: "knip",
 		binaryName: "knip",
 	},
-	// GitHub release LSP servers
-	{
-		id: "clangd",
-		name: "clangd",
-		checkCommand: "clangd",
-		checkArgs: ["--version"],
-		installStrategy: "github",
-		binaryName: process.platform === "win32" ? "clangd.exe" : "clangd",
-		githubRepo: "clangd/clangd",
-	},
-	{
-		id: "lua-language-server",
-		name: "Lua Language Server",
-		checkCommand: "lua-language-server",
-		checkArgs: ["--version"],
-		installStrategy: "github",
-		binaryName:
-			process.platform === "win32"
-				? "bin/lua-language-server.exe"
-				: "bin/lua-language-server",
-		githubRepo: "LuaLS/lua-language-server",
-	},
 ];
 
 // --- Check Functions ---
