@@ -62,6 +62,40 @@ class $CLASS($$$BASE):
     $$$BODY
 ```
 
+## Testing Tips
+
+**Workflow: Search → Dry-run → Apply**
+
+```typescript
+// Step 1: Verify pattern matches what you expect
+ast_grep_search
+  pattern: "console.log($MSG)"
+  lang: typescript
+  paths: ["src/"]
+// → Check the matches are correct
+
+// Step 2: Then do dry-run replace
+ast_grep_replace
+  pattern: "console.log($MSG)"
+  rewrite: "logger.debug($MSG)"
+  lang: typescript
+  paths: ["src/"]
+  apply: false
+
+// Step 3: Finally apply
+// apply: true
+```
+
+**Metavariable selection guide:**
+| Use | Pattern | Matches |
+|-----|---------|---------|
+| Single arg | `console.log($MSG)` | `console.log("hi")` |
+| Multiple args | `console.log($$$ARGS)` | `console.log("hi", obj, 42)` |
+| Single node | `const $X = $Y` | `const x = 1` |
+| Many nodes | `const $X = $$$REST` | `const x = 1 + 2 + 3` |
+
+**Indentation doesn't matter:** ast-grep normalizes whitespace, so tabs vs spaces work the same.
+
 ## Examples
 
 ```typescript
