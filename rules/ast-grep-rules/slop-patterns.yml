@@ -23,19 +23,27 @@ rule:
   kind: while_statement
   pattern: "while ($I < $ARR.length) { $$$ }"
 ---
-id: ts-manual-min-max
-language: typescript
-severity: warning
-message: Manual min/max logic - use Math.min() or Math.max()
-metadata:
-  weight: 3
-  category: slop
-rule:
-  kind: if_statement
-  any:
-  - pattern: "if ($A > $B) { $M = $A; } else { $M = $B; }"
-  - pattern: "if ($A < $B) { $M = $A; } else { $M = $B; }"
----
+# DISABLED: Complex block patterns don't match with current ast-grep-napi runner
+# Requires implementation support for multi-statement patterns with blocks
+# Consider migrating to tree-sitter for better structural matching
+# id: ts-manual-min-max
+# language: typescript
+# severity: warning
+# message: Manual min/max logic - use Math.min() or Math.max()
+# metadata:
+#   weight: 3
+#   category: slop
+# rule:
+#   any:
+#   # Pattern for MAX: if (a > b) result = a else result = b
+#   - pattern: "if ($A > $B) { $M = $A; } else { $M = $B; }"
+#   # Pattern for MIN: if (a < b) result = a else result = b  
+#   - pattern: "if ($A < $B) { $M = $A; } else { $M = $B; }"
+#   # Pattern for MAX (reversed): if (a < b) result = b else result = a
+#   - pattern: "if ($A < $B) { $M = $B; } else { $M = $A; }"
+#   # Pattern for MIN (reversed): if (a > b) result = b else result = a
+#   - pattern: "if ($A > $B) { $M = $B; } else { $M = $A; }"
+# ---
 id: ts-array-map-ceremony
 language: typescript
 severity: warning
@@ -129,17 +137,18 @@ rule:
   - pattern: "if ($X === null || $X === undefined) { return null; }"
   - pattern: "if ($X == null) { return null; }"
 ---
-id: ts-optional-chain-opportunity
-language: typescript
-severity: warning
-message: obj && obj.prop && obj.prop.nested - use optional chaining obj?.prop?.nested
-metadata:
-  weight: 3
-  category: slop
-rule:
-  kind: binary_expression
-  pattern: "$A && $A.$B && $A.$B.$C"
----
+# DISABLED: Duplicate of prefer-optional-chain.yml which has more comprehensive patterns
+# id: ts-optional-chain-opportunity
+# language: typescript
+# severity: warning
+# message: obj && obj.prop && obj.prop.nested - use optional chaining obj?.prop?.nested
+# metadata:
+#   weight: 3
+#   category: slop
+# rule:
+#   kind: binary_expression
+#   pattern: "$A && $A.$B && $A.$B.$C"
+# ---
 id: ts-explicit-undefined-check
 language: typescript
 severity: warning
@@ -189,19 +198,20 @@ rule:
   kind: call_expression
   pattern: "$ARR.filter($F).map($G)"
 ---
-id: ts-unnecessary-ternary-boolean
-language: typescript
-severity: warning
-message: cond ? true : false - use Boolean(cond) or cond directly
-metadata:
-  weight: 2
-  category: slop
-rule:
-  kind: conditional_expression
-  any:
-  - pattern: "$COND ? true : false"
-  - pattern: "$COND ? false : true"
----
+# DISABLED: Pattern doesn't match with current ast-grep-napi runner
+# The AST representation of boolean literals differs from string patterns
+# id: ts-unnecessary-ternary-boolean
+# language: typescript
+# severity: warning
+# message: cond ? true : false - use Boolean(cond) or cond directly
+# metadata:
+#   weight: 2
+#   category: slop
+# rule:
+#   any:
+#     - pattern: "$COND ? true : false"
+#     - pattern: "$COND ? false : true"
+# ---
 id: ts-typeof-equality
 language: typescript
 severity: warning
@@ -232,12 +242,32 @@ metadata:
   weight: 2
   category: slop
 rule:
-  kind: call_expression
   pattern: "$ARR.slice()"
   not:
-    has:
-      kind: arguments
+    pattern: "$ARR.slice($START)"
 ---
+# DISABLED: nthChild is unsupported - need to rewrite without it
+# id: ts-parseint-no-radix
+# language: typescript
+# severity: warning
+# message: parseInt(x) without radix - use parseInt(x, 10)
+# metadata:
+#   weight: 2
+#   category: slop
+# rule:
+#   kind: call_expression
+#   all:
+#   - has:
+#       kind: identifier
+#       regex: ^parseInt$
+#   - has:
+#       kind: arguments
+#       not:
+#         has:
+#           nthChild:
+#             position: 2
+# ---
+# Rewritten rule using pattern matching instead of nthChild:
 id: ts-parseint-no-radix
 language: typescript
 severity: warning
@@ -246,17 +276,9 @@ metadata:
   weight: 2
   category: slop
 rule:
-  kind: call_expression
-  all:
-  - has:
-      kind: identifier
-      regex: ^parseInt$
-  - has:
-      kind: arguments
-      not:
-        has:
-          nthChild:
-            position: 2
+  pattern: "parseInt($X)"
+  not:
+    pattern: "parseInt($X, $RADIX)"
 ---
 id: ts-isnan-check
 language: typescript
@@ -304,17 +326,18 @@ rule:
   kind: call_expression
   pattern: "$FN.bind(this)"
 ---
-id: ts-empty-array-check
-language: typescript
-severity: warning
-message: arr.length === 0 - use !arr.length or arr.length (truthiness)
-metadata:
-  weight: 2
-  category: slop
-rule:
-  kind: binary_expression
-  pattern: "$ARR.length === 0"
----
+# DISABLED: Debatable value - arr.length === 0 is often clearer than !arr.length
+# id: ts-empty-array-check
+# language: typescript
+# severity: warning
+# message: arr.length === 0 - use !arr.length or arr.length (truthiness)
+# metadata:
+#   weight: 2
+#   category: slop
+# rule:
+#   kind: binary_expression
+#   pattern: "$ARR.length === 0"
+# ---
 id: ts-array-every-some
 language: typescript
 severity: warning
