@@ -27,6 +27,7 @@ SCA.md
 review.md
 
 # Test directories and files
+tests/
 test-files/
 test-lsp-files/
 test-filetime/
