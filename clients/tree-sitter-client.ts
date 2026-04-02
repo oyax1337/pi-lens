@@ -93,6 +93,8 @@ export class TreeSitterClient {
 	private ParserClass: any = null;
 	// biome-ignore lint/suspicious/noExplicitAny: Language loader from module
 	private LanguageLoader: any = null;
+	// biome-ignore lint/suspicious/noExplicitAny: Compiled query cache by language+pattern hash
+	private queryCache = new Map<string, any>();
 	private queryLoader = new TreeSitterQueryLoader();
 	private queriesLoaded = false;
 	private verbose: boolean;
@@ -518,7 +520,18 @@ export class TreeSitterClient {
 		return { query: "", metavars: [] };
 	}
 
-	/** Compile a pattern into a tree-sitter Query */
+	/** Generate cache key for compiled query */
+	private getQueryCacheKey(pattern: string, languageId: string): string {
+		// Simple hash for the query string
+		let hash = 0;
+		for (let i = 0; i < pattern.length; i++) {
+			const char = pattern.charCodeAt(i);
+			hash = ((hash << 5) - hash + char) | 0;
+		}
+		return `${languageId}:${hash.toString(36)}`;
+	}
+
+	/** Compile a pattern into a tree-sitter Query with caching */
 	private async compileQuery(
 		pattern: string,
 		languageId: string,
@@ -528,6 +541,14 @@ export class TreeSitterClient {
 		postFilter?: string;
 		postFilterParams?: unknown;
 	} | null> {
+		const cacheKey = this.getQueryCacheKey(pattern, languageId);
+
+		// Check cache first
+		if (this.queryCache.has(cacheKey)) {
+			this.dbg(`Query cache hit: ${cacheKey}`);
+			return this.queryCache.get(cacheKey);
+		}
+
 		const language = await this.loadLanguage(languageId);
 		if (!language) {
 			this.dbg(`Could not load language ${languageId}`);
@@ -548,7 +569,11 @@ export class TreeSitterClient {
 			// biome-ignore lint/suspicious/noExplicitAny: Language type compatibility
 			const query = new Query(language as any, queryStr);
 			this.dbg(`Query compiled with ${query.patternCount} patterns`);
-			return { query, metavars, postFilter, postFilterParams };
+
+			const result = { query, metavars, postFilter, postFilterParams };
+			// Cache the compiled query
+			this.queryCache.set(cacheKey, result);
+			return result;
 		} catch (err) {
 			this.dbg(`Query compilation failed: ${err}`);
 			return null;
