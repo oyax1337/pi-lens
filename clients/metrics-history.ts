@@ -365,9 +365,11 @@ export interface ProjectTDI {
 	filesAnalyzed: number;
 	filesWithDebt: number;
 	byCategory: {
-		complexity: number;
-		maintainability: number;
-		nesting: number;
+		maintainability: number; // 45% - MI-based
+		cognitive: number; // 30%
+		nesting: number; // 10%
+		maxCyclomatic: number; // 10% - NEW
+		entropy: number; // 5% - NEW
 	};
 }
 
