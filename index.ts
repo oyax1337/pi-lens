@@ -374,60 +374,6 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerCommand("lens-format", {
-		description:
-			"Apply Biome formatting to files. Usage: /lens-format [file-path] or /lens-format --all",
-		handler: async (args, ctx) => {
-			const available = await biomeClient.ensureAvailable();
-			if (!available) {
-				ctx.ui.notify(
-					"Biome not available and auto-install failed. Run: npm install -D @biomejs/biome",
-					"error",
-				);
-				return;
-			}
-
-			const arg = args.trim();
-
-			if (!arg || arg === "--all") {
-				ctx.ui.notify("🔍 Formatting all files...", "info");
-
-				let formatted = 0;
-				let skipped = 0;
-
-				const targetPath = ctx.cwd || process.cwd();
-				const isTsProject = nodeFs.existsSync(
-					path.join(targetPath, "tsconfig.json"),
-				);
-				const files = getSourceFiles(targetPath, isTsProject);
-
-				for (const fullPath of files) {
-					if (/\.(ts|tsx|js|jsx|json|css)$/.test(fullPath)) {
-						const result = biomeClient.formatFile(fullPath);
-						if (result.changed) formatted++;
-						else if (result.success) skipped++;
-					}
-				}
-				ctx.ui.notify(
-					`✓ Formatted ${formatted} file(s), ${skipped} already clean`,
-					"info",
-				);
-				return;
-			}
-
-			const filePath = path.resolve(arg);
-			const result = biomeClient.formatFile(filePath);
-
-			if (result.success && result.changed) {
-				ctx.ui.notify(`✓ Formatted ${path.basename(filePath)}`, "info");
-			} else if (result.success) {
-				ctx.ui.notify(`✓ ${path.basename(filePath)} already clean`, "info");
-			} else {
-				ctx.ui.notify(`⚠️ Format failed: ${result.error}`, "error");
-			}
-		},
-	});
-
 	// --- Tools ---
 
 	const LANGUAGES = [

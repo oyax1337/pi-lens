@@ -448,7 +448,6 @@ pi-lens works out of the box for TypeScript/JavaScript. For full language suppor
 | Command | Description |
 |---------|-------------|
 | `/lens-booboo` | Full codebase review (10 analysis runners) |
-| `/lens-format` | Apply Biome formatting |
 | `/lens-tdi` | Technical Debt Index and trends |
 
 ---

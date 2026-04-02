@@ -40,8 +40,7 @@ const biomeRunner: RunnerDefinition = {
 		// IMPORTANT: Never use --write in dispatch runner to prevent infinite loops.
 		// Writing to the file would trigger another tool_result event, which would
 		// call dispatchLint again, creating a feedback loop.
-		// Use /lens-format command for explicit formatting, or autofix flags on
-		// the write/edit tools directly.
+		// Auto-format handles formatting on write; this runner only checks.
 		const args = useNpx
 			? ["biome", "check", ctx.filePath]
 			: ["check", ctx.filePath];
