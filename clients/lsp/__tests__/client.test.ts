@@ -29,15 +29,7 @@ vi.mock("vscode-jsonrpc/node.js", () => ({
 	StreamMessageWriter: vi.fn(),
 }));
 
-vi.mock("../../bus/events.js", () => ({
-	DiagnosticFound: {
-		publish: vi.fn(),
-		subscribe: vi.fn(() => vi.fn()), // Returns unsubscribe function
-	},
-}));
-
 import { createMessageConnection } from "vscode-jsonrpc/node.js";
-import { DiagnosticFound } from "../../bus/events.js";
 
 describe("createLSPClient", () => {
 	let mockProcess: LSPProcess;
@@ -236,42 +228,6 @@ describe("createLSPClient", () => {
 			);
 		});
 
-		it("should publish diagnostics to bus", async () => {
-			await createLSPClient({
-				serverId: "test-server",
-				process: mockProcess,
-				root: "/test",
-			});
-
-			// Get the registered handler
-			const handler = mockConnection.onNotification.mock.calls.find(
-				(call: any) => call[0] === "textDocument/publishDiagnostics",
-			)?.[1];
-
-			expect(handler).toBeDefined();
-
-			// Simulate receiving diagnostics
-			const mockDiagnostics: LSPDiagnostic[] = [
-				{
-					severity: 1,
-					message: "Type error",
-					range: {
-						start: { line: 0, character: 0 },
-						end: { line: 0, character: 5 },
-					},
-					code: "TS2345",
-				},
-			];
-
-			// Call handler directly (would be debounced in real scenario)
-			handler?.({ uri: "file:///test/file.ts", diagnostics: mockDiagnostics });
-
-			// Advance past debounce (150ms)
-			await vi.advanceTimersByTimeAsync(200);
-
-			expect(DiagnosticFound.publish).toHaveBeenCalled();
-		});
-
 		it.skip("should store diagnostics for retrieval", async () => {
 			const client = await createLSPClient({
 				serverId: "test-server",
@@ -320,8 +276,7 @@ describe("createLSPClient", () => {
 				root: "/test",
 			});
 
-			// waitForDiagnostics uses bus subscription + setTimeout for timeout
-			// With fake timers, we need to advance time to trigger the timeout
+			// waitForDiagnostics resolves via timeout when no notification arrives
 			const promise = client.waitForDiagnostics("/test/file.ts", 100);
 			await vi.advanceTimersByTimeAsync(150);
 			await promise;

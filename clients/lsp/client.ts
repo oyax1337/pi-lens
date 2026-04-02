@@ -8,6 +8,7 @@
  * - Request/response handling
  */
 
+import { EventEmitter } from "node:events";
 import { pathToFileURL } from "node:url";
 import type { MessageConnection } from "vscode-jsonrpc";
 import {
@@ -15,7 +16,7 @@ import {
 	StreamMessageReader,
 	StreamMessageWriter,
 } from "vscode-jsonrpc/node.js";
-import { DiagnosticFound } from "../bus/events.js";
+
 import type { LSPProcess } from "./launch.js";
 import { normalizeMapKey, uriToPath } from "./path-utils.js";
 
@@ -127,6 +128,12 @@ export async function createLSPClient(options: {
 	const diagnostics = new Map<string, LSPDiagnostic[]>();
 	const pendingDiagnostics = new Map<string, ReturnType<typeof setTimeout>>();
 
+	// Local event emitter — signals waitForDiagnostics when new diagnostics arrive.
+	// Scoped to this client instance; replaces global bus pub/sub.
+	// setMaxListeners guards against Node.js warning for concurrent waitForDiagnostics calls.
+	const diagnosticEmitter = new EventEmitter();
+	diagnosticEmitter.setMaxListeners(50);
+
 	// Handle incoming diagnostics with debouncing
 	connection.onNotification(
 		"textDocument/publishDiagnostics",
@@ -142,31 +149,8 @@ export async function createLSPClient(options: {
 				diagnostics.set(filePath, newDiags);
 				pendingDiagnostics.delete(filePath);
 
-				// Publish to bus
-				// Defensive: filter out malformed diagnostics that may lack range
-				const validDiags = newDiags.filter(
-					(d) => d.range?.start?.line !== undefined,
-				);
-				DiagnosticFound.publish({
-					runnerId: serverId,
-					filePath,
-					diagnostics: validDiags.map((d) => ({
-						id: `${serverId}:${d.code ?? "unknown"}:${d.range.start.line}`,
-						message: d.message,
-						filePath,
-						line: d.range.start.line + 1,
-						column: d.range.start.character + 1,
-						severity: severityFromNumber(d.severity),
-						semantic:
-							d.severity === 1
-								? "blocking"
-								: d.severity === 2
-									? "warning"
-									: "silent",
-						tool: serverId,
-					})),
-					durationMs: 0,
-				});
+				// Signal any active waitForDiagnostics calls for this file.
+				diagnosticEmitter.emit("diagnostics", filePath);
 			}, DIAGNOSTICS_DEBOUNCE_MS);
 
 			pendingDiagnostics.set(filePath, timer);
@@ -301,31 +285,35 @@ export async function createLSPClient(options: {
 
 		async waitForDiagnostics(filePath, timeoutMs = 10000) {
 			const normalizedPath = normalizeMapKey(filePath);
+
+			// Fast path: diagnostics already available
 			if (diagnostics.has(normalizedPath)) return;
 
-			// Use bus subscription like OpenCode - more reliable than polling
-			return new Promise((resolve) => {
+			return new Promise<void>((resolve) => {
 				let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-				// Subscribe to diagnostic events from this server
-				const unsub = DiagnosticFound.subscribe((event) => {
-					if (
-						event.properties.filePath === normalizedPath &&
-						event.properties.runnerId === serverId
-					) {
-						// Debounce to allow LSP to send follow-up diagnostics (e.g., semantic after syntax)
-						if (debounceTimer) clearTimeout(debounceTimer);
-						debounceTimer = setTimeout(() => {
-							unsub();
-							clearTimeout(timeout);
-							resolve();
-						}, DIAGNOSTICS_DEBOUNCE_MS);
-					}
-				});
+				// Listen on the local emitter for this client's diagnostic notifications.
+				// No runnerId filter needed — this emitter is scoped to this client instance.
+				const onDiagnostics = (fp: string) => {
+					if (normalizeMapKey(fp) !== normalizedPath) return;
 
+					// Debounce: reset on each event to catch follow-up semantic diagnostics
+					// (LSP often sends syntax diagnostics first, semantic ones shortly after).
+					if (debounceTimer) clearTimeout(debounceTimer);
+					debounceTimer = setTimeout(() => {
+						diagnosticEmitter.off("diagnostics", onDiagnostics);
+						clearTimeout(timeout);
+						resolve();
+					}, DIAGNOSTICS_DEBOUNCE_MS);
+				};
+
+				diagnosticEmitter.on("diagnostics", onDiagnostics);
+
+				// Timeout fallback: resolve even if no diagnostics arrive
+				// (some files have no errors, or the server may be slow)
 				const timeout = setTimeout(() => {
 					if (debounceTimer) clearTimeout(debounceTimer);
-					unsub();
+					diagnosticEmitter.off("diagnostics", onDiagnostics);
 					resolve();
 				}, timeoutMs);
 			});
@@ -420,6 +408,9 @@ export async function createLSPClient(options: {
 				clearTimeout(timer);
 			}
 			pendingDiagnostics.clear();
+
+			// Remove all diagnostic listeners (cancels any in-flight waitForDiagnostics)
+			diagnosticEmitter.removeAllListeners();
 
 			// Graceful shutdown
 			try {
