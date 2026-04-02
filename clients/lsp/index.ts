@@ -243,6 +243,41 @@ export class LSPService {
 	}
 
 	/**
+	 * Navigation: prepare call hierarchy at position
+	 */
+	async prepareCallHierarchy(
+		filePath: string,
+		line: number,
+		character: number,
+	) {
+		const spawned = await this.getClientForFile(filePath);
+		if (!spawned) return [];
+		return spawned.client.prepareCallHierarchy(filePath, line, character);
+	}
+
+	/**
+	 * Navigation: find incoming calls (callers)
+	 */
+	async incomingCalls(item: import("./client.js").LSPCallHierarchyItem) {
+		const spawned = await this.getClientForFile(
+			item.uri.replace("file://", ""),
+		);
+		if (!spawned) return [];
+		return spawned.client.incomingCalls(item);
+	}
+
+	/**
+	 * Navigation: find outgoing calls (callees)
+	 */
+	async outgoingCalls(item: import("./client.js").LSPCallHierarchyItem) {
+		const spawned = await this.getClientForFile(
+			item.uri.replace("file://", ""),
+		);
+		if (!spawned) return [];
+		return spawned.client.outgoingCalls(item);
+	}
+
+	/**
 	 * Get all diagnostics across all tracked files (for cascade checking)
 	 */
 	async getAllDiagnostics(): Promise<
