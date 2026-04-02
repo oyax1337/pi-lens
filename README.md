@@ -31,8 +31,8 @@ pi --no-autoformat
 # Full LSP mode (31 language servers)
 pi --lens-lsp
 
-# Fastest mode (LSP + concurrent execution) (Experimental)
-pi --lens-lsp --lens-effect
+# LSP mode (recommended for large projects)
+pi --lens-lsp
 ```
 
 ## Install
@@ -136,7 +136,6 @@ Enable full Language Server Protocol support with `--lens-lsp`:
 **Usage:**
 ```bash
 pi --lens-lsp                    # Enable LSP
-pi --lens-lsp --lens-effect      # LSP + concurrent execution
 ```
 
 ### `pi` vs `pi --lens-lsp`
@@ -162,7 +161,6 @@ See [docs/LSP_CONFIG.md](docs/LSP_CONFIG.md) for configuration options.
 | Mode | Flag | Description |
 |------|------|-------------|
 | **Sequential** | (default) | Runners execute one at a time |
-| **Concurrent** | `--lens-effect` | All runners in parallel via Effect-TS (Experimental) |
 
 ---
 
@@ -176,8 +174,6 @@ Every file write/edit triggers multiple analysis phases:
 3. **Dispatch system** — Routes file to appropriate runners by `FileKind`
 4. **Runners execute** by priority (lower = earlier). See [Runners](#runners) section for full list.
 5. **Test runner detection** (post-write) — Detects Jest/Vitest/Pytest and runs relevant tests
-
-**With `--lens-effect`:** Dispatch runners execute concurrently via Effect-TS. Test runner remains sequential (step 5).
 
 **Delta mode behavior:**
 - **First write:** All issues tracked and stored in baseline
@@ -480,7 +476,7 @@ pi-lens works out of the box for TypeScript/JavaScript. For full language suppor
 |------|---------|--------------|
 | **Standard** (default) | `pi` | Auto-formatting, TS/Python type-checking, sequential execution |
 | **Full LSP** | `pi --lens-lsp` | Real LSP servers (31 languages), sequential execution |
-| **Fastest** | `pi --lens-lsp --lens-effect` | Real LSP + concurrent execution (all runners in parallel) |
+| **Fastest** | `pi --lens-lsp` | Real LSP + full runner suite |
 
 
 ### Flag Reference
@@ -488,7 +484,6 @@ pi-lens works out of the box for TypeScript/JavaScript. For full language suppor
 | Flag | Description |
 |------|-------------|
 | `--lens-lsp` | Use real Language Server Protocol servers instead of built-in type-checking |
-| `--lens-effect` | Run all runners **concurrently** (faster) instead of sequentially (Experimental) |
 | `--lens-verbose` | Enable detailed console logging |
 | `--no-autoformat` | Disable automatic formatting (formatting is **enabled by default**) |
 | `--no-autofix` | Disable all auto-fixing (Biome safe fixes + Ruff autofix **enabled by default**). Unsafe fixes (e.g. removing unused vars) are never applied automatically — use `/lens-booboo` with explicit confirmation. |
@@ -507,7 +502,7 @@ pi-lens works out of the box for TypeScript/JavaScript. For full language suppor
 ```bash
 pi                               # Default: auto-format, auto-fix, built-in type-checking
 pi --lens-lsp                    # LSP type-checking (31 languages)
-pi --lens-lsp --lens-effect      # LSP + concurrent execution (fastest)
+pi --lens-lsp                    # LSP mode (recommended)
 ```
 
 ---
@@ -705,7 +700,6 @@ See [CHANGELOG.md](CHANGELOG.md) for full history.
 ### Latest Highlights
 
 - **LSP Support:** 31 Language Server Protocol clients (4 core auto-installed, others via npx or manual)
-- **Concurrent Execution:** Effect-TS-based parallel runner execution with `--lens-effect`
 - **NAPI Runner:** 100x faster TypeScript/JavaScript structural analysis (~9ms vs ~1200ms) — currently disabled in realtime due to stability
 - **Slop Detection:** 33+ TypeScript and 40+ Python patterns for AI-generated code quality issues
 

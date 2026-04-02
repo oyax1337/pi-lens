@@ -2,6 +2,18 @@
 
 All notable changes to pi-lens will be documented in this file.
 
+## [Unreleased]
+
+### Removed
+- **`--lens-bus`**: Removed the experimental event bus system (Phase 1). The sequential dispatcher has richer features (delta mode, per-runner latency, baseline tracking) that the bus system never had.
+- **`--lens-bus-debug`**: Removed alongside `--lens-bus`.
+- **`--lens-effect`**: Removed the Effect-TS concurrent runner execution system (Phase 2). The sequential `dispatchForFile` is the authoritative implementation — it has delta mode, async `when()` handling, and latency tracking that the effect system lacked.
+
+### Changed
+- **LSP client**: `waitForDiagnostics` in `clients/lsp/client.ts` now uses a local `EventEmitter` scoped to the client instance instead of the global bus for internal diagnostic signalling.
+
+---
+
 ## [3.2.0] - 2026-04-02
 
 ### Fixed
