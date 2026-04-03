@@ -250,22 +250,18 @@ async function verifyToolBinary(binPath: string): Promise<boolean> {
 
 		proc.on("exit", (code) => {
 			if (code === 0) {
-				console.error(
-					`[auto-install] Verified: ${binPath} (version: ${stdout.trim()})`,
-				);
+				debugLog(`Verified: ${binPath} (version: ${stdout.trim()})`);
 				resolve(true);
 			} else {
-				console.error(
-					`[auto-install] Verification failed for ${binPath}: exit code ${code}, stderr: ${stderr}`,
-				);
+				console.error(`[auto-install] Verification failed for ${binPath}`);
+				debugLog("Exit code:", code, "stderr:", stderr);
 				resolve(false);
 			}
 		});
 
 		proc.on("error", (err) => {
-			console.error(
-				`[auto-install] Verification failed for ${binPath}: ${err.message}`,
-			);
+			console.error(`[auto-install] Verification failed for ${binPath}`);
+			debugLog("Error:", err.message);
 			resolve(false);
 		});
 	});
@@ -335,7 +331,7 @@ async function installNpmTool(
 					}
 
 					// NEW: Verify the binary actually works before returning
-					console.error(`[auto-install] Verifying ${binaryName}...`);
+					debugLog(`Verifying ${binaryName}...`);
 					const isValid = await verifyToolBinary(binPath);
 					if (!isValid) {
 						console.error(
