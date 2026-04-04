@@ -196,7 +196,7 @@ pi-lens uses a **dispatcher-runner architecture** for extensible multi-language 
 | **shellcheck** | Shell | 20 | Warning | Bash/sh/zsh/fish linting |
 | **python-slop** | Python | 25 | Warning | AI slop detection (~40 patterns) |
 | **spellcheck** | Markdown | 30 | Warning | Typo detection in docs |
-| **similarity** | TS | 35 | Warning | Semantic duplicate detection (structural similarity) |
+| **similarity** | TS | 35 | Warning | Semantic duplicate detection (≥90% structural similarity, Rust-accelerated when available) |
 | **architect** | All | 40 | Warning | Architectural rule violations |
 | **go-vet** | Go | 50 | Warning | Go static analysis |
 | **rust-clippy** | Rust | 50 | Warning | Rust linting |
@@ -327,7 +327,7 @@ Full codebase analysis with **10 tracked runners** producing a comprehensive rep
 |---|--------|---------------|
 | 1 | **ast-grep (design smells)** | Structural issues (empty catch, no-debugger, etc.) |
 | 2 | **ast-grep (similar functions)** | Duplicate function patterns across files |
-| 3 | **semantic similarity (Amain)** | 57×72 matrix semantic clones (>75% similarity) |
+| 3 | **semantic similarity (Amain)** | 57×72 matrix semantic clones (≥90% similarity) |
 | 4 | **complexity metrics** | Low MI, high cognitive complexity, AI slop indicators |
 | 5 | **TODO scanner** | TODO/FIXME annotations and tech debt markers |
 | 6 | **dead code (Knip)** | Unused exports, files, dependencies |
@@ -501,12 +501,49 @@ pi-lens/
 ├── commands/         # /lens-booboo, /lens-format commands
 ├── docs/             # Documentation
 ├── rules/            # AST-grep rules
+├── rust/             # Optional Rust core for performance acceleration
+│   ├── src/          # Rust source (pi-lens-core binary)
+│   └── Cargo.toml
 ├── skills/           # Built-in pi skills
 ├── index.ts          # Main extension entry point
 └── package.json
 ```
 
 See source for detailed structure.
+
+---
+
+## Rust Core (Optional)
+
+pi-lens includes a **Rust performance core** (`pi-lens-core`) for CPU-intensive operations. It is entirely optional — all features fall back to the TypeScript implementation automatically if the binary is not available.
+
+**What it accelerates:**
+- **File scanning** — Uses ripgrep's `ignore` crate for fast, `.gitignore`-aware project scanning (~10× faster than glob)
+- **Similarity detection** — Parallel 57×72 state-matrix computation and index querying
+- **Tree-sitter queries** — Runs TypeScript and Rust AST queries directly from the binary
+
+**Status:** Does not work out of the box after `npm install`. The source is included in the package so you can build it yourself if you have Rust installed.
+
+**Build the binary (one-time):**
+```bash
+# Requires Rust toolchain — https://rustup.rs
+npm run rust:build          # release build (recommended)
+npm run rust:build:debug    # debug build
+```
+
+Once built, pi-lens will automatically use the Rust binary and fall back to TypeScript if it is absent, outdated, or fails.
+
+**Verify the binary is being used:**
+```bash
+node -e "import('./clients/native-rust-client.js').then(m => console.log('available:', m.getNativeRustCoreClient(true).isAvailable()))"
+```
+
+**Run integration tests** (requires debug binary):
+```bash
+npm run rust:build:debug
+npm run rust:test:integration   # 37 assertions
+npm run rust:test               # Rust unit tests
+```
 
 ---
 

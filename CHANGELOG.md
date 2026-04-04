@@ -2,6 +2,60 @@
 
 All notable changes to pi-lens will be documented in this file.
 
+## [3.6.7] - 2026-04-04
+
+### Fixed
+- **LSP `ERR_STREAM_DESTROYED` crash** — When an LSP process (e.g. rust-analyzer) exits, Node.js emits
+  `'error'` events on the destroyed stdio streams. Without listeners these became uncaught exceptions
+  that crashed the extension. Added persistent `error` listeners to `stdin`, `stdout`, and `stderr`
+  before handing them to `vscode-jsonrpc`, covering the post-`connection.dispose()` window.
+  Same guard added to `NativeRustCoreClient` stdin writes.
+
+### Added
+- **Rust performance core (`pi-lens-core`)** — Optional Rust binary for CPU-intensive operations.
+  All features fall back to TypeScript automatically if the binary is not available (it is **not**
+  built automatically on `npm install` — run `npm run rust:build` once if you have Rust installed).
+  - **File scanning** — ripgrep’s `ignore` crate for `.gitignore`-aware project scanning
+  - **Similarity detection** — parallel 57×72 state-matrix index, persisted to
+    `.pi-lens/rust-index.json` between invocations (fixes in-memory cache that reset on every
+    process spawn)
+  - **Tree-sitter queries** — TypeScript and Rust AST queries via the binary
+  - **`NativeRustCoreClient`** — TypeScript wrapper with `isBinaryStale()` freshness detection,
+    JSON-IPC over stdin/stdout
+  - **Integration tests** — `npm run rust:test:integration` (37 assertions across all commands)
+
+- **Rust similarity fast-path in dispatch runner** — `similarity.ts` now tries the Rust binary
+  first (scan → build index → query), falls through to the TypeScript implementation on any
+  failure. Feature flag `USE_RUST = true` at top of file.
+
+### Changed
+- **Similarity threshold raised from 0.75 → 0.90** — Empirical evaluation showed that below 0.90
+  false positives (structurally similar but semantically unrelated functions) outnumber true
+  positives with the current 57×72 matrix resolution. Applies to both the dispatch runner and
+  `/lens-booboo`.
+
+- **Rust `kind_id` mapping improved** — Replaced `kind % dim` modulo (caused up to 4 unrelated
+  node types to share one matrix slot) with even-distribution across named slots plus a dedicated
+  last slot for anonymous punctuation tokens. Max named-slot collisions reduced from 4 to 3;
+  unnamed tokens no longer pollute named slots.
+
+### Fixed (Rust)
+- `tree_sitter_rust::language_rust()` → `language()` (correct API for tree-sitter-rust 0.21)
+- `FunctionInfo` missing `#[derive(Clone)]` — caused compile error in `find_similar_to`
+- `export function foo()` was missed by the index builder — TypeScript wraps exported functions
+  in `export_statement`; replaced flat top-level walk with recursive `collect_functions()`
+- `find_similar_to` returned only the first function in a file — changed `find` to `filter`
+- `tempfile` moved from `[dependencies]` to `[dev-dependencies]`
+- Deleted orphan `test_lsp.rs` (intentional type errors caused rust-analyzer to crash the LSP stream)
+
+### Repository
+- Rust source (`rust/src/`, `rust/Cargo.toml`) added to npm `files` whitelist so users can build
+  the binary from an npm-installed package
+- Removed stale `src/main.rs` rule from root `.gitignore` (no such file at repo root)
+- Untracked `docs/plans/2025-04-03-auto-install-logging.md` (committed before `*.md` exclusion rule)
+
+---
+
 ## [3.6.3] - 2026-04-03
 
 ### Removed (Dead Code Cleanup)
