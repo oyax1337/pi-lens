@@ -323,7 +323,166 @@ export function spawn(cmd: string[], opts: Options = {}): ChildProcess {
 - Battle-tested (used by npm, yarn, webpack)
 - ~100 lines of manual code → ~10 lines
 
-### When to do this
-- If we hit more Windows LSP spawn edge cases
-- As general code cleanup when adding other features
-- Not urgent - current code works
+---
+
+## Pi SDK Extension API Assessment: RPC vs Extension vs Untapped Features
+
+*Assessed 2026-04-05 against `@mariozechner/pi-coding-agent` SDK.*
+
+### Current Architecture (What We Use)
+
+pi-lens operates as a **pi extension** — loaded at runtime inside the agent process,
+not as an external controller. This is the correct architecture for our use case.
+
+| Feature | Usage Level | Implementation |
+|---------|-------------|----------------|
+| Event hooks (`pi.on`) | ✅ Extensive | `session_start`, `tool_call`, `tool_result`, `turn_start`, `turn_end`, `before_agent_start` |
+| CLI flags (`pi.registerFlag`) | ✅ 15+ flags | `lens-lsp`, `no-biome`, `error-debt`, `auto-install`, etc. |
+| Slash commands (`pi.registerCommand`) | ✅ 2 commands | `/lens-booboo`, `/lens-tdi` |
+| Custom tools (`pi.registerTool`) | ✅ 3 tools | `autofix`, `booboo`, `tdi` |
+| UI primitives (`ctx.ui`) | ⚠️ Partial | `notify()`, `setStatus()` in auto-loop; no widgets/footers |
+| Message sending (`pi.sendUserMessage`) | ⚠️ Minimal | `auto-loop.ts` for follow-up messages |
+
+### What We're NOT Using (Assessment)
+
+#### 1. **RPC Client (`RpcClient`) — WRONG ABSTRACTION**
+
+The `RpcClient` is for **external programs** controlling pi headlessly:
+```typescript
+// External script, NOT an extension
+const client = new RpcClient({ cwd: "/project" });
+await client.start();
+await client.prompt("Refactor this codebase");
+await client.waitForIdle();
+```
+
+**Verdict:** Not applicable. pi-lens is an extension running *inside* pi's process.
+The Extension API (`ExtensionAPI`) is the correct interface.
+
+**When RPC matters:** CI/CD pipelines, IDE integrations, test harnesses driving pi
+programmatically. We don't need this.
+
+---
+
+#### 2. **EventBus (`pi.events`) — UNUSED BUT VALID**
+
+Simple pub/sub for extension-to-extension communication:
+```typescript
+pi.events.emit("lens-diagnostics", { file, errors });
+// Other extension subscribes:
+pi.events.on("lens-diagnostics", handler);
+```
+
+**Use case:** Multi-extension coordination. If another extension wanted real-time
+lint data (e.g., a custom TUI widget, a web dashboard), EventBus would be the channel.
+
+**Verdict:** Not needed now. Our architecture uses:
+- Internal state (caches, maps)
+- Context injection (`pi.on("context", ...)`) to surface to LLM
+- Return values from `tool_result` to surface to user
+
+EventBus only becomes relevant if we split pi-lens into multiple extensions or expose
+a public API for other extensions to consume.
+
+---
+
+#### 3. **Custom Entry Persistence (`pi.appendEntry`) — WORTH CONSIDERING**
+
+Store arbitrary JSON data in the session file (not sent to LLM):
+```typescript
+pi.appendEntry("lens-metrics", {
+  timestamp: Date.now(),
+  filesLinted: 5,
+  complexityDelta: 12
+});
+```
+
+**Current approach:** Disk cache in `~/.cache/pi-lens/`
+- ✅ Queryable (SQLite/JSON files)
+- ✅ Cross-session (same project, different sessions)
+- ❌ Not portable (session file doesn't include cache)
+- ❌ Orphaned data (cache lives forever)
+
+**Custom entry approach:**
+- ✅ Portable (travels with session file)
+- ✅ Auto-cleanup (session deletion removes entries)
+- ❌ Not queryable across sessions (each session isolated)
+- ❌ Adds bloat to session file
+
+**Verdict:** Could migrate small, session-specific state (per-session TODO baseline,
+per-session complexity baselines) to entries for portability. Not urgent — current
+cache approach works.
+
+---
+
+#### 4. **UI Primitives — UNTAPPED POTENTIAL**
+
+| Primitive | Purpose | Our Usage | Could Use For |
+|-----------|---------|-----------|---------------|
+| `ctx.ui.select()` | Dropdown picker | ❌ | `/lens-booboo` profile selection |
+| `ctx.ui.confirm()` | Yes/no dialog | ❌ | "Continue despite warnings?" (but we block, not ask) |
+| `ctx.ui.input()` | Text input | ❌ | Custom lint rule filters |
+| `ctx.ui.editor()` | Multi-line editor | ❌ | Inline architect rule editing |
+| `ctx.ui.setWidget()` | Persistent widget (above/below editor) | ❌ | **Live lint status during streaming** |
+| `ctx.ui.setFooter()` | Custom footer | ❌ | Replace footer with lens-specific metrics |
+| `ctx.ui.setHeader()` | Custom header | ❌ | Startup banner |
+
+**Most promising: `setWidget()`**
+
+Current: `ctx.ui.setStatus("lens", "3 files linted")` puts transient text in footer.
+Problem: Footer is crowded, text scrolls away, not visible during streaming.
+
+Widget possibility: Persistent panel above editor showing:
+```
+┌─ pi-lens ──────────────────────┐
+│ ✓ 3 files  ⚠ 2 warnings       │
+│ Tests: 12/12  Coverage: 87%    │
+└────────────────────────────────┘
+```
+
+**Verdict:** Low priority polish. Current `notify()` + `setStatus()` is sufficient.
+Widgets add visual weight that may distract.
+
+---
+
+#### 5. **Tool Custom Rendering (`renderCall`, `renderResult`) — NOT NEEDED**
+
+Custom TUI components for tool display:
+```typescript
+pi.registerTool({
+  renderResult: (result, options, theme) => {
+    return new MyFancyLintReportComponent(result);
+  }
+});
+```
+
+**Verdict:** Overkill. Our plain text output renders well in the default tool display.
+Custom rendering adds maintenance burden for marginal visual gain.
+
+---
+
+### Recommendations (Priority Order)
+
+| Priority | Feature | Action | Rationale |
+|----------|---------|--------|-----------|
+| **None** | RPC Client | Skip | Wrong abstraction; Extension API is correct |
+| **None** | EventBus | Skip | No multi-extension coordination needed |
+| **Low** | `appendEntry()` | Consider | Session portability for small state; migrate from cache if needed |
+| **Low** | `setWidget()` | Experiment | More visible than `setStatus()`; try for persistent lint dashboard |
+| **Low** | `select()`/`input()` | Skip | Command-line parsing is sufficient |
+| **None** | Custom tool rendering | Skip | Plain text works; complexity not justified |
+
+### Summary
+
+pi-lens uses the **correct** SDK surface: the **Extension API** (event hooks, flags,
+commands, tools). We are not under-utilizing the SDK — we are using the appropriate
+subset for an in-process extension.
+
+The **RPC Client** is for external controllers, not extensions. The **EventBus** is for
+multi-extension ecosystems. Neither applies to our current architecture.
+
+Future exploration worth doing:
+1. **`setWidget()` prototype** — persistent lint status panel (1-2 hours to test)
+2. **Migrate cache → `appendEntry()`** — only if session portability becomes important
+
+Everything else is architectural mismatch or premature optimization.
