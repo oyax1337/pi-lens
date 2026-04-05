@@ -386,7 +386,8 @@ export class TreeSitterQueryLoader {
 						return query;
 					break;
 				case "console-statement":
-					if (pattern.includes("console")) return query;
+					if (pattern.includes("console") && !pattern.includes("test"))
+						return query;
 					break;
 				case "long-parameter-list":
 					if (pattern.includes("PARAMS")) return query;
