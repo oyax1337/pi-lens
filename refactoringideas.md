@@ -163,6 +163,122 @@ the file against baseline to detect added deps, skip if no new entries).
 
 ---
 
+## /lens-booboo Tools: Real-Time Promotion Assessment
+
+*Which booboo-only tools should move into the per-write pipeline?*
+
+---
+
+### Complexity Metrics — YES, promote to dispatch runner
+
+**Current:** booboo-only (`ComplexityClient.analyzeFile(filePath)`)  
+**Assessment: High value, zero cost**
+
+`analyzeFile` is pure in-memory — reads the file, counts cyclomatic complexity, function length,
+nesting depth, parameter count. No subprocess, no network. Runs in <5ms.
+
+The feedback is maximally actionable when *immediate*: agent just wrote a 60-line function
+with complexity 14 and should be told before it moves on, not after running `/lens-booboo`
+two turns later. By then the function is entangled with other changes.
+
+Implementation: new `complexity.ts` dispatch runner, calls `complexityClient.analyzeFile(ctx.filePath)`,
+emits warnings above threshold. ~60 lines. Gate on `jsts`/`python`/`go` file kinds.
+
+---
+
+### Architectural Rules — ALREADY A DISPATCH RUNNER ✓
+
+**Current:** `dispatch/runners/architect.ts` registered and wired into both standard and full-lint plans  
+**Assessment: Already done — no action needed**
+
+Registered at priority 40, runs as `mode: "fallback"` on `jsts` and `python` files in both
+plans. `checkFile` is pure in-memory (<1ms). Nothing to do here.
+
+---
+
+### TODO Scanner — PARTIAL (already in refactoringideas as delta-mode)
+
+**Current:** booboo-only (`TodoScanner.scanFile(filePath)`)  
+**Assessment: Don’t run per-write, run delta at turn_end**
+
+`scanFile` is fast (regex), but running it on every write is wrong: the agent *just* wrote
+`// TODO: handle edge case` intentionally. Flagging it immediately is noise.
+
+The right model: at `turn_end`, diff the TODO list against the session baseline and flag
+any *net-new* TODOs added this turn that weren’t resolved. This is the "stale TODOs"
+idea already in the refactoringideas. Don’t add a per-write runner.
+
+---
+
+### Knip — NO
+
+**Current:** session_start (cached) + booboo  
+**Assessment: Wrong granularity, wrong speed**
+
+Knip is fundamentally a whole-project tool. It builds a full import graph across all files
+to find unused exports/deps. A per-file trigger makes no sense — deleting one export from
+file A doesn’t tell you whether it’s unused until you’ve scanned all of file A’s importers.
+30s timeout. Already cached at session_start. Adding it to the per-write pipeline would
+be strictly worse: slow, noisy, and structurally incorrect.
+
+---
+
+### Type Coverage — NO
+
+**Current:** booboo-only (`npx type-coverage` subprocess, 30s timeout)  
+**Assessment: Wrong tool for real-time, already covered**
+
+`type-coverage` spawns an npx process that runs a full TypeScript project scan.
+Per-write this is 5–30s overhead. Not viable.
+
+More importantly, the `no-any-type` AST-grep rule already catches `as any` and `: any`
+per-file in <1ms. The metric ("87% typed") is useful for the booboo summary report but
+not actionable per-write.
+
+---
+
+### jscpd — ALREADY CORRECT (turn_end)
+
+Line-range-filtered duplicate detection at `turn_end`. This is the right placement:
+duplication only makes sense once a block is complete, not mid-write.
+
+---
+
+### Madge (circular deps) — ALREADY CORRECT (turn_end)
+
+Checked at `turn_end` when imports change. Per-write would produce false positives
+during refactors (add new import before removing old one).
+
+---
+
+### Production Readiness — NO (it’s a composite of things already covered)
+
+`validateProductionReadiness` is a project-level report: scans all source files for
+`console.log`, TODOs, empty catches, `as any`, debuggers, missing test files, missing
+docs, missing config files. Every individual check it does is either:
+- Already a dispatch runner (empty-catch, debugger, as-any via AST-grep; console-log via tree-sitter)
+- Covered by the TODO delta approach above
+- Structural/project-level (missing README, no CI config) — booboo is the right home
+
+Promoting `production-readiness.ts` to real-time would duplicate existing runners.
+
+---
+
+### Booboo Promotion Summary
+
+| Tool | Realtime? | Why |
+|------|-----------|-----|
+| Complexity metrics | **YES — add to dispatch** | Fast, per-file, maximally actionable immediately |
+| Architectural rules | **Already a dispatch runner ✓** | Fast, per-file, wired in both plans |
+| TODO scanner | **turn_end delta only** | Per-write is noisy; delta catches unresolved placeholders |
+| Knip | No | Whole-project, 30s, structurally wrong |
+| Type coverage | No | Subprocess, slow, AST-grep already covers it |
+| jscpd | Already turn_end | Correct placement |
+| Madge | Already turn_end | Correct placement |
+| Production readiness | No | Composite of already-covered checks |
+
+---
+
 
 ## LSP Launch: Use cross-spawn (from opencode)
 
