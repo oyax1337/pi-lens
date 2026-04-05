@@ -1,20 +1,25 @@
 # pi-lens
 
-**pi extension for real-time code quality.** 31 LSP servers, tree-sitter structural analysis, AST pattern matching, auto-install for TypeScript/Python tooling, duplicate detection, complexity metrics, and inline blockers with comprehensive `/lens-booboo` reports.
+**pi extension for real-time code quality.** 31 LSP servers, tree-sitter structural analysis (7 languages), 112 AST pattern matching rules, auto-install for TypeScript/Python/Go/Rust/Ruby tooling, duplicate detection, complexity metrics, and inline blockers with comprehensive `/lens-booboo` reports.
 
 ## What pi-lens Does
 
 **For every file you edit:**
 1. **Auto-formats** — Detects and runs formatters (Biome, Prettier, Ruff, gofmt, rustfmt, etc.)
-2. **Type-checks** — TypeScript, Python, Go, Rust (31 languages with `--lens-lsp`)
+2. **Type-checks** — TypeScript, Python, Go, Rust, Ruby (31 languages with `--lens-lsp`)
 3. **Scans for secrets** — Blocks on hardcoded API keys, tokens, passwords
-4. **Runs linters** — Biome (TS/JS), Ruff (Python), plus structural analysis
-5. **Tree-sitter analysis** — Deep structural patterns (empty catch, eval, deep nesting, mixed async styles)
-6. **Auto-installs** — TypeScript, Python, Biome, Ruff, and analysis tools auto-install on first use
-7. **Only shows NEW issues** — Delta-mode tracks baselines and filters pre-existing problems
+4. **Runs linters** — Biome (TS/JS), Ruff (Python), ESLint (opt-in), plus structural analysis
+5. **Auto-fixes** — Biome, Ruff, and ESLint safe fixes applied automatically (named per tool)
+6. **Tree-sitter analysis** — Deep structural patterns across 7 languages (45+ patterns)
+7. **Pre-write duplicate detection** — Blocks export redefinitions and structural similarity clones
+8. **Auto-installs** — TypeScript, Python, Biome, Ruff, Go, Rust, Ruby tools auto-install on first use
+9. **Only shows NEW issues** — Delta-mode tracks baselines and filters pre-existing problems
+10. **Build artifact filtering** — Skips compiled `.js` when `.ts` sibling exists (no duplicate findings)
 
-**Blockers** (type errors, secrets, empty catches) appear inline and stop the agent until fixed.  
+**Blockers** (type errors, secrets, empty catches, duplicate exports) appear inline and stop the agent until fixed.
 **Warnings** (complexity, code smells) go to `/lens-booboo` — run it to see them all.
+
+**All-clear signals:** When checks pass, pi-lens confirms with `✓ TypeScript clean · 12/12 tests · 847ms` so you know checks ran (not just skipped).
 
 ## Quick Start
 
@@ -92,26 +97,28 @@ pi-lens **automatically lints** every file you write or edit. Linters are auto-d
 |--------|-----------|--------------|------|----------|
 | **Biome** | TS/JS/JSON/CSS | Automatic | **Default** | 10 |
 | **Ruff** | Python | Automatic | **Default** | 10 |
+| **ESLint** | TS/JS/Vue/Svelte | Automatic (with config) | Project-configured | 11 |
 | **oxlint** | TS/JS | Manual (`npm i -g oxlint`) | Fast alternative | 12 |
-| **ESLint** | JS/Vue/Svelte | `npx` via `--lens-lsp` | LSP only | - |
+| **golangci-lint** | Go | Manual (with config) | Go meta-linter | 13 |
+| **RuboCop** | Ruby | Manual / Bundler | Ruby standard | 15 |
 | **shellcheck** | Bash/sh/zsh/fish | Manual (`apt install shellcheck`) | Shell scripts | 20 |
 
 (*) = Auto-installed (no manual setup required)
 
-**Priority:** Lower numbers = run earlier. Biome/Ruff run first, followed by specialized linters.
-
 **How it works:**
 1. Agent writes a file
 2. pi-lens detects linters based on config files and file type
-3. Biome takes priority for TS/JS; Ruff takes priority for Python
-4. Multiple linters can run on the same file (e.g., Biome + oxlint)
+3. Biome takes priority for TS/JS; Ruff takes priority for Python; ESLint only runs when `.eslintrc` or `eslint.config.js` is present
+4. Multiple linters can run on the same file (e.g., Biome + oxlint + ESLint)
 5. Issues are delta-tracked (only new issues shown after first write)
+6. **Named autofix**: Auto-fix messages show tool breakdown: `✅ Auto-fixed 3 issue(s) (eslint:2, biome:1)`
 
 **Notes:**
-- Biome and Ruff are **dual-purpose** (lint + format)
+- Biome and Ruff are **dual-purpose** (lint + format + auto-fix)
+- ESLint requires a config file (project opts in); skipped on Biome/OxLint projects
+- golangci-lint requires `.golangci.yml` (project opts in)
 - oxlint is a faster Rust-based alternative to ESLint
-- ESLint only runs when `--lens-lsp` is enabled
-- shellcheck requires manual installation on most systems
+- ESLint LSP only runs when `--lens-lsp` is enabled; dispatch runner runs in standard mode too
 
 ---
 
@@ -137,15 +144,16 @@ pi --lens-lsp                    # Enable LSP
 
 ### `pi` vs `pi --lens-lsp`
 
-| Feature | `pi` (Default) | `pi --lens-lsp` |
+| `pi` (Default) | `pi --lens-lsp` |
 |---------|----------------|-----------------|
-| **Type Checking** | Built-in TypeScriptClient | Full LSP (31 language servers) |
-| **Auto-format** | Biome, Prettier, Ruff, etc. | Same |
-| **Auto-fix** | Enabled by default | Same |
+| **Type Checking** | Built-in TypeScriptClient, Pyright, go-vet, rust-clippy | Full LSP (31 language servers) |
+| **Auto-format** | Biome, Prettier, Ruff, gofmt, rustfmt, etc. | Same |
+| **Auto-fix** | Biome, Ruff, ESLint (named per tool) | Same |
 | **Secrets scan** | Blocks on hardcoded secrets | Same |
-| **Languages** | TypeScript, Python (built-in) | 31 languages via LSP |
+| **Languages** | TypeScript, Python, Go, Rust, Ruby (built-in) | 31 languages via LSP |
 | **Python** | Ruff/pyright (built-in) | Pyright LSP |
-| **Go, Rust, etc.** | Basic linting | Full LSP support |
+| **Go** | go-vet, golangci-lint | Full gopls |
+| **Rust** | rust-clippy | Full rust-analyzer |
 
 **Recommendation:** Use `pi` for TypeScript/Python projects. Use `pi --lens-lsp` for multi-language projects or when you need full language server features.
 
@@ -160,9 +168,10 @@ Every file write/edit triggers multiple analysis phases:
 **Execution flow:**
 1. **Secrets scan** (pre-flight) — Hardcoded secrets block immediately (non-runner check)
 2. **LSP integration** (Phase 3, with `--lens-lsp`) — Real-time type errors from language servers
-3. **Dispatch system** — Routes file to appropriate runners by `FileKind`
+3. **Dispatch system** — Routes file to appropriate runners by `FileKind` (TS, Python, Go, Rust, Ruby, etc.)
 4. **Runners execute** by priority (lower = earlier). See [Runners](#runners) section for full list.
 5. **Test runner detection** (post-write) — Detects Jest/Vitest/Pytest and runs relevant tests
+6. **Cascade deferral** — Errors in OTHER files (caused by this edit) are tracked but not shown inline; surfaced at `turn_end` once all edits complete
 
 **Delta mode behavior:**
 - **First write:** All issues tracked and stored in baseline
@@ -175,7 +184,17 @@ STOP — 1 issue(s) must be fixed:
   L23: var total = sum(items); — use 'let' or 'const'
 ```
 
-> **Note:** Only **blocking** issues (`ts-lsp`, `pyright` errors, `type-safety` switch errors, secrets) appear inline. Warnings are tracked but not shown inline (noise reduction) — run `/lens-booboo` to see all warnings.
+Or when clean:
+```
+✓ TypeScript clean · 12/12 tests · 847ms
+```
+
+Or with warnings:
+```
+✓ no blockers · 3 warning(s) -> /lens-booboo · 623ms
+```
+
+> **Note:** Only **blocking** issues (`ts-lsp`, `pyright` errors, `type-safety` switch errors, secrets, duplicate exports) appear inline. Warnings are tracked but not shown inline (noise reduction) — run `/lens-booboo` to see all warnings.
 
 ---
 
@@ -187,19 +206,22 @@ pi-lens uses a **dispatcher-runner architecture** for extensible multi-language 
 |--------|----------|----------|--------|-------------|
 | **ts-lsp** | TypeScript | 5 | Blocking | TypeScript errors (hard stops) |
 | **pyright** | Python | 5 | Blocking | Python type errors (hard stops) |
-| **biome** | TS/JS | 10 | Warning | Linting issues (delta-tracked) |
-| **ruff** | Python | 10 | Warning | Python linting (delta-tracked) |
+| **biome** | TS/JS/JSON/CSS | 10 | Warning | Linting + auto-fix (delta-tracked) |
+| **ruff** | Python | 10 | Warning | Python linting + auto-fix (delta-tracked) |
+| **eslint** | TS/JS | 11 | Warning | ESLint with auto-fix (project must have config) |
 | **oxlint** | TS/JS | 12 | Warning | Fast Rust-based JS/TS linter |
-| **tree-sitter** | TS/JS, Python | 14 | Mixed | AST-based structural analysis (21 patterns) — **singleton WASM client** |
-| **ast-grep-napi** | TS/JS | 15 | Blocking | Security rules inline (no-eval, jwt-no-verify, no-hardcoded-secrets, etc.) |
+| **tree-sitter** | TS/JS, Python, Go, Rust, Ruby | 14 | Mixed | AST-based structural analysis (45+ patterns, 7 languages) — **singleton WASM client** |
+| **ast-grep-napi** | TS/JS/Python/Go/Rust | 15 | Blocking | Security rules inline (112 patterns, no-eval, jwt-no-verify, no-hardcoded-secrets, etc.) |
 | **type-safety** | TS | 20 | Mixed | Switch exhaustiveness (blocking), other (warning) |
 | **shellcheck** | Shell | 20 | Warning | Bash/sh/zsh/fish linting |
 | **python-slop** | Python | 25 | Warning | AI slop detection (~40 patterns) |
 | **spellcheck** | Markdown | 30 | Warning | Typo detection in docs |
-| **similarity** | TS | 35 | Warning | Semantic duplicate detection (≥90% structural similarity, Rust-accelerated when available) |
+| **similarity** | TS | 35 | Warning | Semantic duplicate detection (≥90% structural similarity, pre-write check) |
 | **architect** | All | 40 | Warning | Architectural rule violations |
 | **go-vet** | Go | 50 | Warning | Go static analysis |
+| **golangci-lint** | Go | 51 | Warning | Go meta-linter (needs .golangci.yml) |
 | **rust-clippy** | Rust | 50 | Warning | Rust linting |
+| **rubocop** | Ruby | 52 | Warning | Ruby linting (supports bundle exec) |
 
 **Priority legend:**
 - **5** — Type checkers (blocking errors)
@@ -215,31 +237,64 @@ pi-lens uses a **dispatcher-runner architecture** for extensible multi-language 
 
 **Consolidated runners:** `ts-slop` merged into `ast-grep-napi` — CLI ast-grep used for full linter via `/lens-booboo`
 
-**Tree-sitter runner patterns** (priority 14, AST-based structural analysis):
+**Tree-sitter runner patterns** (priority 14, AST-based structural analysis, 7 languages, 45+ patterns):
 
-TypeScript/JavaScript (13 patterns):
-- **Error**: empty-catch, hardcoded-secrets, eval
-- **Warning**: debugger, await-in-loop, console-statement, long-parameter-list, nested-ternary, deep-promise-chain, mixed-async-styles, deep-nesting, constructor-super, no-dupe-class-members
+**TypeScript/JavaScript (17 patterns):**
+- **Error**: empty-catch, hardcoded-secrets, eval, sql-injection, unsafe-regex
+- **Warning**: debugger, await-in-loop, console-statement (not in tests), long-parameter-list, nested-ternary, deep-promise-chain, mixed-async-styles, deep-nesting, constructor-super, no-dupe-class-members, variable-shadowing
 
-TSX (2 patterns):
+**TSX (2 patterns):**
 - **Error**: dangerously-set-inner-html
 - **Warning**: no-nested-links
 
-Python (6 patterns):
-- **Error**: bare-except, mutable-default-arg, eval-exec, unreachable-except  
-- **Warning**: wildcard-import, is-vs-equals
+**Python (11 patterns):**
+- **Error**: bare-except, mutable-default-arg, eval-exec, unreachable-except, python-empty-except, python-hardcoded-secrets, python-mutable-class-attr, python-unsafe-regex, python-raise-string
+- **Warning**: wildcard-import, is-vs-equals, python-debugger, python-print-statement
 
-**Custom tree-sitter queries:** Add `.yml` files to `.pi-lens/rules/tree-sitter-queries/{typescript,python}/`
+**Go (3 patterns):**
+- **Error**: go-hardcoded-secrets, go-defer-in-loop
+- **Warning**: go-bare-error
 
-**AI Slop Detection:** 
+**Rust (2 patterns):**
+- **Error**: rust-unwrap
+- **Warning**: rust-clone-in-loop
+
+**Ruby (8 patterns):**
+- **Error**: ruby-rescue-exception, ruby-empty-rescue, ruby-hardcoded-secrets, ruby-unsafe-regex, ruby-debugger
+- **Warning**: ruby-puts-statement, ruby-eval, ruby-open-struct
+
+**Custom tree-sitter queries:** Add `.yml` files to `.pi-lens/rules/tree-sitter-queries/{typescript,python,go,rust,ruby}/`
+
+**AI Slop Detection:**
 - `python-slop` runner (priority 25): ~40 patterns for Python code quality
-- `ast-grep-napi` runner (priority 15): Security rules fire inline (blocking); slop/architecture warnings via `/lens-booboo` only. Skips 5 rules already covered by tree-sitter.
+- `ast-grep-napi` runner (priority 15): Security rules fire inline (blocking); slop/architecture warnings via `/lens-booboo` only. Skips rules already covered by tree-sitter.
 
 ---
 
 ### Additional Safeguards
 
 Safeguards that run **before** the dispatch system:
+
+#### Pre-Write Duplicate Detection
+
+Blocks the agent **before** the write/edit is applied if the new content would create problems:
+
+**Export Duplicate Detection**
+- **Triggers:** New `export function/class/const/type/interface` matches an existing export in another file
+- **Blocks:** `🔴 STOP — Redefining existing export(s). Import instead`
+- **Why:** Prevents accidental redefinitions when agent creates "helper" functions that already exist
+
+**Structural Similarity Detection**
+- **Triggers:** New function body is ≥90% similar to an existing utility function
+- **Warns:** `Function 'parseData' has 94% similarity to existing utility 'parseJSON()'. Consider reusing the existing utility.`
+- **How:** 57×72 state matrix comparison (Amain algorithm), runs via Rust core when available (~50ms)
+- **Why:** Prevents proliferation of nearly-identical helper functions
+
+**Build Artifact Filtering**
+- **Problem:** Scanning both `.ts` source and `.js` output produces duplicate findings
+- **Solution:** Source-filter module detects higher-precedence siblings (`.ts` shadows `.js`, `.vue` shadows `.js`)
+- **Applies to:** TypeScript→JavaScript, Vue/Svelte→JavaScript, CoffeeScript→JavaScript
+- **Result:** No duplicate diagnostics from compiled outputs
 
 #### Secrets Scanning (Pre-flight)
 
@@ -292,20 +347,23 @@ See [AST_GREP_RULES.md](AST_GREP_RULES.md) for full guide.
 When pi starts a new session, pi-lens performs initialization scans to establish baselines and surface existing technical debt:
 
 **Initialization sequence:**
-1. **Reset session state** — Clear metrics and complexity baselines
-2. **Initialize LSP** (with `--lens-lsp`) — Detect and auto-install language servers
-3. **Pre-install TypeScript LSP** (with `--lens-lsp`) — Warm up cache for instant response
-4. **Detect available tools** — Biome, ast-grep, Ruff, Knip, jscpd, Madge, type-coverage, Go, Rust
-5. **Load architect rules** — If `architect.yml` or `.architect.yml` present
-6. **Detect test runner** — Jest, Vitest, Pytest, etc.
+1. **Reset session state** — Clear metrics, complexity baselines, and cached exports
+2. **Startup scan safety** — Detect project root (`.git`, `package.json`, `go.mod`, etc.) and skip heavy scans if not in a real project (prevents scanning `$HOME`)
+3. **Initialize LSP** (with `--lens-lsp`) — Detect and auto-install language servers
+4. **Pre-install TypeScript LSP** (with `--lens-lsp`) — Warm up cache for instant response
+5. **Detect available tools** — Biome, ast-grep, Ruff, ESLint, Knip, jscpd, Madge, type-coverage, Go, Rust, Ruby
+6. **Load architect rules** — If `architect.yml` or `.architect.yml` present
+7. **Detect test runner** — Jest, Vitest, Pytest, etc.
 
-**Cached scans** (with 5-min TTL):
+**Cached scans** (with TTL):
 | Scan | Tool | Cached | Purpose |
 |------|------|--------|---------|
-| **TODOs** | Internal | No | Tech debt markers |
-| **Dead code** | Knip | Yes | Unused exports/files/deps |
-| **Duplicates** | jscpd | Yes | Copy-paste detection |
-| **Exports** | ast-grep | No | Function index for similarity |
+| **TODOs** | Internal | Baseline stored | Tech debt markers (delta reported at turn_end) |
+| **Dead code** | Knip | 5-min TTL | Unused exports/files/deps |
+| **Duplicates** | jscpd | 5-min TTL | Copy-paste detection |
+| **Circular deps** | Madge | Turn-end | Import cycle detection (runs async) |
+| **Exports** | ast-grep | Session | Function index for duplicate detection |
+| **Project index** | Amain | Persisted to disk | Structural similarity for pre-write checks |
 
 **Error debt tracking** (with `--error-debt` flag):
 - If tests passed at end of previous session but fail now → **regression detected**
@@ -325,16 +383,18 @@ Full codebase analysis with **10 tracked runners** producing a comprehensive rep
 
 | # | Runner | What it finds |
 |---|--------|---------------|
-| 1 | **ast-grep (design smells)** | Structural issues (empty catch, no-debugger, etc.) |
+| 1 | **ast-grep (design smells)** | Structural issues (empty catch, no-debugger, unchecked throws, etc.) |
 | 2 | **ast-grep (similar functions)** | Duplicate function patterns across files |
 | 3 | **semantic similarity (Amain)** | 57×72 matrix semantic clones (≥90% similarity) |
 | 4 | **complexity metrics** | Low MI, high cognitive complexity, AI slop indicators |
-| 5 | **TODO scanner** | TODO/FIXME annotations and tech debt markers |
+| 5 | **TODO scanner** | TODO/FIXME annotations and tech debt markers (delta mode) |
 | 6 | **dead code (Knip)** | Unused exports, files, dependencies |
 | 7 | **duplicate code (jscpd)** | Copy-paste blocks with line/token counts |
 | 8 | **type coverage** | Percentage typed vs `any`, low-coverage files |
-| 9 | **circular deps (Madge)** | Import cycles and dependency chains |
+| 9 | **circular deps (Madge)** | Import cycles and dependency chains (turn-end async) |
 | 10 | **architectural rules** | Layer violations, file size limits, path rules |
+
+**Turn-end findings** — Some expensive analysis (jscpd, Madge, TODO-delta) runs asynchronously at the end of each turn and surfaces findings via context injection. Results are cached and merged into the next context event.
 
 **Output:**
 - **Terminal:** Progress `[1/10] runner...` with timing, summary with findings per runner
@@ -407,12 +467,13 @@ pi-lens works out of the box for TypeScript/JavaScript. For full language suppor
 
 | Tool | Install | What it does |
 |------|---------|--------------|
-| `@biomejs/biome` | `npm i -D @biomejs/biome` | Linting + formatting |
+| `@biomejs/biome` | `npm i -D @biomejs/biome` | Linting + formatting + auto-fix |
+| `eslint` | `npm i -D eslint` | Linting with project-specific rules (requires config file) |
 | `oxlint` | `npm i -D oxlint` | Fast Rust-based JS/TS linting |
 | `knip` | `npm i -D knip` | Dead code / unused exports |
 | `jscpd` | `npm i -D jscpd` | Copy-paste detection |
 | `type-coverage` | `npm i -D type-coverage` | TypeScript `any` coverage % |
-| `@ast-grep/napi` | `npm i -D @ast-grep/napi` | Fast structural analysis (TS/JS) — security rules inline, slop in booboo |
+| `@ast-grep/napi` | `npm i -D @ast-grep/napi` | Fast structural analysis — 112 patterns (TS/JS/Python/Go/Rust security rules, slop detection) |
 | `@ast-grep/cli` | `npm i -D @ast-grep/cli` | Structural pattern matching (all languages) |
 | `typos-cli` | `cargo install typos-cli` | Spellcheck for Markdown |
 
@@ -428,6 +489,7 @@ pi-lens works out of the box for TypeScript/JavaScript. For full language suppor
 | Tool | Install | What it does |
 |------|---------|--------------|
 | `go` | [golang.org](https://golang.org) | Built-in `go vet` for static analysis |
+| `golangci-lint` | [golangci-lint.run](https://golangci-lint.run) | Meta-linter (staticcheck, errcheck, gosimple, etc.) |
 
 ### Rust
 
@@ -435,11 +497,30 @@ pi-lens works out of the box for TypeScript/JavaScript. For full language suppor
 |------|---------|--------------|
 | `rust` + `clippy` | [rustup.rs](https://rustup.rs) | Linting via `cargo clippy` |
 
+### Ruby
+
+| Tool | Install | What it does |
+|------|---------|--------------|
+| `rubocop` | `gem install rubocop` / Bundler | Ruby linting + formatting |
+
 ### Shell
 
 | Tool | Install | What it does |
 |------|---------|--------------|
 | `shellcheck` | `apt install shellcheck` / `brew install shellcheck` | Shell script linting (bash/sh/zsh/fish) |
+
+---
+
+## Security Hardening
+
+pi-lens follows npm security best practices for tool installation:
+
+| Measure | Implementation |
+|---------|---------------|
+| **Post-install scripts** | `--ignore-scripts` by default; only allowlisted packages (`@biomejs/biome`, `@ast-grep/napi`, `esbuild`) can run scripts for native binary downloads |
+| **npx behavior** | `--no` flag prevents silent downloads; fails fast if package not cached |
+| **Tool resolution** | Local `node_modules/.bin/` preferred over global over npx |
+| **Global install safety** | `resolvePackagePath()` uses `import.meta.url` instead of `process.cwd()` to locate built-in rules/grammars when installed globally |
 
 ---
 
@@ -467,22 +548,28 @@ pi-lens works out of the box for TypeScript/JavaScript. For full language suppor
 | `--lens-lsp` | Use real Language Server Protocol servers instead of built-in type-checking |
 | `--lens-verbose` | Enable detailed console logging |
 | `--no-autoformat` | Disable automatic formatting (formatting is **enabled by default**) |
-| `--no-autofix` | Disable all auto-fixing (Biome safe fixes + Ruff autofix **enabled by default**). Unsafe fixes (e.g. removing unused vars) are never applied automatically — use `/lens-booboo` with explicit confirmation. |
+| `--no-autofix` | Disable all auto-fixing (Biome safe fixes + Ruff + ESLint autofix **enabled by default**). Unsafe fixes are never applied automatically. |
 | `--no-autofix-biome` | Disable Biome auto-fix only |
 | `--no-autofix-ruff` | Disable Ruff auto-fix only |
+| `--no-autofix-eslint` | Disable ESLint auto-fix only |
+| `--no-eslint` | Skip ESLint linting |
 | `--no-oxlint` | Skip Oxlint linting |
 | `--no-shellcheck` | Skip shellcheck for shell scripts |
 | `--no-tests` | Disable automatic test running on file write |
 | `--no-madge` | Skip circular dependency checks |
 | `--no-ast-grep` | Skip ast-grep structural analysis |
+| `--no-tree-sitter` | Skip tree-sitter structural analysis |
 | `--no-biome` | Skip Biome linting |
+| `--no-ruff` | Skip Ruff linting |
 | `--no-lsp` | Skip TypeScript/Python type checking |
+| `--no-similarity` | Skip pre-write structural similarity detection |
 | `--error-debt` | Track test regressions across sessions |
 
 **Recommended combinations:**
 ```bash
 pi                               # Default: auto-format, auto-fix, built-in type-checking
 pi --lens-lsp                    # LSP type-checking (31 languages)
+pi --no-eslint                   # Skip ESLint on a Biome/OxLint project
 ```
 
 ---
