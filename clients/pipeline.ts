@@ -17,6 +17,7 @@ import * as path from "node:path";
 import type { BiomeClient } from "./biome-client.js";
 import { dispatchLintWithResult } from "./dispatch/integration.js";
 import type { PiAgentAPI } from "./dispatch/types.js";
+import { detectFileKind, getFileKindLabel } from "./file-kinds.js";
 import type { FormatService } from "./format-service.js";
 import { logLatency } from "./latency-logger.js";
 import { getLSPService } from "./lsp/index.js";
@@ -288,6 +289,9 @@ export async function runPipeline(
 	}
 
 	let output = "";
+	const autofixTools: string[] = []; // track which tools fixed something
+	let testSummary: { passed: number; total: number; failed: number } | null =
+		null;
 
 	// --- 4. Auto-fix ---
 	// Biome (TS/JS) and Ruff (Python) never touch the same file, so their
@@ -312,6 +316,7 @@ export async function runPipeline(
 			const result = ruffClient.fixFile(filePath);
 			if (result.success && result.fixed > 0) {
 				fixedCount += result.fixed;
+				autofixTools.push(`ruff:${result.fixed}`);
 				fixedThisTurn.add(filePath);
 				dbg(`autofix: ruff fixed ${result.fixed} issue(s) in ${filePath}`);
 			}
@@ -321,6 +326,7 @@ export async function runPipeline(
 			const result = biomeClient.fixFile(filePath);
 			if (result.success && result.fixed > 0) {
 				fixedCount += result.fixed;
+				autofixTools.push(`biome:${result.fixed}`);
 				fixedThisTurn.add(filePath);
 				dbg(`autofix: biome fixed ${result.fixed} issue(s) in ${filePath}`);
 			}
@@ -331,6 +337,7 @@ export async function runPipeline(
 		const eslintFixed = await tryEslintFix(filePath, cwd);
 		if (eslintFixed > 0) {
 			fixedCount += eslintFixed;
+			autofixTools.push(`eslint:${eslintFixed}`);
 			fixedThisTurn.add(filePath);
 			dbg(`autofix: eslint fixed ${eslintFixed} issue(s) in ${filePath}`);
 		}
@@ -353,7 +360,9 @@ export async function runPipeline(
 	}
 
 	if (fixedCount > 0) {
-		output += `\n\n✅ Auto-fixed ${fixedCount} issue(s) in ${path.basename(filePath)}`;
+		const detail =
+			autofixTools.length > 0 ? ` (${autofixTools.join(", ")})` : "";
+		output += `\n\n✅ Auto-fixed ${fixedCount} issue(s)${detail}`;
 	}
 
 	if (formatChanged || fixedCount > 0) {
@@ -399,6 +408,11 @@ export async function runPipeline(
 					},
 				});
 				if (testResult && !testResult.error) {
+					testSummary = {
+						passed: testResult.passed,
+						total: testResult.passed + testResult.failed + testResult.skipped,
+						failed: testResult.failed,
+					};
 					const testOutput = testRunnerClient.formatResult(testResult);
 					if (testOutput) {
 						output += `\n\n${testOutput}`;
@@ -472,6 +486,36 @@ export async function runPipeline(
 
 	// --- Final timing ---
 	const elapsed = Date.now() - pipelineStart;
+
+	// --- All-clear / warnings notice ---
+	// When no blocking output exists, emit a one-liner so the agent knows
+	// checks actually ran and what the result was.
+	if (!output) {
+		const kind = detectFileKind(filePath);
+		const langLabel = kind ? getFileKindLabel(kind) : path.extname(filePath);
+		const parts: string[] = [];
+
+		if (dispatchResult.warnings.length > 0) {
+			// Has non-blocking warnings — tell agent to run booboo
+			parts.push(`no blockers`);
+			parts.push(
+				`${dispatchResult.warnings.length} warning(s) -> /lens-booboo`,
+			);
+		} else if (kind) {
+			parts.push(`${langLabel} clean`);
+		}
+
+		if (testSummary) {
+			if (testSummary.failed === 0) {
+				parts.push(`${testSummary.passed}/${testSummary.total} tests`);
+			}
+			// failing tests already have their own output above — skip here
+		}
+
+		parts.push(`${elapsed}ms`);
+		output = `checkmark ${parts.join(" · ")}`.replace("checkmark", "\u2713");
+	}
+
 	phase.end("total", { hasOutput: !!output });
 
 	logLatency({

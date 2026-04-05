@@ -5,6 +5,35 @@ All notable changes to pi-lens will be documented in this file.
 ## [3.7.2] - 2026-04-05
 
 ### Added
+- **All-clear signal** — When the pipeline runs clean (no blockers, no test failures),
+  the agent now receives a confirmation one-liner instead of silence:
+  `✓ TypeScript clean · 12/12 tests · 847ms`
+  When non-blocking warnings exist: `✓ no blockers · 3 warning(s) -> /lens-booboo · 847ms`
+  Agents can now distinguish "checks ran clean" from "checks didn't run".
+
+### Fixed
+- **Auto-fix message now names the tool** — `✅ Auto-fixed 3 issue(s) (eslint:2, biome:1)`
+  instead of the vague `Auto-fixed 3 issue(s)`. Agents know exactly what was corrected.
+
+### Security
+- **Remove `effect` dependency** — Used for 5 trivial `tryPromise` wrappers in one file,
+  never consumed via Effect's runtime. Dead dependency removed.
+- **`--ignore-scripts` in auto-installer** — `npm install` for auto-installed tools now
+  passes `--ignore-scripts` by default. Only packages that legitimately need postinstall
+  scripts to download native binaries (`@biomejs/biome`, `@ast-grep/napi`, `esbuild`) are
+  allowlisted.
+- **`npx -y` replaced with `npx --no`** — LSP server launch via npx no longer silently
+  downloads uncached packages. `--no` fails fast if the package isn't cached; the
+  interactive-install flow is the correct path for first-time installs.
+- **Local-first `sg` (ast-grep) resolution** — All `sg` callers now check
+  `node_modules/.bin/sg` → global `sg` → `npx --no sg` (cache-only). No silent
+  network downloads of the ast-grep CLI.
+
+---
+
+## [3.7.2] - 2026-04-05 (previous)
+
+### Added
 - **ESLint `--fix` in autofix phase** — Projects with an ESLint config now have fixable
   issues auto-corrected (import ordering, jsx style, etc.) before dispatch runs, using
   `--fix-dry-run` to get the accurate fixed count then `--fix` to apply. Availability
