@@ -2,6 +2,155 @@
 
 All notable changes to pi-lens will be documented in this file.
 
+## [3.8.0] - 2026-04-05
+
+### Added — Tree-sitter Expansion
+
+- **Go, Rust, Ruby grammar support** — WASM grammars for 3 new languages downloaded at
+  install time via `scripts/download-grammars.ts`. Grammar download script added with
+  npm `download-grammars` script and postinstall hook. Tree-sitter structural analysis
+  now covers all 7 dispatch languages: TypeScript, TSX, JavaScript, Python, Go, Rust, Ruby.
+
+- **Tree-sitter dispatch for Go/Rust/Ruby** — Dispatch runner `appliesTo` extended;
+  extension→language map replaces the brittle `endsWith` chain. Tree-sitter runner
+  added to Go, Rust, and Ruby dispatch plans.
+
+- **Incremental parse cache (`TreeCache`)** — AST trees are cached by SHA-256 content
+  hash and mtime. Subsequent queries on the same file (same turn) skip re-parsing.
+  Cache stores up to 50 files with LRU eviction. `calculateEdit()` + `incrementalUpdate()`
+  infrastructure ready for full incremental parsing when old content is tracked.
+
+- **AST navigator (`TreeSitterNavigator`)** — Scope-aware traversal utilities: `findParent()`,
+  `isInTryCatch()`, `isInTestBlock()`, `isInLoop()`, `getScopeChain()`, `isShadowed()`,
+  `getSiblings()`. Used by post-filters for context-aware rule evaluation.
+
+- **Native predicate support in queries** — Query YAML files now support a `predicates:`
+  array field. Rules with inline `#eq?` / `#match?` / `#not-eq?` predicates run filtering
+  inside WASM rather than in JavaScript post-filters.
+
+- **Inline fix hints** — Tree-sitter diagnostics now carry `fixable: true` and
+  `fixSuggestion: "remove this statement"` when `has_fix: true` in the rule. Displayed
+  as `💡 Fix: remove this statement` inline in the diagnostic output. Tree-sitter runner
+  is read-only — linters (Biome/Ruff/ESLint) own the autofix phase.
+
+- **New post-filters** — `not_in_try_catch`, `in_try_catch`, `not_in_test_block`,
+  `not_in_function`, `check_secret_pattern`, `python_empty_except`, `ruby_empty_rescue`,
+  `name_matches_param`.
+
+### Added — New Rules (50+)
+
+**Structural safety (ast-grep, TypeScript + JavaScript):**
+- `unchecked-sync-fs` — `fs.statSync/readFileSync/writeFileSync/...` outside try/catch (error)
+- `unchecked-throwing-call` — `JSON.parse`, `new URL()`, `execSync` outside try/catch (error)
+- `no-nan-comparison` — `x === NaN` always false, use `Number.isNaN()` (error)
+- `no-discarded-error` — `new Error()` as standalone statement without throw (error)
+
+**Structural safety (ast-grep, Python):**
+- `unchecked-throwing-call-python` — `open()`, `json.loads()`, `os.stat()` etc. outside
+  try/except (error)
+
+**Structural safety (ast-grep, Ruby):**
+- `unchecked-throwing-call-ruby` — `File.read`, `JSON.parse`, `Integer()` etc. outside
+  begin/rescue (error)
+
+**Tree-sitter Python rules (new):**
+- `python-mutable-class-attr` — class-level `list`/`dict`/`set` shared across all instances (error)
+- `python-debugger` — `breakpoint()`, `pdb.set_trace()` left in code (error)
+- `python-print-statement` — `print()` debug output in production code (warning)
+- `python-hardcoded-secrets` — hardcoded credential assignments (error)
+- `python-empty-except` — except block that only does `pass` (error)
+- `python-unsafe-regex` — `re.compile(variable)` ReDoS risk (error)
+- `python-raise-string` — `raise "string"` is TypeError in Python 3 (error)
+
+**Tree-sitter Ruby rules (new):**
+- `ruby-rescue-exception` — `rescue Exception` catches SystemExit and signals (error)
+- `ruby-empty-rescue` — rescue with no body silently swallows errors (error)
+- `ruby-debugger` — `binding.pry` / `binding.irb` left in code (error)
+- `ruby-puts-statement` — `puts`/`p`/`pp` debug output in production (warning)
+- `ruby-hardcoded-secrets` — hardcoded credential assignments (error)
+- `ruby-unsafe-regex` — `Regexp.new(variable)` ReDoS risk (error)
+
+**Tree-sitter Go rules (new):**
+- `go-hardcoded-secrets` — hardcoded credentials in short/var/const declarations (error)
+
+**JavaScript coverage (38 new rules):**
+  All runtime-applicable TypeScript ast-grep rules now have JavaScript equivalents:
+  `strict-equality`, `empty-catch`, `no-throw-string`, `no-cond-assign`,
+  `no-async-promise-executor`, `toctou`, `no-hardcoded-secrets`, `no-inner-html`,
+  `no-insecure-randomness`, `no-sql-in-code`, `jwt-no-verify`, `weak-rsa-key`, and 26 more.
+
+### Changed — Severity Upgrades
+
+**17 ast-grep rules upgraded from `warning` to `error`** (will crash / produce wrong output):
+`empty-catch`, `array-callback-return`, `getter-return`, `jsx-boolean-short-circuit`,
+`no-async-promise-executor`, `no-await-in-promise-all`, `no-bare-except`,
+`no-compare-neg-zero`, `no-cond-assign`, `no-constant-condition`,
+`no-constructor-return`, `no-insecure-randomness`, `no-prototype-builtins`,
+`no-sql-in-code`, `no-throw-string`, `toctou`, `no-comparison-to-none`.
+
+**4 tree-sitter rules upgraded from `warning` to `error`**:
+`go-defer-in-loop`, `is-vs-equals`, `rust-unwrap`, `unsafe-regex`.
+
+### Fixed
+
+- **`console-statement` duplicating `no-console-in-tests`** — `console-statement` now
+  uses `post_filter: not_in_test_block` so production and test console detection are
+  mutually exclusive.
+
+- **`variable-shadowing` never detecting actual shadowing** — Rule now captures both
+  `@PARAM` and `@NAME`; `name_matches_param` post-filter only flags when names are
+  identical. Previously the rule fired on any variable in a nested function.
+
+- **`isInLoop()` false positives** — `call_expression` removed from loop node type list.
+  Previously `isInLoop()` returned `true` inside any function call.
+
+- **`injectPredicates()` inserting at wrong AST position** — Broken predicate injection
+  machinery removed. Predicates already work inline in query S-expressions.
+
+- **`sql-injection` rule not matching `db.query()`** — Query now uses union
+  `[identifier | member_expression]` to catch both bare `query()` and `db.query()`.
+
+- **`contains_sql_keywords` post-filter inverted logic** — Rule was skipping `sql`
+  tagged templates (the primary SQL injection vector). Post-filter removed entirely;
+  rule relies on inline `#match?` predicate.
+
+- **`no-discarded-error` ast-grep `not: inside:` not traversing ancestors** — Required
+  `stopBy: end` in ast-grep's `inside` predicate to check all ancestors, not just the
+  direct parent. Applied to all `not: inside:` rules.
+
+- **Go/Rust/Ruby rules silently skipped** — Runner `appliesTo` was `["jsts", "python"]`
+  only. Extended to include `go`, `rust`, `ruby`.
+
+### Fixed (from PR #1 — alexx-ftw)
+
+- **`process.cwd()` wrong for global npm installs** — All asset resolution (WASM grammars,
+  tree-sitter query YAMLs, ast-grep rule directories, `default-architect.yaml`) now uses
+  `resolvePackagePath(import.meta.url, ...)` which walks up from the module file to the
+  package root. Previously, running pi-lens as a globally installed extension would fail
+  to find built-in rules and grammars.
+
+- **Session start scanning `$HOME` or generic directories** — `resolveStartupScanContext()`
+  gates all heavy startup scans (knip, jscpd, exports index, project index) behind project
+  root detection (`.git`, `package.json`, `go.mod`, etc.) and a 2000-source-file budget.
+  Pi-lens stays responsive when opened outside a real project.
+
+- **`cachedExports` not cleared on session reset** — Export cache from the previous
+  session persisted into new sessions, causing false duplicate-export warnings.
+
+- **`biomeClient.ensureAvailable()` at session start** — Changed to `isAvailable()` so
+  session start no longer blocks on a Biome auto-install. Installs happen lazily on
+  first file write.
+
+- **Project index not persisted across sessions** — Index now saved to disk after build
+  via `saveIndex()`, and `isIndexFresh()` check skips rebuild when the saved index is
+  still current.
+
+- **`tree-sitter-query-loader` only loading from `process.cwd()`** — Now loads from
+  both the user's project rules directory AND the package's built-in rules, merging
+  both sets. Project-specific rules coexist with built-in rules.
+
+---
+
 ## [3.7.2] - 2026-04-05
 
 ### Added
