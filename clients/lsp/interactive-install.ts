@@ -415,6 +415,15 @@ export function getInstallCommand(language: string): string | undefined {
 }
 
 /**
+ * Get install strategy for a language (exposed for testing)
+ */
+export function getInstallStrategy(
+	language: string,
+): InstallStrategy | undefined {
+	return COMMON_LANGUAGES[language]?.installStrategy;
+}
+
+/**
  * Check if a language supports interactive install
  */
 export function supportsInteractiveInstall(language: string): boolean {
