@@ -276,23 +276,31 @@ export async function runPipeline(
 	phase.end("format", { formattersUsed, formatChanged });
 
 	// --- 3. LSP file sync ---
+	// Awaited so that dispatch lint (phase 5) and cascade diagnostics
+	// (phase 7) run with fresh LSP state, not stale diagnostics.
+	// Fire-and-forget would cause cascade diagnostics to see pre-write state.
+	phase.start("lsp_sync");
+	let lspSyncCompleted = false;
 	if (getFlag("lens-lsp") && fileContent) {
 		const lspService = getLSPService();
-		lspService
-			.hasLSP(filePath)
-			.then(async (hasLSP) => {
-				if (hasLSP) {
-					if (toolName === "write") {
-						await lspService.openFile(filePath, fileContent);
-					} else {
-						await lspService.updateFile(filePath, fileContent);
-					}
+		try {
+			const hasLSP = await lspService.hasLSP(filePath);
+			if (hasLSP) {
+				if (toolName === "write") {
+					await lspService.openFile(filePath, fileContent);
+				} else {
+					await lspService.updateFile(filePath, fileContent);
 				}
-			})
-			.catch((err) => {
-				dbg(`LSP error: ${err}`);
-			});
+			}
+			lspSyncCompleted = true;
+		} catch (err) {
+			dbg(`LSP sync error: ${err}`);
+			lspSyncCompleted = true; // Continue even if LSP fails
+		}
+	} else {
+		lspSyncCompleted = true;
 	}
+	phase.end("lsp_sync", { completed: lspSyncCompleted });
 
 	let output = "";
 	const autofixTools: string[] = []; // track which tools fixed something
@@ -508,11 +516,15 @@ export async function runPipeline(
 		const parts: string[] = [];
 
 		if (dispatchResult.warnings.length > 0) {
-			// Has non-blocking warnings — tell agent to run booboo
+			// Has non-blocking warnings — show delta count (new vs total)
+			const newWarnings = dispatchResult.warnings.length;
+			const totalWarnings = newWarnings + dispatchResult.baselineWarningCount;
+			const totalStr =
+				totalWarnings === newWarnings
+					? `${totalWarnings} warning(s)`
+					: `${newWarnings} new (${totalWarnings} total)`;
 			parts.push(`no blockers`);
-			parts.push(
-				`${dispatchResult.warnings.length} warning(s) -> /lens-booboo`,
-			);
+			parts.push(`${totalStr} -> /lens-booboo`);
 		} else if (kind) {
 			parts.push(`${langLabel} clean`);
 		}

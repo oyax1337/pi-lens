@@ -62,12 +62,14 @@ export interface Diagnostic {
 }
 
 export interface DispatchResult {
-	/** All diagnostics found */
+	/** All diagnostics found (delta-filtered for this run) */
 	diagnostics: Diagnostic[];
-	/** Blockers that must be fixed */
+	/** Blockers that must be fixed (delta-filtered) */
 	blockers: Diagnostic[];
-	/** Warnings to address */
+	/** Warnings to address (delta-filtered — only NEW warnings this run) */
 	warnings: Diagnostic[];
+	/** Total warnings in baseline BEFORE this run (for cumulative count display) */
+	baselineWarningCount: number;
 	/** Issues that were auto-fixed */
 	fixed: Diagnostic[];
 	/** Formatted output for display */

@@ -417,6 +417,14 @@ export async function dispatchForFile(
 		groups.map((group) => runGroup(ctx, group)),
 	);
 
+	// Count baseline warnings before filtering (for delta count display)
+	const baselineWarnings = ctx.deltaMode
+		? (ctx.baselines.get(ctx.filePath) as Diagnostic[] | undefined)?.filter(
+				(d) => d.semantic === "warning" || d.semantic === "none",
+			)
+		: [];
+	const baselineWarningCount = baselineWarnings?.length ?? 0;
+
 	for (const {
 		diagnostics: groupDiags,
 		latencies,
@@ -425,6 +433,8 @@ export async function dispatchForFile(
 		runnerLatencies.push(...latencies);
 
 		// Apply delta mode filtering across the accumulated set
+		// Both blockers and warnings are delta-filtered so the warning count
+		// reflects only NEW issues, not the cumulative baseline.
 		let diagnostics = groupDiags;
 		if (ctx.deltaMode) {
 			const before = ctx.baselines.get(ctx.filePath);
@@ -436,7 +446,8 @@ export async function dispatchForFile(
 				);
 				diagnostics = filtered.new;
 			}
-			ctx.baselines.set(ctx.filePath, [...allDiagnostics, ...diagnostics]);
+			// allDiagnostics already contains this group's diagnostics — don't double-count
+			ctx.baselines.set(ctx.filePath, [...allDiagnostics]);
 		}
 
 		allDiagnostics.push(...diagnostics);
@@ -509,6 +520,7 @@ export async function dispatchForFile(
 		diagnostics: allDiagnostics,
 		blockers,
 		warnings,
+		baselineWarningCount,
 		fixed: fixedItems,
 		output,
 		hasBlockers: blockers.length > 0,
