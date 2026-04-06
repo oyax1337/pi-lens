@@ -519,6 +519,8 @@ pi.on("tool_call", async (event, _ctx) => {
 					.join("\n");
 		if (newContent) {
 			const INLINE_SIMILARITY_THRESHOLD = 0.9;
+			const INLINE_SIMILARITY_MAX_HINTS = 3;
+			const INLINE_SIMILARITY_MAX_CHARS = 700;
 			const dupeWarnings: string[] = [];
 			const exportRe =
 				/export\s+(?:async\s+)?(?:function|class|const|let|type|interface)\s+(\w+)/g;
@@ -560,9 +562,14 @@ pi.on("tool_call", async (event, _ctx) => {
 					);
 					const newFunctions = extractFunctions(sourceFile, newContent);
 					const simWarnings: string[] = [];
+					let simHintsTruncated = false;
 					const relPath = path.relative(runtime.projectRoot, filePath);
 
 					for (const func of newFunctions) {
+						if (simWarnings.length >= INLINE_SIMILARITY_MAX_HINTS) {
+							simHintsTruncated = true;
+							break;
+						}
 						if (func.transitionCount < 20) continue;
 						const matches = findSimilarFunctions(
 							func.matrix,
@@ -571,6 +578,10 @@ pi.on("tool_call", async (event, _ctx) => {
 							1,
 						);
 						for (const match of matches) {
+							if (simWarnings.length >= INLINE_SIMILARITY_MAX_HINTS) {
+								simHintsTruncated = true;
+								break;
+							}
 							const targetPathMatch = String(match.targetLocation).match(
 								/^(.*):\d+$/,
 							);
@@ -590,9 +601,17 @@ pi.on("tool_call", async (event, _ctx) => {
 					}
 
 					if (simWarnings.length > 0) {
+						let reason = `⚠️ Potential structural similarity (advisory):\n${simWarnings.map((w) => `  • ${w}`).join("\n")}`;
+						if (simHintsTruncated) {
+							reason += "\n  • ... additional similar candidates omitted";
+						}
+						reason += "\nUse this only as a hint; verify behavior before refactoring.";
+						if (reason.length > INLINE_SIMILARITY_MAX_CHARS) {
+							reason = `${reason.slice(0, INLINE_SIMILARITY_MAX_CHARS)}\n... (truncated)`;
+						}
 						return {
 							block: false,
-							reason: `⚠️ Potential structural similarity (advisory):\n${simWarnings.map((w) => `  • ${w}`).join("\n")}\nUse this only as a hint; verify behavior before refactoring.`,
+							reason,
 						};
 					}
 				} catch {
@@ -629,7 +648,7 @@ pi.on("before_agent_start", async (event) => {
 
 	const rulesSection = formatRulesForPrompt(runtime.projectRulesScan);
 	return {
-		systemPrompt: `${event.systemPrompt}\n\n## Project Rules (from project files)\n\nThe following project-specific rule files exist. Read them with the \`read\` tool when relevant:\n\n${rulesSection}\n`,
+		systemPrompt: `${event.systemPrompt}\n\n## Project Rules\nRead these files only when relevant:\n${rulesSection}\n`,
 	};
 });
 

@@ -25,6 +25,8 @@ export interface DiagnosticEntry {
 	message: string;
 
 	// What happened
+	caughtByPipeline: boolean;
+	shownInline: boolean;
 	autoFixed: boolean;
 	shownToAgent: boolean;
 	agentFixed: boolean;
@@ -39,7 +41,7 @@ export interface DiagnosticEntry {
 
 export interface DiagnosticLogger {
 	log(entry: DiagnosticEntry): void;
-	logCaught(d: Diagnostic, context: LogContext): void;
+	logCaught(d: Diagnostic, context: LogContext, shownInline?: boolean): void;
 	flush(): Promise<void>;
 }
 
@@ -110,7 +112,7 @@ export function createDiagnosticLogger(): DiagnosticLogger {
 			writePending(); // async, non-blocking
 		},
 
-		logCaught(d: Diagnostic, context: LogContext) {
+		logCaught(d: Diagnostic, context: LogContext, shownInline = false) {
 			this.log({
 				timestamp: new Date().toISOString(),
 				tool: (d.tool as DiagnosticEntry["tool"]) || "unknown",
@@ -121,8 +123,10 @@ export function createDiagnosticLogger(): DiagnosticLogger {
 				line: d.line || 1,
 				column: d.column || 1,
 				message: d.message || "",
+				caughtByPipeline: true,
+				shownInline,
 				autoFixed: false,
-				shownToAgent: true,
+				shownToAgent: shownInline,
 				agentFixed: false,
 				unresolved: true,
 				model: context.model,

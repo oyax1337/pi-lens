@@ -462,13 +462,28 @@ export async function runPipeline(
 		const logger = getDiagnosticLogger();
 		const tracker = getDiagnosticTracker();
 		tracker.trackShown(dispatchResult.diagnostics);
+		const toKey = (d: (typeof dispatchResult.diagnostics)[number]) =>
+			[
+				d.tool || "",
+				d.id || "",
+				d.rule || "",
+				d.filePath || "",
+				d.line || 0,
+				d.column || 0,
+			].join("|");
+		const inlineKeys = new Set(
+			[...dispatchResult.blockers, ...dispatchResult.fixed]
+				.filter((d) => d.tool !== "similarity")
+				.map(toKey),
+		);
 		for (const d of dispatchResult.diagnostics) {
+			const shownInline = inlineKeys.has(toKey(d));
 			logger.logCaught(d, {
 				model: "unknown", // TODO: get from pi session
 				sessionId: "unknown",
 				turnIndex: 0,
 				writeIndex: 0,
-			});
+			}, shownInline);
 		}
 	}
 

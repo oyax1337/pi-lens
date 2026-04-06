@@ -8,6 +8,36 @@ import { Type } from "@sinclair/typebox";
 import type { AstGrepClient } from "../clients/ast-grep-client.js";
 import { LANGUAGES } from "./shared.js";
 
+function looksLikeRuleYamlOrPlainText(pattern: string): boolean {
+	const text = pattern.trim();
+	if (!text) return true;
+
+	const lower = text.toLowerCase();
+	if (
+		/(^|\n)\s*(id|language|rule|rules|kind|pattern|message|severity)\s*:/.test(
+			lower,
+		)
+	) {
+		return true;
+	}
+
+	if (
+		/\b(id|language|rule|rules|kind|pattern|message|severity)\s*:\s*[a-z0-9_-]+/i.test(
+			text,
+		)
+	) {
+		return true;
+	}
+
+	if (/^[-*]\s+/.test(text)) return true;
+
+	const hasAstSignals = /[$(){}\[\].;:'"`]/.test(text);
+	const hasWhitespace = /\s/.test(text);
+	if (hasWhitespace && !hasAstSignals) return true;
+
+	return false;
+}
+
 export function createAstGrepSearchTool(astGrepClient: AstGrepClient) {
 	return {
 		name: "ast_grep_search" as const,
@@ -80,6 +110,21 @@ export function createAstGrepSearchTool(astGrepClient: AstGrepClient) {
 				selector?: string;
 				context?: number;
 			};
+
+			if (looksLikeRuleYamlOrPlainText(pattern)) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text:
+								"Error: ast_grep_search expects a valid AST code pattern, not plain text/rule YAML. Use patterns like `function $NAME($$$ARGS) { $$$BODY }` or use grep/read for plain text diagnostics.",
+						},
+					],
+					isError: true,
+					details: {},
+				};
+			}
+
 			const searchPaths = paths?.length ? paths : [ctx.cwd || "."];
 			const result = await astGrepClient.search(pattern, lang, searchPaths, {
 				selector,

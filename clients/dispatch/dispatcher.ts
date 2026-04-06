@@ -523,11 +523,13 @@ export async function dispatchForFile(
 		(d) => d.semantic === "warning" || d.semantic === "none",
 	);
 	const fixedItems = visibleDiagnostics.filter((d) => d.semantic === "fixed");
+	const inlineBlockers = blockers.filter((d) => d.tool !== "similarity");
+	const inlineFixed = fixedItems.filter((d) => d.tool !== "similarity");
 
 	// Format output — only blocking issues shown inline
 	// Warnings tracked but not shown (noise) — surfaced via /lens-booboo
-	let output = formatDiagnostics(blockers, "blocking");
-	output += formatDiagnostics(fixedItems, "fixed");
+	let output = formatDiagnostics(inlineBlockers, "blocking");
+	output += formatDiagnostics(inlineFixed, "fixed");
 
 	// Generate and store latency report
 	const overallEnd = Date.now();
