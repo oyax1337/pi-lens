@@ -20,7 +20,7 @@
 		"rust:test": "cargo test --manifest-path rust/Cargo.toml --all-targets --all-features",
 		"rust:build": "cargo build --manifest-path rust/Cargo.toml --release",
 		"rust:build:debug": "cargo build --manifest-path rust/Cargo.toml",
-		"check": "node --experimental-strip-types scripts/check-extensions.mjs .",
+		"check": "node scripts/check-extensions.mjs",
 		"download-grammars": "node scripts/download-grammars.js",
 		"postinstall": "node scripts/download-grammars.js"
 	},
