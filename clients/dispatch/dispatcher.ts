@@ -529,13 +529,29 @@ export async function dispatchForFile(
 
 // --- Run Single Runner ---
 
+/** Maximum wall-clock time a single runner may take before we abort it. */
+const RUNNER_TIMEOUT_MS = 30_000; // 30 seconds
+
 async function runRunner(
 	ctx: DispatchContext,
 	runner: RunnerDefinition,
 	defaultSemantic: OutputSemantic,
 ): Promise<RunnerResult> {
 	try {
-		const result = await runner.run(ctx);
+		const result = await Promise.race([
+			runner.run(ctx),
+			new Promise<never>((_, reject) =>
+				setTimeout(
+					() =>
+						reject(
+							new Error(
+								`Runner ${runner.id} timed out after ${RUNNER_TIMEOUT_MS}ms`,
+							),
+						),
+					RUNNER_TIMEOUT_MS,
+				),
+			),
+		]);
 		return {
 			...result,
 			semantic: result.semantic ?? defaultSemantic,
