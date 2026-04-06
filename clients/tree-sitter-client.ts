@@ -89,6 +89,7 @@ export interface SearchPattern {
 
 export class TreeSitterClient {
 	private initialized = false;
+	private initPromise: Promise<boolean> | null = null;
 	private languages: Map<string, TreeSitterLanguage> = new Map();
 	private parsers: Map<string, TreeSitterParserInstance> = new Map();
 	private treeCache: TreeCache;
@@ -158,50 +159,57 @@ export class TreeSitterClient {
 	/** Initialize tree-sitter WASM runtime */
 	async init(): Promise<boolean> {
 		if (this.initialized) return true;
+		if (this.initPromise) return this.initPromise;
 
-		try {
-			const mod = await import("web-tree-sitter");
-			// biome-ignore lint/suspicious/noExplicitAny: Dynamic import of optional dependency
-			const ParserClass = mod.Parser || mod.default || mod;
-			if (!ParserClass || typeof ParserClass.init !== "function") {
-				this.dbg("Parser class not found or missing init method");
+		this.initPromise = (async () => {
+			try {
+				const mod = await import("web-tree-sitter");
+				// biome-ignore lint/suspicious/noExplicitAny: Dynamic import of optional dependency
+				const ParserClass = mod.Parser || mod.default || mod;
+				if (!ParserClass || typeof ParserClass.init !== "function") {
+					this.dbg("Parser class not found or missing init method");
+					return false;
+				}
+
+				// biome-ignore lint/suspicious/noExplicitAny: Parser class type
+				this.ParserClass = ParserClass as any;
+				// Store Language loader from module (not from Parser)
+				this.LanguageLoader = mod.Language;
+
+				// Log what we're trying to load
+				const wasmPath = resolvePackagePath(
+					import.meta.url,
+					"node_modules",
+					"web-tree-sitter",
+					"tree-sitter.wasm",
+				);
+				this.dbg(
+					`Looking for WASM at: ${wasmPath}, exists: ${fs.existsSync(wasmPath)}`,
+				);
+
+				await ParserClass.init({
+					locateFile: (scriptName: string) => {
+						const fullPath = resolvePackagePath(
+							import.meta.url,
+							"node_modules",
+							"web-tree-sitter",
+							scriptName,
+						);
+						this.dbg(`locateFile: ${scriptName} -> ${fullPath}`);
+						return fullPath;
+					},
+				});
+				this.initialized = true;
+				return true;
+			} catch (err) {
+				this.dbg(`Init error: ${err}`);
 				return false;
+			} finally {
+				this.initPromise = null;
 			}
+		})();
 
-			// biome-ignore lint/suspicious/noExplicitAny: Parser class type
-			this.ParserClass = ParserClass as any;
-			// Store Language loader from module (not from Parser)
-			this.LanguageLoader = mod.Language;
-
-			// Log what we're trying to load
-			const wasmPath = resolvePackagePath(
-				import.meta.url,
-				"node_modules",
-				"web-tree-sitter",
-				"tree-sitter.wasm",
-			);
-			this.dbg(
-				`Looking for WASM at: ${wasmPath}, exists: ${fs.existsSync(wasmPath)}`,
-			);
-
-			await ParserClass.init({
-				locateFile: (scriptName: string) => {
-					const fullPath = resolvePackagePath(
-						import.meta.url,
-						"node_modules",
-						"web-tree-sitter",
-						scriptName,
-					);
-					this.dbg(`locateFile: ${scriptName} -> ${fullPath}`);
-					return fullPath;
-				},
-			});
-			this.initialized = true;
-			return true;
-		} catch (err) {
-			this.dbg(`Init error: ${err}`);
-			return false;
-		}
+		return this.initPromise;
 	}
 
 	/** Load language grammar */

@@ -13,6 +13,7 @@ import { createLSPClient } from "./client.js";
 import { getServersForFileWithConfig } from "./config.js";
 import { getLanguageId } from "./language.js";
 import type { LSPServerInfo } from "./server.js";
+import { uriToPath } from "../path-utils.js";
 
 // --- Types ---
 
@@ -268,9 +269,7 @@ export class LSPService {
 	 * Navigation: find incoming calls (callers)
 	 */
 	async incomingCalls(item: import("./client.js").LSPCallHierarchyItem) {
-		const spawned = await this.getClientForFile(
-			item.uri.replace("file://", ""),
-		);
+		const spawned = await this.getClientForFile(uriToPath(item.uri));
 		if (!spawned) return [];
 		return spawned.client.incomingCalls(item);
 	}
@@ -279,9 +278,7 @@ export class LSPService {
 	 * Navigation: find outgoing calls (callees)
 	 */
 	async outgoingCalls(item: import("./client.js").LSPCallHierarchyItem) {
-		const spawned = await this.getClientForFile(
-			item.uri.replace("file://", ""),
-		);
+		const spawned = await this.getClientForFile(uriToPath(item.uri));
 		if (!spawned) return [];
 		return spawned.client.outgoingCalls(item);
 	}

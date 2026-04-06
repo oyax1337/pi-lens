@@ -370,7 +370,16 @@ async function runGroup(
 		}
 
 		// Check preconditions
-		if (runner.when && !(await runner.when(ctx))) {
+		let shouldRun = true;
+		if (runner.when) {
+			try {
+				shouldRun = await runner.when(ctx);
+			} catch (error) {
+				ctx.log(`Runner ${runner.id} precondition failed: ${error}`);
+				shouldRun = false;
+			}
+		}
+		if (!shouldRun) {
 			latencies.push({
 				runnerId,
 				startTime: runnerStart,
@@ -426,8 +435,8 @@ async function runGroup(
 			hadBlocker = true;
 		}
 
-		// mode:"fallback" — stop at first runner that produced results
-		if (group.mode === "fallback" && result.status !== "skipped") {
+		// mode:"fallback" — stop at first successful runner
+		if (group.mode === "fallback" && result.status === "succeeded") {
 			break;
 		}
 	}

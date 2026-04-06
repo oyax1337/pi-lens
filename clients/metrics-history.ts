@@ -9,6 +9,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execSync } from "node:child_process";
 
 // --- Types ---
 
@@ -49,7 +50,6 @@ const MAX_HISTORY_PER_FILE = 20;
  */
 function getCurrentCommit(): string {
 	try {
-		const { execSync } = require("node:child_process");
 		return execSync("git rev-parse --short HEAD", {
 			encoding: "utf-8",
 			timeout: 5000,

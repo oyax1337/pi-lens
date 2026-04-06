@@ -170,7 +170,7 @@ const RUNNERS: Record<string, RunnerConfig> = {
 	},
 	gradle: {
 		configFiles: ["build.gradle", "build.gradle.kts", "settings.gradle"],
-		command: "./gradlew",
+		command: process.platform === "win32" ? "gradlew.bat" : "./gradlew",
 		args: (_testFile, _cwd) => ["test", "--no-daemon"],
 		parseJson: false,
 	},
@@ -214,7 +214,10 @@ export class TestRunnerClient {
 	 * 2. package.json dependencies
 	 * 3. node_modules presence
 	 */
-	detectRunner(cwd: string): { runner: string; config: RunnerConfig } | null {
+	detectRunner(
+		cwd: string,
+		sourceFilePath?: string,
+	): { runner: string; config: RunnerConfig } | null {
 		// Priority 1: Config files
 		for (const [name, config] of Object.entries(RUNNERS)) {
 			const cacheKey = `${cwd}:${name}:config`;
@@ -225,9 +228,19 @@ export class TestRunnerClient {
 				continue;
 			}
 
-			const found = config.configFiles.some((cf) =>
-				fs.existsSync(path.join(cwd, cf)),
-			);
+			const found = config.configFiles.some((cf) => {
+				if (name === "pytest" && cf === "pyproject.toml") {
+					const pyprojectPath = path.join(cwd, cf);
+					if (!fs.existsSync(pyprojectPath)) return false;
+					try {
+						const pyproject = fs.readFileSync(pyprojectPath, "utf-8");
+						return pyproject.includes("[tool.pytest.ini_options]");
+					} catch {
+						return false;
+					}
+				}
+				return fs.existsSync(path.join(cwd, cf));
+			});
 
 			this.availableRunners.set(cacheKey, found);
 			if (found) {
@@ -300,7 +313,11 @@ export class TestRunnerClient {
 			}
 		}
 
-		// Priority 5: Check if pytest is available globally (for Python)
+		// Priority 5: Check if pytest is available globally (Python files only)
+		const isPythonSource =
+			typeof sourceFilePath === "string" && sourceFilePath.endsWith(".py");
+		if (!isPythonSource) return null;
+
 		try {
 			const whichCmd = process.platform === "win32" ? "where" : "which";
 			const result = safeSpawn(whichCmd, ["pytest"], {
@@ -336,7 +353,7 @@ export class TestRunnerClient {
 
 		const detected = runnerOverride
 			? { runner: runnerOverride, config: RUNNERS[runnerOverride] }
-			: this.detectRunner(cwd);
+			: this.detectRunner(cwd, sourceFilePath);
 		if (!detected) return null;
 
 		// Check each potential test file location
@@ -407,7 +424,7 @@ export class TestRunnerClient {
 		config: RunnerConfig;
 		strategy: "failed-first" | "related";
 	} | null {
-		const detected = this.detectRunner(cwd);
+		const detected = this.detectRunner(cwd, sourceFilePath);
 		if (!detected) return null;
 
 		const key = this.failedKey(cwd, detected.runner);

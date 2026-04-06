@@ -776,6 +776,11 @@ export function clearFormatterCache(): void {
 	detectionCache.clear();
 }
 
+export function clearFormatterRuntimeState(): void {
+	detectionCache.clear();
+	_lazyInstallAttempts.clear();
+}
+
 export async function formatFile(
 	filePath: string,
 	formatter: FormatterInfo,

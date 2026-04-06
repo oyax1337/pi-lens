@@ -14,7 +14,7 @@
 import * as path from "node:path";
 import { FileTime } from "./file-time.js";
 import {
-	clearFormatterCache,
+	clearFormatterRuntimeState,
 	type FormatterInfo,
 	type FormatterResult,
 	formatFile,
@@ -133,52 +133,42 @@ export class FormatService {
 	}
 
 	/**
-	 * Run formatters with limited concurrency to prevent resource contention
-	 *
-	 * Formatters are I/O bound so we can run 2-3 concurrently, but not unlimited.
-	 * This prevents overwhelming the system when multiple formatters are configured.
+	 * Run formatters sequentially to avoid concurrent writes to the same file.
 	 */
 	private async runFormattersWithConcurrency(
 		filePath: string,
 		formatters: FormatterInfo[],
-		concurrency = DEFAULT_FORMATTER_CONCURRENCY,
+		_concurrency = DEFAULT_FORMATTER_CONCURRENCY,
 	): Promise<FormatterResult[]> {
 		const results: FormatterResult[] = [];
 
-		// Process in batches to limit concurrent formatters
-		for (let i = 0; i < formatters.length; i += concurrency) {
-			const batch = formatters.slice(i, i + concurrency);
-			const batchResults = await Promise.all(
-				batch.map(async (formatter) => {
-					try {
-						// Add timeout to each formatter individually
-						const timeoutMs = 30000;
-						const timeoutPromise = new Promise<FormatterResult>((_, reject) => {
-							setTimeout(
-								() =>
-									reject(
-										new Error(
-											`Formatter ${formatter.name} timed out after ${timeoutMs}ms`,
-										),
-									),
-								timeoutMs,
-							);
-						});
+		for (const formatter of formatters) {
+			try {
+				const timeoutMs = 30000;
+				const timeoutPromise = new Promise<FormatterResult>((_, reject) => {
+					setTimeout(
+						() =>
+							reject(
+								new Error(
+									`Formatter ${formatter.name} timed out after ${timeoutMs}ms`,
+								),
+							),
+						timeoutMs,
+					);
+				});
 
-						return await Promise.race([
-							formatFile(filePath, formatter),
-							timeoutPromise,
-						]);
-					} catch (error) {
-						return {
-							success: false,
-							changed: false,
-							error: error instanceof Error ? error.message : String(error),
-						};
-					}
-				}),
-			);
-			results.push(...batchResults);
+				const result = await Promise.race([
+					formatFile(filePath, formatter),
+					timeoutPromise,
+				]);
+				results.push(result);
+			} catch (error) {
+				results.push({
+					success: false,
+					changed: false,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
 		}
 
 		return results;
@@ -229,7 +219,7 @@ export class FormatService {
 	 * Clear detection cache
 	 */
 	clearCache(): void {
-		clearFormatterCache();
+		clearFormatterRuntimeState();
 	}
 }
 
@@ -256,6 +246,7 @@ export function getFormatService(
 }
 
 export function resetFormatService(): void {
+	clearFormatterRuntimeState();
 	globalFormatService = null;
 	currentSessionID = null;
 }
