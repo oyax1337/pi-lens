@@ -2,6 +2,13 @@
 
 All notable changes to pi-lens will be documented in this file.
 
+## [3.8.6] - 2026-04-06
+
+### Changed
+- **Remove new-TODO reporting from turn_end** — The agent writes TODOs intentionally;
+  reporting them back at turn-end is noise. Removed the diff-against-baseline TODO
+  injection from turn-end findings.
+
 ## [3.8.5] - 2026-04-06
 
 ### Fixed

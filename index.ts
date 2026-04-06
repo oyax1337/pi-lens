@@ -1569,44 +1569,6 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 
-			// Diff TODOs against baseline — report only net-new ones added this turn
-			const todoBaseline = cacheManager.readCache<{
-				items: import("./clients/todo-scanner.js").TodoItem[];
-			}>("todo-baseline", cwd);
-			if (todoBaseline) {
-				const baselineKeys = new Set(
-					todoBaseline.data.items.map(
-						(t) => `${t.file}:${t.line}:${t.message}`,
-					),
-				);
-				const newTodos: import("./clients/todo-scanner.js").TodoItem[] = [];
-				for (const relFile of files) {
-					const absFile = path.resolve(cwd, relFile);
-					try {
-						const current = todoScanner.scanFile(absFile);
-						for (const item of current) {
-							const key = `${item.file}:${item.line}:${item.message}`;
-							if (!baselineKeys.has(key)) newTodos.push(item);
-						}
-					} catch {
-						/* file may have been deleted */
-					}
-				}
-				if (newTodos.length > 0) {
-					const lines = newTodos
-						.slice(0, 5)
-						.map(
-							(t) =>
-								`  ${path.basename(t.file)}:${t.line} ${t.type}: ${t.message.slice(0, 60)}`,
-						);
-					if (newTodos.length > 5)
-						lines.push(`  ... and ${newTodos.length - 5} more`);
-					parts.push(
-						`📝 ${newTodos.length} unresolved TODO(s) added this turn:\n${lines.join("\n")}`,
-					);
-				}
-			}
-
 			// Increment turn cycle and persist
 			cacheManager.incrementTurnCycle(cwd);
 
