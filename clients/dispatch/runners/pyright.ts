@@ -8,6 +8,7 @@
  */
 
 import { ensureTool } from "../../installer/index.js";
+import { getLSPService } from "../../lsp/index.js";
 import { safeSpawnAsync } from "../../safe-spawn.js";
 import type {
 	Diagnostic,
@@ -26,10 +27,14 @@ const pyrightRunner: RunnerDefinition = {
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
-		// When --lens-lsp is active, the `lsp` runner (priority 4) already provides
-		// Pyright diagnostics via the language server — skip the CLI to avoid duplication.
+		// When --lens-lsp is active, prefer the unified lsp runner.
+		// But if LSP is unavailable for this file, keep pyright CLI fallback.
 		if (ctx.pi.getFlag("lens-lsp")) {
-			return { status: "skipped", diagnostics: [], semantic: "none" };
+			const lspService = getLSPService();
+			const hasLSP = await lspService.hasLSP(ctx.filePath);
+			if (hasLSP) {
+				return { status: "skipped", diagnostics: [], semantic: "none" };
+			}
 		}
 
 		const cwd = ctx.cwd || process.cwd();

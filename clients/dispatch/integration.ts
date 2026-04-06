@@ -18,7 +18,12 @@ import {
 	type RunnerLatency,
 } from "./dispatcher.js";
 import { TOOL_PLANS } from "./plan.js";
-import type { BaselineStore, DispatchResult, PiAgentAPI } from "./types.js";
+import type {
+	BaselineStore,
+	DispatchResult,
+	ModifiedRange,
+	PiAgentAPI,
+} from "./types.js";
 
 export type { DispatchLatencyReport, RunnerLatency };
 // Re-export latency tracking types and functions
@@ -54,11 +59,19 @@ export async function dispatchLint(
 	filePath: string,
 	cwd: string,
 	pi: PiAgentAPI,
+	modifiedRanges?: ModifiedRange[],
 ): Promise<string> {
 	// By default, only run BLOCKING rules for fast feedback on file write
 	// Uses persistent sessionBaselines so delta mode actually filters
 	// pre-existing issues after the first write.
-	const ctx = createDispatchContext(filePath, cwd, pi, sessionBaselines, true);
+	const ctx = createDispatchContext(
+		filePath,
+		cwd,
+		pi,
+		sessionBaselines,
+		true,
+		modifiedRanges,
+	);
 
 	const kind = ctx.kind;
 	if (!kind) return "";
@@ -77,8 +90,16 @@ export async function dispatchLintWithResult(
 	filePath: string,
 	cwd: string,
 	pi: PiAgentAPI,
+	modifiedRanges?: ModifiedRange[],
 ): Promise<DispatchResult> {
-	const ctx = createDispatchContext(filePath, cwd, pi, sessionBaselines, true);
+	const ctx = createDispatchContext(
+		filePath,
+		cwd,
+		pi,
+		sessionBaselines,
+		true,
+		modifiedRanges,
+	);
 
 	const kind = ctx.kind;
 	if (!kind) {
@@ -88,6 +109,7 @@ export async function dispatchLintWithResult(
 			warnings: [],
 			baselineWarningCount: 0,
 			fixed: [],
+			resolvedCount: 0,
 			output: "",
 			hasBlockers: false,
 		};
@@ -101,6 +123,7 @@ export async function dispatchLintWithResult(
 			warnings: [],
 			baselineWarningCount: 0,
 			fixed: [],
+			resolvedCount: 0,
 			output: "",
 			hasBlockers: false,
 		};

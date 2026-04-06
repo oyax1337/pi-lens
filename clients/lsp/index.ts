@@ -63,7 +63,17 @@ export class LSPService {
 			// Check cache first (fast path)
 			const existing = this.state.clients.get(key);
 			if (existing) {
+				if (!existing.isAlive()) {
+					try {
+						await existing.shutdown();
+					} catch {
+						/* ignore dead client shutdown errors */
+					}
+					this.state.clients.delete(key);
+					this.state.broken.delete(key);
+				} else {
 				return { client: existing, info: server };
+				}
 			}
 
 			// Check if broken

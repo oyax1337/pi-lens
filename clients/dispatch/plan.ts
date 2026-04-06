@@ -30,8 +30,9 @@ export const TOOL_PLANS: Record<string, ToolPlan> = {
 	jsts: {
 		name: "JavaScript/TypeScript Linting",
 		groups: [
-			// LSP type checking (unified for all languages) - priority 4, blocking errors
-			{ mode: "all", runnerIds: ["lsp"], filterKinds: ["jsts"] },
+			// Type checking with fallback chain:
+			// 1) unified LSP when available, 2) built-in ts fallback when LSP unavailable.
+			{ mode: "fallback", runnerIds: ["lsp", "ts-lsp"], filterKinds: ["jsts"] },
 			// Biome check with JSON diagnostic capture - priority 9, runs before tree-sitter
 			// Captures Biome diagnostics, shows to agent, then auto-fixes
 			{ mode: "all", runnerIds: ["biome-check-json"], filterKinds: ["jsts"] },
@@ -60,11 +61,9 @@ export const TOOL_PLANS: Record<string, ToolPlan> = {
 	python: {
 		name: "Python Linting",
 		groups: [
-			// Pyright type checking (standard mode - no LSP flag needed)
-			// Provides Python type errors in standard pi mode
-			{ mode: "all", runnerIds: ["pyright"], filterKinds: ["python"] },
-			// LSP type checking (unified) - when --lens-lsp enabled
-			{ mode: "all", runnerIds: ["lsp"], filterKinds: ["python"] },
+			// Type checking with fallback chain:
+			// 1) unified LSP when available, 2) pyright CLI fallback.
+			{ mode: "fallback", runnerIds: ["lsp", "pyright"], filterKinds: ["python"] },
 			{ mode: "fallback", runnerIds: ["architect"], filterKinds: ["python"] },
 			// Note: ruff handled by direct auto-fix calls in index.ts (not in dispatch)
 		],
@@ -193,7 +192,7 @@ export const FULL_LINT_PLANS: Record<string, ToolPlan> = {
 	jsts: {
 		name: "JavaScript/TypeScript Full Lint",
 		groups: [
-			{ mode: "all", runnerIds: ["lsp"], filterKinds: ["jsts"] },
+			{ mode: "fallback", runnerIds: ["lsp", "ts-lsp"], filterKinds: ["jsts"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["jsts"] },
 			{ mode: "all", runnerIds: ["ast-grep-napi"], filterKinds: ["jsts"] },
 			// Warning-only tools (for full lint, not file write)
@@ -212,7 +211,7 @@ export const FULL_LINT_PLANS: Record<string, ToolPlan> = {
 	python: {
 		name: "Python Full Lint",
 		groups: [
-			{ mode: "all", runnerIds: ["lsp"], filterKinds: ["python"] },
+			{ mode: "fallback", runnerIds: ["lsp", "pyright"], filterKinds: ["python"] },
 			// Warning-only tools
 			{ mode: "fallback", runnerIds: ["ruff-lint"], filterKinds: ["python"] },
 			{ mode: "fallback", runnerIds: ["python-slop"], filterKinds: ["python"] },

@@ -19,6 +19,13 @@ export interface SessionStats {
 	totalAgentFixed: number;
 	totalUnresolved: number;
 	topViolations: { ruleId: string; count: number }[];
+	repeatOffenders: {
+		key: string;
+		ruleId: string;
+		filePath: string;
+		line: number;
+		count: number;
+	}[];
 }
 
 export interface Diagnostic {
@@ -32,6 +39,8 @@ export interface Diagnostic {
 export interface DiagnosticTracker {
 	// Track that a diagnostic was shown to agent
 	trackShown(diagnostics: Diagnostic[]): void;
+	trackAutoFixed(count: number): void;
+	trackAgentFixed(count: number): void;
 
 	// Get session stats for summary
 	getStats(): SessionStats;
@@ -52,6 +61,7 @@ export function getDiagnosticTracker(): DiagnosticTracker {
 
 export function createDiagnosticTracker(): DiagnosticTracker {
 	const shown: Map<string, TrackerEntry> = new Map();
+	const occurrenceCounts: Map<string, number> = new Map();
 	let totalShown = 0;
 	let totalAutoFixed = 0;
 	let totalAgentFixed = 0;
@@ -65,6 +75,7 @@ export function createDiagnosticTracker(): DiagnosticTracker {
 				const ruleId = d.rule || d.id || "unknown";
 				const line = d.line || 1;
 				const k = key(d.filePath, ruleId, line);
+				occurrenceCounts.set(k, (occurrenceCounts.get(k) ?? 0) + 1);
 
 				// Don't double-count if already tracked
 				if (!shown.has(k)) {
@@ -81,6 +92,18 @@ export function createDiagnosticTracker(): DiagnosticTracker {
 			}
 		},
 
+		trackAutoFixed(count: number) {
+			if (count > 0) {
+				totalAutoFixed += count;
+			}
+		},
+
+		trackAgentFixed(count: number) {
+			if (count > 0) {
+				totalAgentFixed += count;
+			}
+		},
+
 		getStats(): SessionStats {
 			const ruleCounts = new Map<string, number>();
 			for (const entry of shown.values()) {
@@ -92,17 +115,37 @@ export function createDiagnosticTracker(): DiagnosticTracker {
 				.slice(0, 10)
 				.map(([ruleId, count]) => ({ ruleId, count }));
 
+			const repeatOffenders = [...occurrenceCounts.entries()]
+				.filter(([, count]) => count >= 2)
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 10)
+				.map(([k, count]) => {
+					const parts = k.split(":");
+					const lineStr = parts.pop() ?? "1";
+					const ruleId = parts.pop() ?? "unknown";
+					const filePath = parts.join(":");
+					return {
+						key: k,
+						ruleId,
+						filePath,
+						line: Number.parseInt(lineStr, 10) || 1,
+						count,
+					};
+				});
+
 			return {
 				totalShown,
 				totalAutoFixed,
 				totalAgentFixed,
 				totalUnresolved: totalShown - totalAutoFixed - totalAgentFixed,
 				topViolations,
+				repeatOffenders,
 			};
 		},
 
 		reset() {
 			shown.clear();
+			occurrenceCounts.clear();
 			totalShown = 0;
 			totalAutoFixed = 0;
 			totalAgentFixed = 0;

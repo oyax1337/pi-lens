@@ -11,7 +11,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isFileKind } from "./file-kinds.js";
-import { safeSpawn } from "./safe-spawn.js";
+import { safeSpawn, safeSpawnAsync } from "./safe-spawn.js";
 
 // --- Types ---
 
@@ -87,6 +87,11 @@ export class BiomeClient {
 	private spawnBiome(args: string[], timeout = 15000) {
 		const { cmd, args: prefix } = this.getBiomeBinary();
 		return safeSpawn(cmd, [...prefix, ...args], { timeout });
+	}
+
+	private async spawnBiomeAsync(args: string[], timeout = 15000) {
+		const { cmd, args: prefix } = this.getBiomeBinary();
+		return safeSpawnAsync(cmd, [...prefix, ...args], { timeout });
 	}
 
 	/**
@@ -270,6 +275,69 @@ export class BiomeClient {
 
 			const fixed = fs.readFileSync(absolutePath, "utf-8");
 			const changed = content !== fixed;
+
+			if (changed) {
+				this.log(`Fixed issue(s) in ${path.basename(filePath)}`);
+			}
+
+			return { success: true, changed, fixed: changed ? 1 : 0 };
+		} catch (err) {
+			return {
+				success: false,
+				changed: false,
+				fixed: 0,
+				error: err instanceof Error ? err.message : String(err),
+			};
+		}
+	}
+
+	/**
+	 * Async auto-fix variant for pipeline use (non-blocking spawn).
+	 */
+	async fixFileAsync(filePath: string): Promise<{
+		success: boolean;
+		changed: boolean;
+		fixed: number;
+		error?: string;
+	}> {
+		if (!(await this.ensureAvailable())) {
+			return {
+				success: false,
+				changed: false,
+				fixed: 0,
+				error: "Biome not available",
+			};
+		}
+
+		const absolutePath = path.resolve(filePath);
+		if (!fs.existsSync(absolutePath)) {
+			return {
+				success: false,
+				changed: false,
+				fixed: 0,
+				error: "File not found",
+			};
+		}
+
+		try {
+			const before = await fs.promises.readFile(absolutePath, "utf-8");
+			const result = await this.spawnBiomeAsync([
+				"check",
+				"--write",
+				absolutePath,
+			]);
+
+			if (result.error) {
+				return {
+					success: false,
+					changed: false,
+					fixed: 0,
+					error: result.error.message,
+				};
+			}
+
+			const after = await fs.promises.readFile(absolutePath, "utf-8");
+			const changed = before !== after;
 
 			if (changed) {
 				this.log(`Fixed issue(s) in ${path.basename(filePath)}`);

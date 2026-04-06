@@ -25,9 +25,38 @@ import { logLatency } from "./latency-logger.js";
 import { getLSPService } from "./lsp/index.js";
 import type { MetricsClient } from "./metrics-client.js";
 import type { RuffClient } from "./ruff-client.js";
+import { RUNTIME_CONFIG } from "./runtime-config.js";
 import { safeSpawnAsync } from "./safe-spawn.js";
 import { formatSecrets, scanForSecrets } from "./secrets-scanner.js";
 import type { TestRunnerClient } from "./test-runner-client.js";
+import { normalizeMapKey } from "./path-utils.js";
+import { resolveRunnerPath, toRunnerDisplayPath } from "./dispatch/runner-context.js";
+
+const LSP_MAX_FILE_BYTES = RUNTIME_CONFIG.pipeline.lspMaxFileBytes;
+const LSP_MAX_FILE_LINES = RUNTIME_CONFIG.pipeline.lspMaxFileLines;
+
+function exceedsLspSyncLimits(filePath: string, content: string): {
+	tooLarge: boolean;
+	reason: string;
+} {
+	const sizeBytes = Buffer.byteLength(content, "utf-8");
+	if (sizeBytes > LSP_MAX_FILE_BYTES) {
+		return {
+			tooLarge: true,
+			reason: `${Math.round(sizeBytes / 1024)}KB exceeds ${Math.round(LSP_MAX_FILE_BYTES / 1024)}KB`,
+		};
+	}
+
+	const lineCount = content.split("\n").length;
+	if (lineCount > LSP_MAX_FILE_LINES) {
+		return {
+			tooLarge: true,
+			reason: `${lineCount} lines exceeds ${LSP_MAX_FILE_LINES}`,
+		};
+	}
+
+	return { tooLarge: false, reason: "" };
+}
 
 // --- Types ---
 
@@ -35,6 +64,7 @@ export interface PipelineContext {
 	filePath: string;
 	cwd: string;
 	toolName: string;
+	modifiedRanges?: { start: number; end: number }[];
 	/** pi.getFlag accessor */
 	getFlag: (name: string) => boolean | string | undefined;
 	/** Debug logger */
@@ -133,8 +163,7 @@ function hasEslintConfig(cwd: string): boolean {
 	return false;
 }
 
-let _eslintAvailable: boolean | null = null;
-let _eslintBin: string | null = null;
+const _eslintCache = new Map<string, { available: boolean; bin: string | null }>();
 
 function findEslintBin(cwd: string): string {
 	const isWin = process.platform === "win32";
@@ -154,18 +183,22 @@ function findEslintBin(cwd: string): string {
  */
 async function tryEslintFix(filePath: string, cwd: string): Promise<number> {
 	if (!hasEslintConfig(cwd)) return 0;
-	if (_eslintAvailable === false) return 0;
-	if (_eslintAvailable === null) {
+	const cacheKey = path.resolve(cwd);
+	let cached = _eslintCache.get(cacheKey);
+	if (!cached) {
 		const candidate = findEslintBin(cwd);
 		const check = await safeSpawnAsync(candidate, ["--version"], {
 			timeout: 5000,
 			cwd,
 		});
-		_eslintAvailable = !check.error && check.status === 0;
-		if (_eslintAvailable) _eslintBin = candidate;
+		cached = {
+			available: !check.error && check.status === 0,
+			bin: !check.error && check.status === 0 ? candidate : null,
+		};
+		_eslintCache.set(cacheKey, cached);
 	}
-	if (!_eslintAvailable || !_eslintBin) return 0;
-	const cmd = _eslintBin;
+	if (!cached.available || !cached.bin) return 0;
+	const cmd = cached.bin;
 	// --fix-dry-run returns JSON with fixable counts without writing to disk.
 	// Use it to get the real count, then apply with --fix only if needed.
 	const dry = await safeSpawnAsync(
@@ -258,6 +291,7 @@ export async function runPipeline(
 	phase.start("format");
 	let formatChanged = false;
 	let formattersUsed: string[] = [];
+	let needsContentRefresh = false;
 	if (!getFlag("no-autoformat") && fileContent) {
 		const formatService = getFormatService();
 		try {
@@ -266,10 +300,10 @@ export async function runPipeline(
 			formattersUsed = result.formatters.map((f) => f.name);
 			if (result.anyChanged) {
 				formatChanged = true;
+				needsContentRefresh = true;
 				dbg(
 					`autoformat: ${result.formatters.map((f) => `${f.name}(${f.changed ? "changed" : "unchanged"})`).join(", ")}`,
 				);
-				fileContent = nodeFs.readFileSync(filePath, "utf-8");
 			}
 		} catch (err) {
 			dbg(`autoformat error: ${err}`);
@@ -283,26 +317,45 @@ export async function runPipeline(
 	// Fire-and-forget would cause cascade diagnostics to see pre-write state.
 	phase.start("lsp_sync");
 	let lspSyncCompleted = false;
+	let lspPhaseEnded = false;
 	if (getFlag("lens-lsp") && fileContent) {
-		const lspService = getLSPService();
-		try {
-			const hasLSP = await lspService.hasLSP(filePath);
-			if (hasLSP) {
-				if (toolName === "write") {
-					await lspService.openFile(filePath, fileContent);
-				} else {
-					await lspService.updateFile(filePath, fileContent);
+		const deferLspSync =
+			!getFlag("no-autofix") &&
+			(ruffClient.isPythonFile(filePath) ||
+				biomeClient.isSupportedFile(filePath) ||
+				isJsTs(filePath));
+
+		if (deferLspSync) {
+			lspSyncCompleted = true;
+			phase.end("lsp_sync", { completed: true, deferred: true });
+			lspPhaseEnded = true;
+		} else {
+			const limitCheck = exceedsLspSyncLimits(filePath, fileContent);
+			if (limitCheck.tooLarge) {
+				dbg(`LSP sync skipped for ${filePath}: ${limitCheck.reason}`);
+				lspSyncCompleted = true;
+			} else {
+				const lspService = getLSPService();
+				try {
+					const hasLSP = await lspService.hasLSP(filePath);
+					if (hasLSP) {
+						// Always go through openFile. The client dedupes duplicate didOpen
+						// by converting to didChange when already open.
+						await lspService.openFile(filePath, fileContent);
+					}
+					lspSyncCompleted = true;
+				} catch (err) {
+					dbg(`LSP sync error: ${err}`);
+					lspSyncCompleted = true; // Continue even if LSP fails
 				}
 			}
-			lspSyncCompleted = true;
-		} catch (err) {
-			dbg(`LSP sync error: ${err}`);
-			lspSyncCompleted = true; // Continue even if LSP fails
 		}
 	} else {
 		lspSyncCompleted = true;
 	}
-	phase.end("lsp_sync", { completed: lspSyncCompleted });
+	if (!lspPhaseEnded) {
+		phase.end("lsp_sync", { completed: lspSyncCompleted });
+	}
 
 	let output = "";
 	const autofixTools: string[] = []; // track which tools fixed something
@@ -329,22 +382,24 @@ export async function runPipeline(
 		]);
 
 		if (ruffReady) {
-			const result = ruffClient.fixFile(filePath);
+			const result = await ruffClient.fixFileAsync(filePath);
 			if (result.success && result.fixed > 0) {
 				fixedCount += result.fixed;
 				autofixTools.push(`ruff:${result.fixed}`);
 				fixedThisTurn.add(filePath);
 				dbg(`autofix: ruff fixed ${result.fixed} issue(s) in ${filePath}`);
+				needsContentRefresh = true;
 			}
 		}
 
 		if (biomeReady) {
-			const result = biomeClient.fixFile(filePath);
+			const result = await biomeClient.fixFileAsync(filePath);
 			if (result.success && result.fixed > 0) {
 				fixedCount += result.fixed;
 				autofixTools.push(`biome:${result.fixed}`);
 				fixedThisTurn.add(filePath);
 				dbg(`autofix: biome fixed ${result.fixed} issue(s) in ${filePath}`);
+				needsContentRefresh = true;
 			}
 		}
 	}
@@ -356,10 +411,36 @@ export async function runPipeline(
 			autofixTools.push(`eslint:${eslintFixed}`);
 			fixedThisTurn.add(filePath);
 			dbg(`autofix: eslint fixed ${eslintFixed} issue(s) in ${filePath}`);
+			needsContentRefresh = true;
 		}
 	}
 
 	phase.end("autofix", { fixedCount, tools: ["ruff", "biome", "eslint"] });
+
+	if (needsContentRefresh) {
+		try {
+			fileContent = nodeFs.readFileSync(filePath, "utf-8");
+		} catch {
+			fileContent = undefined;
+		}
+	}
+
+	// Re-sync LSP after format/autofix changes so dispatch uses current code,
+	// not diagnostics from the pre-fix snapshot.
+	if (getFlag("lens-lsp") && fileContent && (needsContentRefresh || !lspSyncCompleted)) {
+		const limitCheck = exceedsLspSyncLimits(filePath, fileContent);
+		if (!limitCheck.tooLarge) {
+			try {
+				const lspService = getLSPService();
+				const hasLSP = await lspService.hasLSP(filePath);
+				if (hasLSP) {
+					await lspService.openFile(filePath, fileContent);
+				}
+			} catch (err) {
+				dbg(`LSP resync after autofix error: ${err}`);
+			}
+		}
+	}
 
 	// --- 5. Dispatch lint ---
 	phase.start("dispatch_lint");
@@ -369,7 +450,12 @@ export async function runPipeline(
 		getFlag: getFlag as (flag: string) => boolean | string | undefined,
 	};
 
-	const dispatchResult = await dispatchLintWithResult(filePath, cwd, piApi);
+	const dispatchResult = await dispatchLintWithResult(
+		filePath,
+		cwd,
+		piApi,
+		ctx.modifiedRanges,
+	);
 
 	// Log and track diagnostics for analytics
 	if (dispatchResult.diagnostics.length > 0) {
@@ -384,6 +470,16 @@ export async function runPipeline(
 				writeIndex: 0,
 			});
 		}
+	}
+
+	if (fixedCount > 0) {
+		const tracker = getDiagnosticTracker();
+		tracker.trackAutoFixed(fixedCount);
+	}
+
+	if (dispatchResult.resolvedCount > 0) {
+		const tracker = getDiagnosticTracker();
+		tracker.trackAgentFixed(dispatchResult.resolvedCount);
 	}
 
 	if (dispatchResult.output) {
@@ -461,26 +557,40 @@ export async function runPipeline(
 	// surface the LAST snapshot at turn_end once all edits in the turn are done.
 	let cascadeOutput: string | undefined;
 	if (getFlag("lens-lsp") && !getFlag("no-lsp")) {
-		const MAX_CASCADE_FILES = 5;
-		const MAX_DIAGNOSTICS_PER_FILE = 20;
+		const MAX_CASCADE_FILES = RUNTIME_CONFIG.pipeline.cascadeMaxFiles;
+		const MAX_DIAGNOSTICS_PER_FILE =
+			RUNTIME_CONFIG.pipeline.cascadeMaxDiagnosticsPerFile;
 		const cascadeStart = Date.now();
 
 		try {
 			const lspService = getLSPService();
 			const allDiags = await lspService.getAllDiagnostics();
-			const normalizedEditedPath = path.resolve(filePath);
+			const normalizedEditedPath = resolveRunnerPath(cwd, filePath);
+			let stalePathsSkipped = 0;
 			const otherFileErrors: Array<{
 				file: string;
 				errors: import("./lsp/client.js").LSPDiagnostic[];
 			}> = [];
 
 			for (const [diagPath, diags] of allDiags) {
-				if (path.resolve(diagPath) === normalizedEditedPath) continue;
+				const normalizedDiagPath = resolveRunnerPath(cwd, diagPath);
+				if (normalizeMapKey(normalizedDiagPath) === normalizedEditedPath) continue;
+
+				if (!nodeFs.existsSync(normalizedDiagPath)) {
+					stalePathsSkipped++;
+					continue;
+				}
+
 				const errors = diags.filter((d) => d.severity === 1);
 				if (errors.length > 0) {
-					otherFileErrors.push({ file: diagPath, errors });
+					otherFileErrors.push({
+						file: toRunnerDisplayPath(cwd, normalizedDiagPath),
+						errors,
+					});
 				}
 			}
+
+			otherFileErrors.sort((a, b) => b.errors.length - a.errors.length);
 
 			if (otherFileErrors.length > 0) {
 				let c = `📐 Cascade errors in ${otherFileErrors.length} other file(s) — fix before finishing turn:`;
@@ -514,7 +624,10 @@ export async function runPipeline(
 				filePath,
 				phase: "cascade_diagnostics",
 				durationMs: Date.now() - cascadeStart,
-				metadata: { filesWithErrors: otherFileErrors.length },
+				metadata: {
+					filesWithErrors: otherFileErrors.length,
+					stalePathsSkipped,
+				},
 			});
 		} catch (err) {
 			dbg(`cascade diagnostics error: ${err}`);

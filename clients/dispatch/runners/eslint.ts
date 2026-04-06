@@ -9,6 +9,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { resolvePackagePath } from "../../package-root.js";
 import { safeSpawnAsync } from "../../safe-spawn.js";
 import type {
 	Diagnostic,
@@ -40,6 +41,11 @@ function hasEslintConfig(cwd: string): boolean {
 		if (pkg.eslintConfig) return true;
 	} catch {}
 	return false;
+}
+
+function isJavaScriptFamily(filePath: string): boolean {
+	const ext = path.extname(filePath).toLowerCase();
+	return ext === ".js" || ext === ".jsx" || ext === ".mjs" || ext === ".cjs";
 }
 
 function findEslint(cwd: string): string {
@@ -106,9 +112,16 @@ const eslintRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		const userHasConfig = hasEslintConfig(cwd);
+		const useBundledCore = !!ctx.pi.getFlag("lens-eslint-core") && !userHasConfig;
 
-		// Only run if project has an ESLint config
-		if (!hasEslintConfig(cwd)) {
+		// Default mode: only run if project has an ESLint config.
+		// Optional fallback mode: use bundled JS-only core rules.
+		if (!userHasConfig && !useBundledCore) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
+
+		if (useBundledCore && !isJavaScriptFamily(ctx.filePath)) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
@@ -123,9 +136,22 @@ const eslintRunner: RunnerDefinition = {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
+		const configArgs = useBundledCore
+			? [
+					"--config",
+					resolvePackagePath(import.meta.url, "config", "eslint", "core.mjs"),
+				]
+			: [];
+
 		const result = await safeSpawnAsync(
 			cmd,
-			["--format", "json", "--no-error-on-unmatched-pattern", ctx.filePath],
+			[
+				"--format",
+				"json",
+				"--no-error-on-unmatched-pattern",
+				...configArgs,
+				ctx.filePath,
+			],
 			{ timeout: 30000, cwd },
 		);
 

@@ -14,12 +14,16 @@
  * - BaselineStore: Track pre-existing issues for delta mode
  */
 
+import * as path from "node:path";
 import type { FileKind } from "../file-kinds.js";
 import { detectFileKind } from "../file-kinds.js";
 import { isTestFile } from "../file-utils.js";
 import { logLatency } from "../latency-logger.js";
 import { normalizeMapKey } from "../path-utils.js";
-import { safeSpawn } from "../safe-spawn.js";
+import { RUNTIME_CONFIG } from "../runtime-config.js";
+import { safeSpawnAsync } from "../safe-spawn.js";
+import { classifyDiagnostic } from "./diagnostic-taxonomy.js";
+import { resolveRunnerPath } from "./runner-context.js";
 import type {
 	BaselineStore,
 	Diagnostic,
@@ -34,7 +38,6 @@ import type {
 import { formatDiagnostics } from "./utils/format-utils.js";
 
 // --- In-Memory Baseline Store ---
-// DEBUG TEST EDIT - Testing dispatch logging
 
 export function createBaselineStore(): BaselineStore {
 	const baselines = new Map<string, unknown[]>();
@@ -99,12 +102,12 @@ export function clearRunnerRegistry(): void {
 
 const toolCache = new Map<string, boolean>();
 
-function checkToolAvailability(command: string): boolean {
+async function checkToolAvailability(command: string): Promise<boolean> {
 	if (toolCache.has(command)) {
 		return toolCache.get(command)!;
 	}
 	try {
-		const result = safeSpawn(command, ["--version"], {
+		const result = await safeSpawnAsync(command, ["--version"], {
 			timeout: 5000,
 		});
 		const available = result.status === 0;
@@ -124,20 +127,22 @@ export function createDispatchContext(
 	pi: PiAgentAPI,
 	baselines?: BaselineStore,
 	blockingOnly?: boolean,
+	modifiedRanges?: import("./types.js").ModifiedRange[],
 ): DispatchContext {
-	// Normalize path for consistent Map key usage on Windows
-	const normalizedFilePath = normalizeMapKey(filePath);
+	const normalizedCwd = normalizeMapKey(path.resolve(cwd));
+	const normalizedFilePath = resolveRunnerPath(normalizedCwd, filePath);
 	const kind = detectFileKind(normalizedFilePath);
 
 	return {
 		filePath: normalizedFilePath,
-		cwd,
+		cwd: normalizedCwd,
 		kind,
 		pi,
 		autofix: !!(pi.getFlag("autofix-biome") || pi.getFlag("autofix-ruff")),
 		deltaMode: !pi.getFlag("no-delta"),
 		baselines: baselines ?? createBaselineStore(),
 		blockingOnly,
+		modifiedRanges,
 
 		async hasTool(command: string): Promise<boolean> {
 			return checkToolAvailability(command);
@@ -166,6 +171,52 @@ function filterDelta<T extends { id: string }>(
 	const newItems = after.filter((d) => !beforeSet.has(keyFn(d)));
 
 	return { new: newItems, fixed };
+}
+
+function semanticRank(semantic: OutputSemantic): number {
+	if (semantic === "blocking") return 4;
+	if (semantic === "warning") return 3;
+	if (semantic === "fixed") return 2;
+	if (semantic === "silent") return 1;
+	return 0;
+}
+
+function toolPriority(tool: string, defectClass: string): number {
+	const t = tool.toLowerCase();
+	if (defectClass === "silent-error" && t === "tree-sitter") return 200;
+	if (t === "lsp" || t === "ts-lsp") return 120;
+	if (t === "eslint") return 110;
+	if (t.includes("biome")) return 100;
+	if (t === "tree-sitter") return 90;
+	if (t.includes("ast-grep")) return 80;
+	return 50;
+}
+
+function dedupeOverlappingDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
+	const byKey = new Map<string, Diagnostic>();
+
+	for (const d of diagnostics) {
+		const defectClass = d.defectClass ?? classifyDiagnostic(d);
+		const line = d.line ?? 1;
+		const column = d.column ?? 1;
+		const key = `${d.filePath}:${line}:${column}:${defectClass}`;
+		const current = byKey.get(key);
+		if (!current) {
+			byKey.set(key, { ...d, defectClass });
+			continue;
+		}
+
+		const currScore =
+			semanticRank(current.semantic) * 100 +
+			toolPriority(current.tool, defectClass);
+		const nextScore =
+			semanticRank(d.semantic) * 100 + toolPriority(d.tool, defectClass);
+		if (nextScore > currScore) {
+			byKey.set(key, { ...d, defectClass });
+		}
+	}
+
+	return [...byKey.values()];
 }
 
 // --- Latency Logger ---
@@ -418,11 +469,12 @@ export async function dispatchForFile(
 	);
 
 	// Count baseline warnings before filtering (for delta count display)
-	const baselineWarnings = ctx.deltaMode
-		? (ctx.baselines.get(ctx.filePath) as Diagnostic[] | undefined)?.filter(
-				(d) => d.semantic === "warning" || d.semantic === "none",
-			)
-		: [];
+	const previousBaseline = ctx.deltaMode
+		? (ctx.baselines.get(ctx.filePath) as Diagnostic[] | undefined)
+		: undefined;
+	const baselineWarnings = previousBaseline?.filter(
+		(d) => d.semantic === "warning" || d.semantic === "none",
+	);
 	const baselineWarningCount = baselineWarnings?.length ?? 0;
 
 	for (const {
@@ -432,34 +484,32 @@ export async function dispatchForFile(
 	} of groupResults) {
 		runnerLatencies.push(...latencies);
 
-		// Apply delta mode filtering across the accumulated set
-		// Both blockers and warnings are delta-filtered so the warning count
-		// reflects only NEW issues, not the cumulative baseline.
-		let diagnostics = groupDiags;
-		if (ctx.deltaMode) {
-			const before = ctx.baselines.get(ctx.filePath);
-			if (before) {
-				const filtered = filterDelta(
-					diagnostics,
-					before as Diagnostic[],
-					(d) => d.id,
-				);
-				diagnostics = filtered.new;
-			}
-			// allDiagnostics already contains this group's diagnostics — don't double-count
-			ctx.baselines.set(ctx.filePath, [...allDiagnostics]);
-		}
-
-		allDiagnostics.push(...diagnostics);
+		allDiagnostics.push(...groupDiags);
 		if (hadBlocker) stopped = true;
 	}
 
+	// Apply delta mode ONCE across the full diagnostic set.
+	// This avoids partial-baseline corruption when processing multiple groups.
+	const dedupedDiagnostics = dedupeOverlappingDiagnostics(allDiagnostics);
+	let visibleDiagnostics = dedupedDiagnostics;
+	let resolvedCount = 0;
+	if (ctx.deltaMode && previousBaseline) {
+		const filtered = filterDelta(visibleDiagnostics, previousBaseline, (d) => d.id);
+		visibleDiagnostics = filtered.new;
+		resolvedCount = filtered.fixed.length;
+	}
+
+	// Persist full current snapshot for next run (not delta-filtered subset).
+	if (ctx.deltaMode) {
+		ctx.baselines.set(ctx.filePath, [...dedupedDiagnostics]);
+	}
+
 	// Categorize results
-	const blockers = allDiagnostics.filter((d) => d.semantic === "blocking");
-	const warnings = allDiagnostics.filter(
+	const blockers = visibleDiagnostics.filter((d) => d.semantic === "blocking");
+	const warnings = visibleDiagnostics.filter(
 		(d) => d.semantic === "warning" || d.semantic === "none",
 	);
-	const fixedItems = allDiagnostics.filter((d) => d.semantic === "fixed");
+	const fixedItems = visibleDiagnostics.filter((d) => d.semantic === "fixed");
 
 	// Format output — only blocking issues shown inline
 	// Warnings tracked but not shown (noise) — surfaced via /lens-booboo
@@ -517,11 +567,12 @@ export async function dispatchForFile(
 	});
 
 	return {
-		diagnostics: allDiagnostics,
+		diagnostics: visibleDiagnostics,
 		blockers,
 		warnings,
 		baselineWarningCount,
 		fixed: fixedItems,
+		resolvedCount,
 		output,
 		hasBlockers: blockers.length > 0,
 	};
@@ -530,7 +581,7 @@ export async function dispatchForFile(
 // --- Run Single Runner ---
 
 /** Maximum wall-clock time a single runner may take before we abort it. */
-const RUNNER_TIMEOUT_MS = 30_000; // 30 seconds
+const RUNNER_TIMEOUT_MS = RUNTIME_CONFIG.dispatch.runnerTimeoutMs;
 
 async function runRunner(
 	ctx: DispatchContext,
@@ -552,8 +603,15 @@ async function runRunner(
 				),
 			),
 		]);
+
+		const diagnostics = result.diagnostics.map((d) => ({
+			...d,
+			filePath: resolveRunnerPath(ctx.cwd, d.filePath || ctx.filePath),
+		}));
+
 		return {
 			...result,
+			diagnostics,
 			semantic: result.semantic ?? defaultSemantic,
 		};
 	} catch (error) {

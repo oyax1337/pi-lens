@@ -339,6 +339,7 @@ export async function createLSPClient(options: {
 
 	// Track open documents with version numbers
 	const documentVersions = new Map<string, number>();
+	const openDocuments = new Set<string>();
 
 	return {
 		serverId,
@@ -352,6 +353,19 @@ export async function createLSPClient(options: {
 				const uri = pathToFileURL(filePath).href;
 				// Normalize path for Windows case-insensitive lookup
 				const normalizedPath = normalizeMapKey(filePath);
+
+				// Some servers are strict about duplicate didOpen. If the document is
+				// already open, treat this as a full-content update instead.
+				if (openDocuments.has(normalizedPath)) {
+					const version = (documentVersions.get(normalizedPath) ?? 0) + 1;
+					documentVersions.set(normalizedPath, version);
+					await safeSendNotification(connection, "textDocument/didChange", {
+						textDocument: { uri, version },
+						contentChanges: [{ text: content }],
+					});
+					return;
+				}
+
 				documentVersions.set(normalizedPath, 0);
 				diagnostics.delete(normalizedPath); // Clear stale diagnostics
 
@@ -379,6 +393,7 @@ export async function createLSPClient(options: {
 						text: content,
 					},
 				});
+				openDocuments.add(normalizedPath);
 			},
 
 			async change(filePath, content) {
@@ -386,6 +401,21 @@ export async function createLSPClient(options: {
 				const uri = pathToFileURL(filePath).href;
 				// Normalize path for Windows case-insensitive lookup
 				const normalizedPath = normalizeMapKey(filePath);
+				if (!openDocuments.has(normalizedPath)) {
+					// Safety fallback: keep protocol ordering valid even if caller sends
+					// didChange before first didOpen for this document.
+					await safeSendNotification(connection, "textDocument/didOpen", {
+						textDocument: {
+							uri,
+							languageId: "plaintext",
+							version: 0,
+							text: content,
+						},
+					});
+					documentVersions.set(normalizedPath, 0);
+					openDocuments.add(normalizedPath);
+					return;
+				}
 				const version = (documentVersions.get(normalizedPath) ?? 0) + 1;
 				documentVersions.set(normalizedPath, version);
 
@@ -573,6 +603,7 @@ export async function createLSPClient(options: {
 				clearTimeout(timer);
 			}
 			pendingDiagnostics.clear();
+			openDocuments.clear();
 
 			// Remove all diagnostic listeners (cancels any in-flight waitForDiagnostics)
 			diagnosticEmitter.removeAllListeners();

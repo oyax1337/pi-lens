@@ -12,6 +12,12 @@
  */
 
 import type { FileKind } from "../file-kinds.js";
+import type { DefectClass } from "./diagnostic-taxonomy.js";
+
+export interface ModifiedRange {
+	start: number;
+	end: number;
+}
 
 // --- API Interface ---
 
@@ -55,6 +61,8 @@ export interface Diagnostic {
 	tool: string;
 	/** Rule/category */
 	rule?: string;
+	/** Normalized defect class for overlap arbitration */
+	defectClass?: DefectClass;
 	/** Whether auto-fix is available */
 	fixable?: boolean;
 	/** Auto-fix command/suggestion */
@@ -72,6 +80,8 @@ export interface DispatchResult {
 	baselineWarningCount: number;
 	/** Issues that were auto-fixed */
 	fixed: Diagnostic[];
+	/** Count of previously-seen diagnostics that were resolved this run */
+	resolvedCount: number;
 	/** Formatted output for display */
 	output: string;
 	/** Whether any blockers were found */
@@ -128,6 +138,7 @@ export interface DispatchContext {
 	readonly baselines: BaselineStore;
 	/** Only run blocking rules (severity: error) - used for fast feedback on file write */
 	readonly blockingOnly?: boolean;
+	readonly modifiedRanges?: ModifiedRange[];
 
 	hasTool(command: string): Promise<boolean>;
 	log(message: string): void;
@@ -149,9 +160,6 @@ export interface RunnerGroup {
 }
 
 // --- Registry ---
-
-// Test edit - adding unused variable to check inline diagnostics flow
-const _unusedTestVariable = "checking pre-write and post-write flow";
 
 export interface RunnerRegistry {
 	register(runner: RunnerDefinition): void;

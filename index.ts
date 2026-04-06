@@ -2,10 +2,8 @@ import * as nodeFs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-// RELOADED: Testing format/lsp flow on large file
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { isToolCallEventType } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
 import { AgentBehaviorClient } from "./clients/agent-behavior-client.js";
 import { ArchitectClient } from "./clients/architect-client.js";
 import { AstGrepClient } from "./clients/ast-grep-client.js";
@@ -14,85 +12,35 @@ import { CacheManager } from "./clients/cache-manager.js";
 import { ComplexityClient } from "./clients/complexity-client.js";
 import { DependencyChecker } from "./clients/dependency-checker.js";
 import { getDiagnosticTracker } from "./clients/diagnostic-tracker.js";
-import { resetDispatchBaselines } from "./clients/dispatch/integration.js";
-import { extractFunctions } from "./clients/dispatch/runners/similarity.js";
-import { createFileTime, FileTimeError } from "./clients/file-time.js";
 import {
-	getFormatService,
-	resetFormatService,
-} from "./clients/format-service.js";
+	getLatencyReports,
+	resetDispatchBaselines,
+} from "./clients/dispatch/integration.js";
+import { extractFunctions } from "./clients/dispatch/runners/similarity.js";
+import { resetFormatService } from "./clients/format-service.js";
 import { GoClient } from "./clients/go-client.js";
 import { ensureTool } from "./clients/installer/index.js";
 import { JscpdClient } from "./clients/jscpd-client.js";
 import { KnipClient } from "./clients/knip-client.js";
-// RELOAD TEST 6: Cache verification run
-import { logLatency } from "./clients/latency-logger.js";
 import { getLSPService, resetLSPService } from "./clients/lsp/index.js";
 import { MetricsClient } from "./clients/metrics-client.js";
 import { captureSnapshot } from "./clients/metrics-history.js";
-import { runPipeline } from "./clients/pipeline.js";
-import {
-	buildProjectIndex,
-	findSimilarFunctions,
-	isIndexFresh,
-	loadIndex,
-	type ProjectIndex,
-	saveIndex,
-} from "./clients/project-index.js";
+import { findSimilarFunctions } from "./clients/project-index.js";
 import { RuffClient } from "./clients/ruff-client.js";
-import {
-	formatRulesForPrompt,
-	type RuleScanResult,
-	scanProjectRules,
-} from "./clients/rules-scanner.js";
+import { RuntimeCoordinator } from "./clients/runtime-coordinator.js";
+import { handleSessionStart } from "./clients/runtime-session.js";
+import { handleToolResult } from "./clients/runtime-tool-result.js";
+import { handleTurnEnd } from "./clients/runtime-turn.js";
+import { formatRulesForPrompt } from "./clients/rules-scanner.js";
 import { RustClient } from "./clients/rust-client.js";
-import { getSourceFiles } from "./clients/scan-utils.js";
-import { formatSessionSummary } from "./clients/session-summary.js";
-import { resolveStartupScanContext } from "./clients/startup-scan.js";
 import { TestRunnerClient } from "./clients/test-runner-client.js";
 import { TodoScanner } from "./clients/todo-scanner.js";
 import { TypeCoverageClient } from "./clients/type-coverage-client.js";
 import { TypeScriptClient } from "./clients/typescript-client.js";
 import { handleBooboo } from "./commands/booboo.js";
-
-/** Parse a diff to extract modified line ranges in the new file.
- * Handles pi's custom diff format:
- *   "   1 /**"          - unchanged line with line number
- *   "-  2 * old text"   - removed line
- *   "+  2 * new text"   - added line
- *   "     ..."          - skipped section
- */
-function parseDiffRanges(diff: string): { start: number; end: number }[] {
-	const changedLines: number[] = [];
-	for (const line of diff.split("\n")) {
-		// Match lines like "+  2 * new text" or "-  2 * old text"
-		const match = line.match(/^[+-]\s+(\d+)\s/);
-		if (match) {
-			changedLines.push(Number.parseInt(match[1], 10));
-		}
-	}
-
-	if (changedLines.length === 0) return [];
-
-	// Convert to ranges (merge adjacent lines)
-	const sorted = [...new Set(changedLines)].sort((a, b) => a - b);
-	const ranges: { start: number; end: number }[] = [];
-	let rangeStart = sorted[0];
-	let rangeEnd = sorted[0];
-
-	for (const line of sorted.slice(1)) {
-		if (line <= rangeEnd + 1) {
-			rangeEnd = line;
-		} else {
-			ranges.push({ start: rangeStart, end: rangeEnd });
-			rangeStart = line;
-			rangeEnd = line;
-		}
-	}
-	ranges.push({ start: rangeStart, end: rangeEnd });
-
-	return ranges;
-}
+import { createAstGrepReplaceTool } from "./tools/ast-grep-replace.js";
+import { createAstGrepSearchTool } from "./tools/ast-grep-search.js";
+import { createLspNavigationTool } from "./tools/lsp-navigation.js";
 
 const _getExtensionDir = () => {
 	if (typeof __dirname !== "undefined") {
@@ -115,13 +63,7 @@ function dbg(msg: string) {
 // --- State ---
 
 let _verbose = false;
-let projectRoot = process.cwd();
-
-// Error debt tracking: baseline at turn start
-let errorDebtBaseline: {
-	testsPassed: boolean;
-	buildPassed: boolean;
-} | null = null;
+const runtime = new RuntimeCoordinator();
 
 function log(msg: string) {
 	if (_verbose) console.error(`[pi-lens] ${msg}`);
@@ -314,6 +256,13 @@ export default function (pi: ExtensionAPI) {
 		default: false,
 	});
 
+	pi.registerFlag("lens-eslint-core", {
+		description:
+			"Use bundled ESLint core rules when project has no ESLint config (JS-only fallback)",
+		type: "boolean",
+		default: false,
+	});
+
 	// --- Commands ---
 
 	pi.registerCommand("lens-booboo", {
@@ -375,1301 +324,358 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// --- Tools ---
-
-	const LANGUAGES = [
-		"c",
-		"cpp",
-		"csharp",
-		"css",
-		"dart",
-		"elixir",
-		"go",
-		"haskell",
-		"html",
-		"java",
-		"javascript",
-		"json",
-		"kotlin",
-		"lua",
-		"php",
-		"python",
-		"ruby",
-		"rust",
-		"scala",
-		"sql",
-		"swift",
-		"tsx",
-		"typescript",
-		"yaml",
-	] as const;
-
-	pi.registerTool({
-		name: "ast_grep_search",
-		label: "AST Search",
+	pi.registerCommand("lens-health", {
 		description:
-			"Search code using AST-aware pattern matching. IMPORTANT: Use specific AST patterns, NOT text search.\n\n" +
-			"✅ GOOD patterns (single AST node):\n" +
-			"  - function $NAME() { $$$BODY }     (function declaration)\n" +
-			"  - fetchMetrics($ARGS)               (function call)\n" +
-			'  - import { $NAMES } from "$PATH"   (import statement)\n' +
-			"  - console.log($MSG)                  (method call)\n\n" +
-			"❌ BAD patterns (multiple nodes / raw text):\n" +
-			'  - it"test name"                    (missing parens - use it($TEST))\n' +
-			"  - console.log without args          (incomplete code)\n" +
-			"  - arbitrary text without code structure\n\n" +
-			"Always prefer specific patterns with context over bare identifiers. " +
-			"Use 'paths' to scope to specific files/folders. " +
-			"Use 'selector' to extract specific nodes (e.g., just the function name). " +
-			"Use 'context' to show surrounding lines.",
-		promptSnippet: "Use ast_grep_search for AST-aware code search",
-		parameters: Type.Object({
-			pattern: Type.String({
-				description: "AST pattern (use function/class/call context, not text)",
-			}),
-			lang: Type.Union(
-				LANGUAGES.map((l) => Type.Literal(l)),
-				{ description: "Target language" },
-			),
-			paths: Type.Optional(
-				Type.Array(Type.String(), {
-					description: "Specific files/folders to search",
-				}),
-			),
-			selector: Type.Optional(
-				Type.String({
-					description:
-						"Extract specific AST node kind (e.g., 'name', 'body', 'parameter'). Use with patterns like '$NAME($$$)' to extract just the name.",
-				}),
-			),
-			context: Type.Optional(
-				Type.Number({
-					description: "Show N lines before/after each match for context",
-				}),
-			),
-		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (!astGrepClient.isAvailable()) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: "ast-grep CLI not found. Install: npm i -D @ast-grep/cli",
-						},
-					],
-					isError: true,
-					details: {},
-				};
+			"Show pi-lens runtime health: pipeline crashes, slow runners, and last dispatch latency. Usage: /lens-health",
+		handler: async (_args, ctx) => {
+			const crashEntries = runtime.getCrashEntries().sort(
+				(a, b) => b[1] - a[1],
+			);
+			const totalCrashes = crashEntries.reduce((sum, [, count]) => sum + count, 0);
+
+			const reports = getLatencyReports();
+			const last = reports.length > 0 ? reports[reports.length - 1] : undefined;
+			const diagStats = getDiagnosticTracker().getStats();
+			const slowRunners = last
+				? [...last.runners]
+						.sort((a, b) => b.durationMs - a.durationMs)
+						.slice(0, 3)
+				: [];
+
+			const lines: string[] = [
+				"🩺 PI-LENS HEALTH",
+				"",
+				`Pipeline crashes (session): ${totalCrashes}`,
+				`Files affected: ${crashEntries.length}`,
+			];
+
+			if (crashEntries.length > 0) {
+				lines.push("", "Top crash files:");
+				for (const [file, count] of crashEntries.slice(0, 5)) {
+					lines.push(`  ${path.basename(file)}: ${count}`);
+				}
 			}
 
-			const { pattern, lang, paths, selector, context } = params as {
-				pattern: string;
-				lang: string;
-				paths?: string[];
-				selector?: string;
-				context?: number;
-			};
-			const searchPaths = paths?.length ? paths : [ctx.cwd || "."];
-			const result = await astGrepClient.search(pattern, lang, searchPaths, {
-				selector,
-				context,
+			if (last) {
+				lines.push(
+					"",
+					`Last dispatch: ${path.basename(last.filePath)} (${last.totalDurationMs}ms, ${last.totalDiagnostics} diagnostics)`,
+				);
+				if (slowRunners.length > 0) {
+					lines.push("Top runners (last dispatch):");
+					for (const runner of slowRunners) {
+						lines.push(
+							`  ${runner.runnerId}: ${runner.durationMs}ms (${runner.status})`,
+						);
+					}
+				}
+			} else {
+				lines.push("", "No dispatch latency reports yet.");
+			}
+
+			lines.push(
+				"",
+				`Diagnostics shown: ${diagStats.totalShown}`,
+				`Auto-fixed: ${diagStats.totalAutoFixed}`,
+				`Agent-fixed: ${diagStats.totalAgentFixed}`,
+				`Unresolved carryover: ${diagStats.totalUnresolved}`,
+			);
+
+			if (diagStats.repeatOffenders.length > 0) {
+				lines.push("Repeat offenders:");
+				for (const offender of diagStats.repeatOffenders.slice(0, 5)) {
+					lines.push(
+						`  ${path.basename(offender.filePath)}:${offender.line} ${offender.ruleId} (${offender.count}x)`,
+					);
+				}
+			}
+
+			if (diagStats.topViolations.length > 0) {
+				lines.push("Top noisy rules:");
+				for (const v of diagStats.topViolations.slice(0, 5)) {
+					lines.push(`  ${v.ruleId}: ${v.count}`);
+				}
+			}
+
+			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+
+	// --- Tools (extracted to tools/) ---
+	pi.registerTool(createAstGrepSearchTool(astGrepClient) as any);
+	pi.registerTool(createAstGrepReplaceTool(astGrepClient) as any);
+	pi.registerTool(createLspNavigationTool((name) => pi.getFlag(name)) as any);
+
+	// REMOVED: ~450 lines of inline tool definitions moved to tools/
+	// See tools/ast-grep-search.ts, tools/ast-grep-replace.ts, tools/lsp-navigation.ts
+
+// Runtime state is managed by RuntimeCoordinator.
+
+// Delta baselines: store pre-write diagnostics to diff against post-write
+const _astGrepBaselines = new Map<
+	string,
+	import("./clients/ast-grep-types.js").AstGrepDiagnostic[]
+>();
+const _biomeBaselines = new Map<
+	string,
+	import("./clients/biome-client.js").BiomeDiagnostic[]
+>();
+
+// Project rules scan result and per-turn state live in RuntimeCoordinator.
+
+// --- Register skills with pi ---
+pi.on("resources_discover", async (_event, _ctx) => {
+	// Get the extension directory (where this file is located)
+	const extensionDir = path.dirname(fileURLToPath(import.meta.url));
+	const skillsDir = path.join(extensionDir, "skills");
+
+	return {
+		skillPaths: [skillsDir],
+	};
+});
+
+// --- Events ---
+
+pi.on("session_start", async (_event, ctx) => {
+	try {
+		_verbose = !!pi.getFlag("lens-verbose");
+		dbg("session_start fired");
+
+		await handleSessionStart({
+			ctxCwd: ctx.cwd,
+			getFlag: (name: string) => pi.getFlag(name),
+			notify: (msg, level) => ctx.ui.notify(msg, level),
+			dbg,
+			log,
+			runtime,
+			metricsClient,
+			cacheManager,
+			todoScanner,
+			astGrepClient,
+			biomeClient,
+			ruffClient,
+			knipClient,
+			jscpdClient,
+			typeCoverageClient,
+			depChecker,
+			architectClient,
+			testRunnerClient,
+			goClient,
+			rustClient,
+			ensureTool,
+			cleanStaleTsBuildInfo,
+			resetDispatchBaselines,
+			resetLSPService,
+		});
+	} catch (sessionErr) {
+		dbg(`session_start crashed: ${sessionErr}`);
+		dbg(`session_start crash stack: ${(sessionErr as Error).stack}`);
+	}
+});
+
+pi.on("tool_call", async (event, _ctx) => {
+	const filePath =
+		isToolCallEventType("write", event) || isToolCallEventType("edit", event)
+			? (event.input as { path: string }).path
+			: undefined;
+
+	if (!filePath) return;
+
+	dbg(
+		`tool_call fired for: ${filePath} (exists: ${nodeFs.existsSync(filePath)})`,
+	);
+	if (!nodeFs.existsSync(filePath)) return;
+
+	// Record complexity baseline for historical tracking (booboo/tdi).
+	// Not shown inline — just captured for delta analysis.
+	if (
+		complexityClient.isSupportedFile(filePath) &&
+		!runtime.complexityBaselines.has(filePath)
+	) {
+		const baseline = complexityClient.analyzeFile(filePath);
+		if (baseline) {
+			runtime.complexityBaselines.set(filePath, baseline);
+			captureSnapshot(filePath, {
+				maintainabilityIndex: baseline.maintainabilityIndex,
+				cognitiveComplexity: baseline.cognitiveComplexity,
+				maxNestingDepth: baseline.maxNestingDepth,
+				linesOfCode: baseline.linesOfCode,
+				maxCyclomatic: baseline.maxCyclomaticComplexity,
+				entropy: baseline.codeEntropy,
 			});
-
-			if (result.error) {
-				return {
-					content: [{ type: "text", text: `Error: ${result.error}` }],
-					isError: true,
-					details: {},
-				};
-			}
-
-			const output = astGrepClient.formatMatches(result.matches);
-			return {
-				content: [{ type: "text", text: output }],
-				details: { matchCount: result.matches.length },
-			};
-		},
-	});
-
-	pi.registerTool({
-		name: "ast_grep_replace",
-		label: "AST Replace",
-		description:
-			"Replace code using AST-aware pattern matching. IMPORTANT: Use specific AST patterns, not text. Dry-run by default (use apply=true to apply).\n\n" +
-			"✅ GOOD patterns (single AST node):\n" +
-			"  - pattern='console.log($MSG)' rewrite='logger.info($MSG)'\n" +
-			"  - pattern='var $X' rewrite='let $X'\n" +
-			"  - pattern='function $NAME() { }' rewrite='' (delete)\n\n" +
-			"❌ BAD patterns (will error):\n" +
-			"  - Raw text without code structure\n" +
-			'  - Missing parentheses: use it($TEST) not it"text"\n' +
-			"  - Incomplete code fragments\n\n" +
-			"Always use 'paths' to scope to specific files/folders. Dry-run first to preview changes.",
-		promptSnippet: "Use ast_grep_replace for AST-aware find-and-replace",
-		parameters: Type.Object({
-			pattern: Type.String({
-				description: "AST pattern to match (be specific with context)",
-			}),
-			rewrite: Type.String({
-				description: "Replacement using meta-variables from pattern",
-			}),
-			lang: Type.Union(
-				LANGUAGES.map((l) => Type.Literal(l)),
-				{ description: "Target language" },
-			),
-			paths: Type.Optional(
-				Type.Array(Type.String(), { description: "Specific files/folders" }),
-			),
-			apply: Type.Optional(
-				Type.Boolean({ description: "Apply changes (default: false)" }),
-			),
-		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (!astGrepClient.isAvailable()) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: "ast-grep CLI not found. Install: npm i -D @ast-grep/cli",
-						},
-					],
-					isError: true,
-					details: {},
-				};
-			}
-
-			const { pattern, rewrite, lang, paths, apply } = params as {
-				pattern: string;
-				rewrite: string;
-				lang: string;
-				paths?: string[];
-				apply?: boolean;
-			};
-			const searchPaths = paths?.length ? paths : [ctx.cwd || "."];
-			const result = await astGrepClient.replace(
-				pattern,
-				rewrite,
-				lang,
-				searchPaths,
-				apply ?? false,
-			);
-
-			if (result.error) {
-				return {
-					content: [{ type: "text", text: `Error: ${result.error}` }],
-					isError: true,
-					details: {},
-				};
-			}
-
-			const isDryRun = !apply;
-			const output = astGrepClient.formatMatches(
-				result.matches,
-				isDryRun,
-				true, // showModeIndicator
-			);
-
-			return {
-				content: [{ type: "text", text: output }],
-				details: { matchCount: result.matches.length, applied: apply ?? false },
-			};
-		},
-	});
-
-	// --- LSP Navigation Tool (requires --lens-lsp) ---
-	// Exposes go-to-definition, find-references, hover, documentSymbol, workspaceSymbol, goToImplementation
-	pi.registerTool({
-		name: "lsp_navigation",
-		label: "LSP Navigate",
-		description:
-			"Navigate code using LSP (Language Server Protocol). Requires --lens-lsp flag.\n" +
-			"Operations:\n" +
-			"- definition: Jump to where a symbol is defined\n" +
-			"- references: Find all usages of a symbol\n" +
-			"- hover: Get type/doc info at a position\n" +
-			"- documentSymbol: List all symbols (functions/classes/vars) in a file\n" +
-			"- workspaceSymbol: Search symbols across the whole project\n" +
-			"- implementation: Jump to interface implementations\n" +
-			"- prepareCallHierarchy: Get callable item at position (for incoming/outgoing)\n" +
-			"- incomingCalls: Find all functions/methods that CALL this function\n" +
-			"- outgoingCalls: Find all functions/methods CALLED by this function\n\n" +
-			"Line and character are 1-based (as shown in editors).",
-		promptSnippet:
-			"Use lsp_navigation to find definitions, references, and hover info via LSP",
-		parameters: Type.Object({
-			operation: Type.Union(
-				[
-					Type.Literal("definition"),
-					Type.Literal("references"),
-					Type.Literal("hover"),
-					Type.Literal("documentSymbol"),
-					Type.Literal("workspaceSymbol"),
-					Type.Literal("implementation"),
-					Type.Literal("prepareCallHierarchy"),
-					Type.Literal("incomingCalls"),
-					Type.Literal("outgoingCalls"),
-				],
-				{ description: "LSP operation to perform" },
-			),
-			filePath: Type.String({
-				description: "Absolute or relative path to the file",
-			}),
-			line: Type.Optional(
-				Type.Number({
-					description:
-						"Line number (1-based). Required for definition/references/hover/implementation",
-				}),
-			),
-			character: Type.Optional(
-				Type.Number({
-					description:
-						"Character offset (1-based). Required for definition/references/hover/implementation",
-				}),
-			),
-			query: Type.Optional(
-				Type.String({
-					description: "Symbol name to search. Used by workspaceSymbol",
-				}),
-			),
-			callHierarchyItem: Type.Optional(
-				Type.Object(
-					{
-						name: Type.String(),
-						kind: Type.Number(),
-						uri: Type.String(),
-						range: Type.Object({
-							start: Type.Object({
-								line: Type.Number(),
-								character: Type.Number(),
-							}),
-							end: Type.Object({
-								line: Type.Number(),
-								character: Type.Number(),
-							}),
-						}),
-						selectionRange: Type.Object({
-							start: Type.Object({
-								line: Type.Number(),
-								character: Type.Number(),
-							}),
-							end: Type.Object({
-								line: Type.Number(),
-								character: Type.Number(),
-							}),
-						}),
-					},
-					{
-						description:
-							"Call hierarchy item. Required for incomingCalls/outgoingCalls",
-					},
-				),
-			),
-		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (!pi.getFlag("lens-lsp")) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: "lsp_navigation requires the --lens-lsp flag. Start pi with --lens-lsp to enable.",
-						},
-					],
-					isError: true,
-					details: {},
-				};
-			}
-
-			const {
-				operation,
-				filePath: rawPath,
-				line,
-				character,
-				query,
-			} = params as {
-				operation: string;
-				filePath: string;
-				line?: number;
-				character?: number;
-				query?: string;
-			};
-
-			const filePath = path.isAbsolute(rawPath)
-				? rawPath
-				: path.resolve(ctx.cwd || ".", rawPath);
-
-			const lspService = getLSPService();
-			const hasLSP = await lspService.hasLSP(filePath);
-			if (!hasLSP) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `No LSP server available for ${path.basename(filePath)}. Check that the language server is installed.`,
-						},
-					],
-					isError: true,
-					details: {},
-				};
-			}
-
-			// Ensure file is open in LSP before querying
-			let fileContent: string | undefined;
-			try {
-				fileContent = nodeFs.readFileSync(filePath, "utf-8");
-			} catch {
-				/* ignore */
-			}
-			if (fileContent) {
-				try {
-					await lspService.openFile(filePath, fileContent);
-				} catch {
-					/* LSP server may not be ready yet — proceed anyway */
-				}
-			}
-
-			// Convert 1-based editor coords to 0-based LSP coords
-			const lspLine = (line ?? 1) - 1;
-			const lspChar = (character ?? 1) - 1;
-
-			let result: unknown;
-			try {
-				switch (operation) {
-					case "definition":
-						result = await lspService.definition(filePath, lspLine, lspChar);
-						break;
-					case "references":
-						result = await lspService.references(filePath, lspLine, lspChar);
-						break;
-					case "hover":
-						result = await lspService.hover(filePath, lspLine, lspChar);
-						break;
-					case "documentSymbol":
-						result = await lspService.documentSymbol(filePath);
-						break;
-					case "workspaceSymbol":
-						result = await lspService.workspaceSymbol(query ?? "");
-						break;
-					case "implementation":
-						result = await lspService.implementation(
-							filePath,
-							lspLine,
-							lspChar,
-						);
-						break;
-					case "prepareCallHierarchy":
-						result = await lspService.prepareCallHierarchy(
-							filePath,
-							lspLine,
-							lspChar,
-						);
-						break;
-					case "incomingCalls":
-						if (!params.callHierarchyItem) {
-							return {
-								content: [
-									{
-										type: "text" as const,
-										text: "callHierarchyItem parameter required for incomingCalls",
-									},
-								],
-								isError: true,
-								details: {},
-							};
-						}
-						result = await lspService.incomingCalls(params.callHierarchyItem);
-						break;
-					case "outgoingCalls":
-						if (!params.callHierarchyItem) {
-							return {
-								content: [
-									{
-										type: "text" as const,
-										text: "callHierarchyItem parameter required for outgoingCalls",
-									},
-								],
-								isError: true,
-								details: {},
-							};
-						}
-						result = await lspService.outgoingCalls(params.callHierarchyItem);
-						break;
-					default:
-						result = [];
-				}
-			} catch (err) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `LSP error: ${err instanceof Error ? err.message : String(err)}`,
-						},
-					],
-					isError: true,
-					details: {},
-				};
-			}
-
-			const isEmpty = !result || (Array.isArray(result) && result.length === 0);
-			const output = isEmpty
-				? `No results for ${operation} at ${path.basename(filePath)}${line ? `:${line}:${character}` : ""}`
-				: JSON.stringify(result, null, 2);
-
-			return {
-				content: [{ type: "text" as const, text: output }],
-				details: {
-					operation,
-					resultCount: Array.isArray(result) ? result.length : result ? 1 : 0,
-				},
-			};
-		},
-	});
-
-	const cachedExports = new Map<string, string>(); // function name -> file path
-	let cachedProjectIndex: ProjectIndex | null = null; // similarity index for pre-write checks
-	// Last cascade snapshot from pipeline — updated each file write, flushed at turn_end.
-	// Storing only the last (not accumulating) because it reflects LSP state after the
-	// most recent edit — if agent fixed all cascade errors before their last write, this is empty.
-	let _lastCascadeOutput = "";
-	const complexityBaselines: Map<
-		string,
-		import("./clients/complexity-client.js").FileComplexity
-	> = new Map();
-
-	// Delta baselines: store pre-write diagnostics to diff against post-write
-	const _astGrepBaselines = new Map<
-		string,
-		import("./clients/ast-grep-types.js").AstGrepDiagnostic[]
-	>();
-	const _biomeBaselines = new Map<
-		string,
-		import("./clients/biome-client.js").BiomeDiagnostic[]
-	>();
-
-	// Track files already auto-fixed this turn to prevent fix loops
-	const fixedThisTurn = new Set<string>();
-
-	// Project rules scan result (from .claude/rules, .agents/rules, etc.)
-	let projectRulesScan: RuleScanResult = { rules: [], hasCustomRules: false };
-
-	// --- Register skills with pi ---
-	pi.on("resources_discover", async (_event, _ctx) => {
-		// Get the extension directory (where this file is located)
-		const extensionDir = path.dirname(fileURLToPath(import.meta.url));
-		const skillsDir = path.join(extensionDir, "skills");
-
-		return {
-			skillPaths: [skillsDir],
-		};
-	});
-
-	// --- Events ---
-
-	pi.on("session_start", async (_event, ctx) => {
-		try {
-			_verbose = !!pi.getFlag("lens-verbose");
-			dbg("session_start fired");
-
-			// Reset session state
-			metricsClient.reset();
-			complexityBaselines.clear();
-			resetDispatchBaselines();
-			cachedExports.clear();
-			cachedProjectIndex = null;
-
-			// Reset LSP service so the new session starts with fresh diagnostics.
-			// Without this, stale cascade errors from a previous session persist
-			// if the extension module stayed hot between reloads.
-			if (pi.getFlag("lens-lsp")) {
-				resetLSPService();
-				dbg("session_start: LSP service reset");
-			}
-
-			// Log available tools
-			const tools: string[] = [];
-			tools.push("TypeScript LSP"); // Always available
-			if (biomeClient.isAvailable()) tools.push("Biome");
-			if (astGrepClient.isAvailable()) tools.push("ast-grep");
-			if (ruffClient.isAvailable()) tools.push("Ruff");
-			if (knipClient.isAvailable()) tools.push("Knip");
-			if (depChecker.isAvailable()) tools.push("Madge");
-			if (jscpdClient.isAvailable()) tools.push("jscpd");
-			if (typeCoverageClient.isAvailable()) tools.push("type-coverage");
-
-			log(`Active tools: ${tools.join(", ")}`);
-			dbg(`session_start tools: ${tools.join(", ")}`);
-
-			// Clean up stale TypeScript build caches before LSP starts.
-			// tsconfig.tsbuildinfo caches the full file list from the last build.
-			// If files have been deleted since then, the LSP reads the stale list
-			// and reports phantom "Cannot find module" cascade errors for files
-			// the agent never touched.
-			if (pi.getFlag("lens-lsp")) {
-				const cleaned = cleanStaleTsBuildInfo(ctx.cwd ?? process.cwd());
-				if (cleaned.length > 0) {
-					ctx.ui.notify(
-						`🧹 Deleted stale TypeScript build cache (${cleaned.map((f) => path.basename(f)).join(", ")}) — phantom errors suppressed.`,
-						"info",
-					);
-					dbg(
-						`session_start: cleaned stale tsbuildinfo: ${cleaned.join(", ")}`,
-					);
-				}
-			}
-
-			// Pre-install TypeScript LSP if --lens-lsp flag is set (avoid delay on first use)
-			if (pi.getFlag("lens-lsp")) {
-				dbg("session_start: pre-installing TypeScript LSP...");
-				// Fire-and-forget: don't block session start, just warm up the cache
-				ensureTool("typescript-language-server")
-					.then((path) => {
-						if (path) {
-							dbg(`session_start: TypeScript LSP ready at ${path}`);
-						} else {
-							console.error("[lens] TypeScript LSP installation failed");
-						}
-					})
-					.catch((err) => {
-						console.error("[lens] TypeScript LSP pre-install error:", err);
-					});
-			}
-
-			const cwd = ctx.cwd ?? process.cwd();
-			const startupScan = resolveStartupScanContext(cwd);
-			const scanRoot = startupScan.projectRoot ?? cwd;
-			projectRoot = scanRoot; // Module-level for architect client
-			dbg(`session_start cwd: ${cwd}`);
-			dbg(
-				`session_start scan root: ${scanRoot} (warmCaches=${startupScan.canWarmCaches}${startupScan.reason ? `, reason=${startupScan.reason}` : ""})`,
-			);
-
-			// Pre-install prettier if the project uses it but it's not on PATH.
-			// Only installs once (ensureTool is a no-op if already present).
-			// Fire-and-forget so session start is not blocked.
-			{
-				const pkgPath = path.join(cwd, "package.json");
-				try {
-					const raw = await nodeFs.promises.readFile(pkgPath, "utf-8");
-					const pkg = JSON.parse(raw) as {
-						dependencies?: Record<string, string>;
-						devDependencies?: Record<string, string>;
-						prettier?: unknown;
-					};
-					const usesPrettier =
-						!!pkg.devDependencies?.prettier ||
-						!!pkg.dependencies?.prettier ||
-						pkg.prettier !== undefined;
-					if (usesPrettier) {
-						dbg("session_start: project uses prettier, ensuring install...");
-						ensureTool("prettier")
-							.then((p) => {
-								if (p) dbg(`session_start: prettier ready at ${p}`);
-								else dbg("session_start: prettier install failed silently");
-							})
-							.catch((err) =>
-								dbg(`session_start: prettier install error: ${err}`),
-							);
-					}
-				} catch {
-					// No package.json at cwd root — skip
-				}
-			}
-
-			// Load architect rules if present
-			const hasArchitectRules = architectClient.loadConfig(cwd);
-			if (hasArchitectRules) tools.push("Architect rules");
-
-			// Log test runner if detected
-			const detectedRunner = testRunnerClient.detectRunner(cwd);
-			if (detectedRunner) {
-				tools.push(`Test runner (${detectedRunner.runner})`);
-			}
-			if (goClient.isGoAvailable()) tools.push("Go (go vet)");
-			if (rustClient.isAvailable()) tools.push("Rust (cargo)");
-			log(`Active tools: ${tools.join(", ")}`);
-			dbg(`session_start tools: ${tools.join(", ")}`);
-
-			// --- Condensed skill guidance for efficient tool selection ---
-			// Full skills available at skills/ast-grep/SKILL.md and skills/lsp-navigation/SKILL.md
-			const condensedGuidance =
-				"## Code Tool Selection\n- Navigation (definitions, references): lsp_navigation\n- Pattern search (functions, imports): ast_grep_search\n- Text/TODOs: grep\n- Full guides: skills/ast-grep, skills/lsp-navigation";
-
-			const parts: string[] = [];
-
-			// --- Error ownership reminder ---
-			// Shown on every session start to encourage fixing existing errors
-			parts.push(
-				"📌 Remember: If you find ANY errors (test failures, compile errors, lint issues) in this codebase, fix them — even if you didn't cause them. Don't skip errors as 'not my fault'.",
-			);
-
-			// Add condensed skill guidance to system message
-			parts.push(condensedGuidance);
-
-			// Scan for project-specific rules (.claude/rules, .agents/rules, CLAUDE.md, etc.)
-			projectRulesScan = scanProjectRules(cwd);
-			if (projectRulesScan.hasCustomRules) {
-				const ruleCount = projectRulesScan.rules.length;
-				const sources = [
-					...new Set(projectRulesScan.rules.map((r) => r.source)),
-				];
-				dbg(
-					`session_start: found ${ruleCount} project rule(s) from ${sources.join(", ")}`,
-				);
-				parts.push(
-					`📋 Project rules found: ${ruleCount} file(s) in ${sources.join(", ")}. These apply alongside pi-lens defaults.`,
-				);
-			} else {
-				dbg("session_start: no project rules found");
-			}
-
-			const todoResult = todoScanner.scanDirectory(cwd);
-			dbg(
-				`session_start TODO scan: ${todoResult.items.length} items (baseline stored)`,
-			);
-			cacheManager.writeCache(
-				"todo-baseline",
-				{ items: todoResult.items },
-				cwd,
-			);
-
-			// Heavy startup scans — gated on project root + file count safety check
-			if (!startupScan.canWarmCaches) {
-				dbg(
-					`session_start: skipping heavy scans (${startupScan.reason ?? "unknown"})`,
-				);
-			} else {
-				// Dead code scan — use cache if fresh (cached for on-demand reporting)
-				if (await knipClient.ensureAvailable()) {
-					const cached = cacheManager.readCache<
-						ReturnType<KnipClient["analyze"]>
-					>("knip", cwd);
-					if (cached) {
-						dbg(
-							`session_start Knip: cache hit (${Math.round((Date.now() - new Date(cached.meta.timestamp).getTime()) / 1000)}s ago)`,
-						);
-					} else {
-						const startMs = Date.now();
-						const knipResult = knipClient.analyze(cwd);
-						cacheManager.writeCache("knip", knipResult, cwd, {
-							scanDurationMs: Date.now() - startMs,
-						});
-						dbg(`session_start Knip scan done`);
-					}
-				} else {
-					dbg(`session_start Knip: not available`);
-				}
-
-				// Duplicate code detection — use cache if fresh, auto-install if needed (cached for on-demand reporting)
-				if (await jscpdClient.ensureAvailable()) {
-					const cached = cacheManager.readCache<
-						ReturnType<JscpdClient["scan"]>
-					>("jscpd", cwd);
-					if (cached) {
-						dbg(`session_start jscpd: cache hit`);
-					} else {
-						const startMs = Date.now();
-						const jscpdResult = jscpdClient.scan(cwd);
-						cacheManager.writeCache("jscpd", jscpdResult, cwd, {
-							scanDurationMs: Date.now() - startMs,
-						});
-						dbg(`session_start jscpd scan done`);
-					}
-				} else {
-					dbg(`session_start jscpd: not available`);
-				}
-
-				// Type-coverage runs on-demand via /lens-booboo only (not at session_start)
-
-				// Scan for exported functions (cached for duplicate detection on write)
-				if (await astGrepClient.ensureAvailable()) {
-					const exports = await astGrepClient.scanExports(cwd, "typescript");
-					dbg(`session_start exports scan: ${exports.size} functions found`);
-					for (const [name, file] of exports) {
-						cachedExports.set(name, file);
-					}
-				}
-
-				// Build similarity index for pre-write structural duplicate detection.
-				try {
-					const existing = await loadIndex(scanRoot);
-					if (
-						existing &&
-						existing.entries.size > 0 &&
-						(await isIndexFresh(scanRoot))
-					) {
-						cachedProjectIndex = existing;
-						dbg(
-							`session_start: loaded fresh project index (${existing.entries.size} entries)`,
-						);
-					} else {
-						const sourceFiles = getSourceFiles(scanRoot, true);
-						const tsFiles = sourceFiles.filter(
-							(f) => f.endsWith(".ts") || f.endsWith(".tsx"),
-						);
-						if (tsFiles.length > 0 && tsFiles.length <= 500) {
-							cachedProjectIndex = await buildProjectIndex(scanRoot, tsFiles);
-							await saveIndex(cachedProjectIndex, scanRoot);
-							dbg(
-								`session_start: built project index (${cachedProjectIndex.entries.size} entries from ${tsFiles.length} files)`,
-							);
-						} else {
-							dbg(
-								`session_start: skipped project index (${tsFiles.length} files)`,
-							);
-						}
-					}
-				} catch (err) {
-					dbg(`session_start: project index build failed: ${err}`);
-				}
-			} // end canWarmCaches
-
-			dbg(
-				`session_start: scans complete (${parts.length} part(s)), cached for commands`,
-			);
-
-			// Output the assembled parts to user
-			if (parts.length > 0) {
-				for (const part of parts) {
-					ctx.ui.notify(part, "info");
-				}
-			}
-
-			// --- Error debt: check if tests ran since last session ---
-			// If files were modified in previous turn, run tests and check for regression
-			const errorDebtEnabled = pi.getFlag("error-debt");
-			const pendingDebt = cacheManager.readCache<{
-				pendingCheck: boolean;
-				baselineTestsPassed: boolean;
-			}>("errorDebt", cwd);
-
-			if (
-				errorDebtEnabled &&
-				detectedRunner &&
-				pendingDebt?.data?.pendingCheck
-			) {
-				dbg("session_start: running pending error debt check");
-				const testResult = testRunnerClient.runTestFile(
-					".",
-					cwd,
-					detectedRunner.runner,
-					detectedRunner.config,
-				);
-				const testsPassed = testResult.failed === 0 && !testResult.error;
-				const baselinePassed = pendingDebt.data.baselineTestsPassed;
-
-				// Regression detected!
-				if (baselinePassed && !testsPassed) {
-					const msg = `🔴 ERROR DEBT: Tests were passing but now failing (${testResult.failed} failure(s)). Fix before continuing.`;
-					dbg(`session_start ERROR DEBT: ${msg}`);
-					parts.push(msg);
-				}
-
-				// Update baseline
-				errorDebtBaseline = {
-					testsPassed: testsPassed,
-					buildPassed: true,
-				};
-			} else if (errorDebtEnabled && detectedRunner) {
-				// No pending check - establish fresh baseline
-				dbg("session_start: establishing fresh error debt baseline");
-				const testResult = testRunnerClient.runTestFile(
-					".",
-					cwd,
-					detectedRunner.runner,
-					detectedRunner.config,
-				);
-				const testsPassed = testResult.failed === 0 && !testResult.error;
-				errorDebtBaseline = {
-					testsPassed: testsPassed,
-					buildPassed: true,
-				};
-				dbg(
-					`session_start error debt baseline: testsPassed=${errorDebtBaseline.testsPassed}`,
-				);
-			}
-		} catch (sessionErr) {
-			dbg(`session_start crashed: ${sessionErr}`);
-			dbg(`session_start crash stack: ${(sessionErr as Error).stack}`);
 		}
-	});
+	}
 
-	pi.on("tool_call", async (event, _ctx) => {
-		const filePath =
-			isToolCallEventType("write", event) || isToolCallEventType("edit", event)
-				? (event.input as { path: string }).path
-				: undefined;
-
-		if (!filePath) return;
-
-		dbg(
-			`tool_call fired for: ${filePath} (exists: ${nodeFs.existsSync(filePath)})`,
-		);
-		if (!nodeFs.existsSync(filePath)) return;
-
-		// Record complexity baseline for historical tracking (booboo/tdi).
-		// Not shown inline — just captured for delta analysis.
-		if (
-			complexityClient.isSupportedFile(filePath) &&
-			!complexityBaselines.has(filePath)
-		) {
-			const baseline = complexityClient.analyzeFile(filePath);
-			if (baseline) {
-				complexityBaselines.set(filePath, baseline);
-				captureSnapshot(filePath, {
-					maintainabilityIndex: baseline.maintainabilityIndex,
-					cognitiveComplexity: baseline.cognitiveComplexity,
-					maxNestingDepth: baseline.maxNestingDepth,
-					linesOfCode: baseline.linesOfCode,
-					maxCyclomatic: baseline.maxCyclomaticComplexity,
-					entropy: baseline.codeEntropy,
-				});
-			}
-		}
-
-		// --- Pre-write duplicate detection ---
-		// Check if new content redefines functions that already exist elsewhere.
-		// Uses cachedExports (populated at session_start via ast-grep scan).
-		const isWriteOrEdit =
-			isToolCallEventType("write", event) || isToolCallEventType("edit", event);
-		if (isWriteOrEdit && cachedExports.size > 0) {
-			const newContent = isToolCallEventType("write", event)
-				? (event.input as { content?: string }).content
-				: (event.input as { edits?: Array<{ newText?: string }> }).edits
-						?.map((e) => e.newText ?? "")
-						.join("\n");
-			if (newContent) {
-				const dupeWarnings: string[] = [];
-				const exportRe =
-					/export\s+(?:async\s+)?(?:function|class|const|let|type|interface)\s+(\w+)/g;
-				let m: RegExpExecArray | null;
-				while ((m = exportRe.exec(newContent))) {
-					const name = m[1];
-					const existingFile = cachedExports.get(name);
-					if (
-						existingFile &&
-						path.resolve(existingFile) !== path.resolve(filePath)
-					) {
-						dupeWarnings.push(
-							`\`${name}\` already exists in ${path.relative(projectRoot, existingFile)}`,
-						);
-					}
-				}
-				if (dupeWarnings.length > 0) {
-					return {
-						block: true,
-						reason: `🔴 STOP — Redefining existing export(s). Import instead:\n${dupeWarnings.map((w) => `  • ${w}`).join("\n")}`,
-					};
-				}
-
-				// --- Structural similarity check (Phase 7b) ---
-				// If the project index was built at session_start, check new
-				// functions against it for structural clones (~50ms).
+	// --- Pre-write duplicate detection ---
+	// Check if new content redefines functions that already exist elsewhere.
+	// Uses cachedExports (populated at session_start via ast-grep scan).
+	const isWriteOrEdit =
+		isToolCallEventType("write", event) || isToolCallEventType("edit", event);
+	if (isWriteOrEdit && runtime.cachedExports.size > 0) {
+		const newContent = isToolCallEventType("write", event)
+			? (event.input as { content?: string }).content
+			: (event.input as { edits?: Array<{ newText?: string }> }).edits
+					?.map((e) => e.newText ?? "")
+					.join("\n");
+		if (newContent) {
+			const dupeWarnings: string[] = [];
+			const exportRe =
+				/export\s+(?:async\s+)?(?:function|class|const|let|type|interface)\s+(\w+)/g;
+			let m: RegExpExecArray | null;
+			while ((m = exportRe.exec(newContent))) {
+				const name = m[1];
+				const existingFile = runtime.cachedExports.get(name);
 				if (
-					cachedProjectIndex &&
-					cachedProjectIndex.entries.size > 0 &&
-					/\.(ts|tsx)$/.test(filePath)
+					existingFile &&
+					path.resolve(existingFile) !== path.resolve(filePath)
 				) {
-					try {
-						const ts = await import("typescript");
-						const sourceFile = ts.createSourceFile(
-							filePath,
-							newContent,
-							ts.ScriptTarget.Latest,
-							true,
-						);
-						const newFunctions = extractFunctions(sourceFile, newContent);
-						const simWarnings: string[] = [];
-						const relPath = path.relative(projectRoot, filePath);
+					dupeWarnings.push(
+						`\`${name}\` already exists in ${path.relative(runtime.projectRoot, existingFile)}`,
+					);
+				}
+			}
+			if (dupeWarnings.length > 0) {
+				return {
+					block: true,
+					reason: `🔴 STOP — Redefining existing export(s). Import instead:\n${dupeWarnings.map((w) => `  • ${w}`).join("\n")}`,
+				};
+			}
 
-						for (const func of newFunctions) {
-							if (func.transitionCount < 20) continue;
-							const matches = findSimilarFunctions(
-								func.matrix,
-								cachedProjectIndex,
-								0.8,
-								1,
+			// --- Structural similarity check (Phase 7b) ---
+			// If the project index was built at session_start, check new
+			// functions against it for structural clones (~50ms).
+			if (
+				runtime.cachedProjectIndex &&
+				runtime.cachedProjectIndex.entries.size > 0 &&
+				/\.(ts|tsx)$/.test(filePath)
+			) {
+				try {
+					const ts = await import("typescript");
+					const sourceFile = ts.createSourceFile(
+						filePath,
+						newContent,
+						ts.ScriptTarget.Latest,
+						true,
+					);
+					const newFunctions = extractFunctions(sourceFile, newContent);
+					const simWarnings: string[] = [];
+					const relPath = path.relative(runtime.projectRoot, filePath);
+
+					for (const func of newFunctions) {
+						if (func.transitionCount < 20) continue;
+						const matches = findSimilarFunctions(
+							func.matrix,
+							runtime.cachedProjectIndex,
+							0.8,
+							1,
+						);
+						for (const match of matches) {
+							// Skip self-matches
+							if (match.targetId === `${relPath}:${func.name}`) continue;
+							const pct = Math.round(match.similarity * 100);
+							simWarnings.push(
+								`\`${func.name}\` is ${pct}% similar to \`${match.targetName}\` in ${match.targetLocation}`,
 							);
-							for (const match of matches) {
-								// Skip self-matches
-								if (match.targetId === `${relPath}:${func.name}`) continue;
-								const pct = Math.round(match.similarity * 100);
-								simWarnings.push(
-									`\`${func.name}\` is ${pct}% similar to \`${match.targetName}\` in ${match.targetLocation}`,
-								);
-							}
 						}
-
-						if (simWarnings.length > 0) {
-							return {
-								block: false,
-								reason: `⚠️ Structural similarity detected — consider reusing existing code:\n${simWarnings.map((w) => `  • ${w}`).join("\n")}`,
-							};
-						}
-					} catch {
-						// Parsing failed — skip similarity check silently
 					}
+
+					if (simWarnings.length > 0) {
+						return {
+							block: false,
+							reason: `⚠️ Structural similarity detected — consider reusing existing code:\n${simWarnings.map((w) => `  • ${w}`).join("\n")}`,
+						};
+					}
+				} catch {
+					// Parsing failed — skip similarity check silently
 				}
 			}
 		}
+	}
+});
+
+// Real-time feedback on file writes/edits
+// biome-ignore lint/suspicious/noExplicitAny: pi.on overload mismatch for tool_result event type
+(pi as any).on("tool_result", async (event: any) => {
+	return handleToolResult({
+		event: event as any,
+		getFlag: (name: string) => pi.getFlag(name),
+		dbg,
+		runtime,
+		cacheManager,
+		biomeClient,
+		ruffClient,
+		testRunnerClient,
+		metricsClient,
+		resetLSPService,
+		agentBehaviorRecord: (toolName, filePath) =>
+			agentBehaviorClient.recordToolCall(toolName, filePath),
+		formatBehaviorWarnings: (warnings) =>
+			agentBehaviorClient.formatWarnings(warnings as any),
 	});
+});
+// --- Inject project rules into system prompt ---
+pi.on("before_agent_start", async (event) => {
+	if (!runtime.projectRulesScan.hasCustomRules) return;
 
-	// Real-time feedback on file writes/edits
-	pi.on("tool_result", async (event) => {
-		// Track tool call for behavior analysis (all tool types)
-		const filePath = (event.input as { path?: string }).path;
-		const behaviorWarnings = agentBehaviorClient.recordToolCall(
-			event.toolName,
-			filePath,
-		);
+	const rulesSection = formatRulesForPrompt(runtime.projectRulesScan);
+	return {
+		systemPrompt: `${event.systemPrompt}\n\n## Project Rules (from project files)\n\nThe following project-specific rule files exist. Read them with the \`read\` tool when relevant:\n\n${rulesSection}\n`,
+	};
+});
 
-		if (event.toolName !== "write" && event.toolName !== "edit") {
-			dbg(
-				`tool_result: skipped turn tracking - toolName="${event.toolName}" (not write/edit)`,
-			);
-			return;
-		}
-		if (!filePath) {
-			dbg(
-				`tool_result: skipped turn tracking - no filePath for toolName="${event.toolName}"`,
-			);
-			return;
-		}
+// --- Turn end: batch jscpd/madge on collected files, then clear state ---
+// Clear cascade snapshot at start of each new turn so stale data never leaks
+pi.on("turn_start", () => {
+	runtime.beginTurn();
+});
 
-		// --- FileTime assert: prevent stale writes (file modified since agent read it) ---
-		const sessionFileTime = createFileTime("default");
-		try {
-			sessionFileTime.assert(filePath);
-		} catch (err: unknown) {
-			if (err instanceof FileTimeError) {
-				// File was modified externally or never read - warn but don't block (for now)
-				// In strict mode this could block; currently we just surface the warning
-				const warning = `⚠️ FileTime warning: ${err.message}`;
-				dbg(warning);
-				// Don't return - let the operation proceed with warning
-			}
-		}
-		// Record this write so future assertions know the agent has the current state
-		sessionFileTime.read(filePath);
-		const toolResultStart = Date.now();
-		dbg(
-			`tool_result: tracking turn state for ${event.toolName} on ${filePath}`,
-		);
-
-		// --- Track modified ranges in turn state for async jscpd/madge at turn_end ---
-		const cwd = projectRoot;
-		try {
-			const details = event.details as { diff?: string } | undefined;
-			dbg(
-				`tool_result: details.diff=${details?.diff ? "present" : "missing"}, details keys: ${Object.keys(event.details || {}).join(", ")}`,
-			);
-			if (event.toolName === "edit" && details?.diff) {
-				const diff = details.diff;
-				dbg(
-					`tool_result: diff content (first 500 chars): ${diff.substring(0, 500)}`,
-				);
-				const ranges = parseDiffRanges(diff);
-				const importsChanged =
-					/import\s/.test(diff) || /from\s+['"]/.test(diff);
-				dbg(
-					`tool_result: parsed ${ranges.length} ranges, importsChanged=${importsChanged}`,
-				);
-				for (const range of ranges) {
-					dbg(
-						`tool_result: adding range ${range.start}-${range.end} for ${filePath}`,
-					);
-					cacheManager.addModifiedRange(filePath, range, importsChanged, cwd);
-				}
-				dbg(
-					`tool_result: turn state after add: ${JSON.stringify(cacheManager.readTurnState(cwd))}`,
-				);
-			} else if (event.toolName === "write" && nodeFs.existsSync(filePath)) {
-				const content = nodeFs.readFileSync(filePath, "utf-8");
-				const lineCount = content.split("\n").length;
-				const hasImports = /^import\s/m.test(content);
-				cacheManager.addModifiedRange(
-					filePath,
-					{ start: 1, end: lineCount },
-					hasImports,
-					cwd,
-				);
-			}
-		} catch (err) {
-			dbg(`turn state tracking error: ${err}`);
-			dbg(`turn state tracking error stack: ${(err as Error).stack}`);
-		}
-
-		const turnStateMs = Date.now() - toolResultStart;
-		logLatency({
-			type: "phase",
-			toolName: event.toolName,
-			filePath,
-			phase: "turn_state_tracking",
-			durationMs: turnStateMs,
+pi.on("turn_end", async (_event, ctx) => {
+	try {
+		await handleTurnEnd({
+			ctxCwd: ctx.cwd,
+			getFlag: (name: string) => pi.getFlag(name),
+			dbg,
+			runtime,
+			cacheManager,
+			jscpdClient,
+			depChecker,
+			resetLSPService,
+			resetFormatService,
 		});
-		dbg(`tool_result fired for: ${filePath} (turn_state: ${turnStateMs}ms)`);
+	} catch (turnEndErr) {
+		dbg(`turn_end crashed: ${turnEndErr}`);
+		dbg(`turn_end crash stack: ${(turnEndErr as Error).stack}`);
+	}
+});
 
-		let result: { output: string; isError?: boolean; cascadeOutput?: string };
-		try {
-			result = await runPipeline(
-				{
-					filePath,
-					cwd: projectRoot,
-					toolName: event.toolName,
-					getFlag: (name: string) => pi.getFlag(name),
-					dbg,
-				},
-				{
-					biomeClient,
-					ruffClient,
-					testRunnerClient,
-					metricsClient,
-					getFormatService,
-					fixedThisTurn,
-				},
-			);
-		} catch (pipelineErr) {
-			dbg(`runPipeline crashed: ${pipelineErr}`);
-			dbg(`runPipeline crash stack: ${(pipelineErr as Error).stack}`);
-			return;
-		}
-
-		// Capture cascade snapshot (replaces previous — last write in turn is most current)
-		if (result.cascadeOutput) {
-			_lastCascadeOutput = result.cascadeOutput;
-		} else if (result.cascadeOutput === undefined && pi.getFlag("lens-lsp")) {
-			// Pipeline ran with LSP active and found no cascade errors — clear stale snapshot
-			_lastCascadeOutput = "";
-		}
-
-		// Secrets found — block immediately
-		if (result.isError) {
-			return {
-				content: [
-					...event.content,
-					{ type: "text" as const, text: result.output },
-				],
-				isError: true,
-			};
-		}
-
-		// Append behavior warnings
-		let output = result.output;
-		if (behaviorWarnings.length > 0) {
-			output += `\n\n${agentBehaviorClient.formatWarnings(behaviorWarnings)}`;
-		}
-
-		const totalMs = Date.now() - toolResultStart;
-		logLatency({
-			type: "tool_result",
-			toolName: event.toolName,
-			filePath,
-			durationMs: totalMs,
-			result: output ? "completed" : "no_output",
-		});
-
-		if (!output) return;
-
+// --- Inject turn-end findings into next agent turn ---
+// jscpd, madge, and turn-end delta results are cached at turn_end and consumed here
+// via the context event, which fires before each provider request.
+// biome-ignore lint/suspicious/noExplicitAny: pi.on("context") overload has TS resolution bug
+(pi as any).on("context", async (_event: unknown, ctx: { cwd?: string }) => {
+	try {
+		const cwd = ctx.cwd ?? process.cwd();
+		const findings = cacheManager.readCache<{ content: string }>(
+			"turn-end-findings",
+			cwd,
+		);
+		if (!findings?.data?.content) return;
+		// Consume immediately — only inject once per turn
+		cacheManager.writeCache(
+			"turn-end-findings",
+			null as unknown as { content: string },
+			cwd,
+		);
 		return {
-			content: [...event.content, { type: "text" as const, text: output }],
+			messages: [
+				{
+					role: "user" as const,
+					content: `[pi-lens] End-of-turn findings:\n\n${findings.data.content}`,
+				},
+			],
 		};
-	});
-	// --- Inject project rules into system prompt ---
-	pi.on("before_agent_start", async (event) => {
-		if (!projectRulesScan.hasCustomRules) return;
-
-		const rulesSection = formatRulesForPrompt(projectRulesScan);
-		return {
-			systemPrompt: `${event.systemPrompt}\n\n## Project Rules (from project files)\n\nThe following project-specific rule files exist. Read them with the \`read\` tool when relevant:\n\n${rulesSection}\n`,
-		};
-	});
-
-	// --- Turn end: batch jscpd/madge on collected files, then clear state ---
-	// Clear cascade snapshot at start of each new turn so stale data never leaks
-	pi.on("turn_start", () => {
-		_lastCascadeOutput = "";
-	});
-
-	pi.on("turn_end", async (_event, ctx) => {
-		try {
-			const cwd = ctx.cwd ?? process.cwd();
-			const turnState = cacheManager.readTurnState(cwd);
-			const files = Object.keys(turnState.files);
-
-			if (files.length === 0) return;
-
-			dbg(
-				`turn_end: ${files.length} file(s) modified, cycles: ${turnState.turnCycles}/${turnState.maxCycles}`,
-			);
-
-			// Max cycles guard — force through after N turns with unresolved issues
-			if (cacheManager.isMaxCyclesExceeded(cwd)) {
-				dbg(
-					"turn_end: max cycles exceeded, clearing state and forcing through",
-				);
-				cacheManager.clearTurnState(cwd);
-				return;
-			}
-
-			const parts: string[] = [];
-
-			// Cascade diagnostics: deferred from per-write pipeline.
-			// Last snapshot = LSP state after the final edit of this turn.
-			// Empty means agent resolved all cascade errors during the turn.
-			if (_lastCascadeOutput) {
-				parts.push(_lastCascadeOutput);
-				_lastCascadeOutput = "";
-			}
-
-			// jscpd: scan modified files, filter results to modified line ranges
-			if (jscpdClient.isAvailable()) {
-				const jscpdFiles = cacheManager.getFilesForJscpd(cwd);
-				if (jscpdFiles.length > 0) {
-					dbg(`turn_end: jscpd scanning ${jscpdFiles.length} file(s)`);
-					// Use full scan then filter — jscpd doesn't support per-file scanning
-					const result = jscpdClient.scan(cwd);
-					// Filter clones to only those intersecting modified ranges
-					const jscpdFileSet = new Set(
-						jscpdFiles.map((f) => path.resolve(cwd, f)),
-					);
-					const filtered = result.clones.filter((clone) => {
-						const resolvedA = path.resolve(clone.fileA);
-						if (!jscpdFileSet.has(resolvedA)) return false;
-						const relA = path.relative(cwd, resolvedA).replace(/\\/g, "/");
-						const state = turnState.files[relA];
-						if (!state) return false;
-						return cacheManager.isLineInModifiedRange(
-							clone.startA,
-							state.modifiedRanges,
-						);
-					});
-					if (filtered.length > 0) {
-						let report = `🔴 New duplicates in modified code:\n`;
-						for (const clone of filtered.slice(0, 5)) {
-							report += `  ${path.basename(clone.fileA)}:${clone.startA} ↔ ${path.basename(clone.fileB)}:${clone.startB} (${clone.lines} lines)\n`;
-						}
-						parts.push(report);
-					}
-					cacheManager.writeCache("jscpd", result, cwd);
-				}
-			}
-
-			// madge: only check files where imports changed
-			if (await depChecker.ensureAvailable()) {
-				const madgeFiles = cacheManager.getFilesForMadge(cwd);
-				if (madgeFiles.length > 0) {
-					dbg(
-						`turn_end: madge checking ${madgeFiles.length} file(s) for circular deps`,
-					);
-					for (const file of madgeFiles) {
-						const absPath = path.resolve(cwd, file);
-						const depResult = depChecker.checkFile(absPath);
-						if (depResult.hasCircular && depResult.circular.length > 0) {
-							const circularDeps = depResult.circular
-								.flatMap((d) => d.path)
-								.filter((p: string) => !absPath.endsWith(path.basename(p)));
-							const uniqueDeps = [...new Set(circularDeps)];
-							if (uniqueDeps.length > 0) {
-								parts.push(
-									`🟡 Circular dependency in ${file}: imports ${uniqueDeps.join(", ")}`,
-								);
-							}
-						}
-					}
-				}
-			}
-
-			// Increment turn cycle and persist
-			cacheManager.incrementTurnCycle(cwd);
-
-			if (parts.length > 0) {
-				dbg(
-					`turn_end: ${parts.length} issue(s) found, persisting for next context`,
-				);
-				// Persist findings so the context event can inject them into the
-				// next agent turn's messages. Cleared once consumed.
-				cacheManager.writeCache(
-					"turn-end-findings",
-					{ content: parts.join("\n\n") },
-					cwd,
-				);
-			} else {
-				// No issues — clear state for next batch of edits
-				cacheManager.clearTurnState(cwd);
-			}
-
-			// --- Error debt: trigger background test run for next session ---
-			// We don't wait - just set a flag that tests should run at next session_start
-			// This way tests run async (session_start is when agent is idle)
-			if (errorDebtBaseline && files.length > 0) {
-				dbg("turn_end: marking error debt check for next session");
-				// Write a marker file - next session_start will pick this up
-				cacheManager.writeCache(
-					"errorDebt",
-					{
-						pendingCheck: true,
-						baselineTestsPassed: errorDebtBaseline.testsPassed,
-					},
-					cwd,
-				);
-			}
-
-			// --- Diagnostic session summary ---
-			const tracker = getDiagnosticTracker();
-			const stats = tracker.getStats();
-			if (stats.totalShown > 0) {
-				const summary = formatSessionSummary(stats);
-				if (summary) {
-					parts.push(summary);
-					dbg(
-						`turn_end: diagnostic summary added (${stats.totalShown} shown, ${stats.totalAutoFixed} auto-fixed, ${stats.totalAgentFixed} agent-fixed)`,
-					);
-				}
-			}
-
-			// Clear fixed tracking so files can be fixed again on next turn
-			fixedThisTurn.clear();
-
-			// --- LSP cleanup on turn end (Phase 3) ---
-			// Only shutdown if no files are being actively edited
-			if (pi.getFlag("lens-lsp") && files.length === 0) {
-				resetLSPService();
-			}
-
-			// --- Format service cleanup ---
-			resetFormatService();
-		} catch (turnEndErr) {
-			dbg(`turn_end crashed: ${turnEndErr}`);
-			dbg(`turn_end crash stack: ${(turnEndErr as Error).stack}`);
-		}
-	});
-
-	// --- Inject turn-end findings into next agent turn ---
-	// jscpd, madge, and turn-end delta results are cached at turn_end and consumed here
-	// via the context event, which fires before each provider request.
-	// biome-ignore lint/suspicious/noExplicitAny: pi.on("context") overload has TS resolution bug
-	(pi as any).on("context", async (_event: unknown, ctx: { cwd?: string }) => {
-		try {
-			const cwd = ctx.cwd ?? process.cwd();
-			const findings = cacheManager.readCache<{ content: string }>(
-				"turn-end-findings",
-				cwd,
-			);
-			if (!findings?.data?.content) return;
-			// Consume immediately — only inject once per turn
-			cacheManager.writeCache(
-				"turn-end-findings",
-				null as unknown as { content: string },
-				cwd,
-			);
-			return {
-				messages: [
-					{
-						role: "user" as const,
-						content: `[pi-lens] End-of-turn findings:\n\n${findings.data.content}`,
-					},
-				],
-			};
-		} catch (err) {
-			dbg(`context event error: ${err}`);
-		}
-	});
+	} catch (err) {
+		dbg(`context event error: ${err}`);
+	}
+});
 }

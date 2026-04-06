@@ -9,6 +9,7 @@
 
 import { getLSPService } from "../../lsp/index.js";
 import { TypeScriptClient } from "../../typescript-client.js";
+import { resolveRunnerPath } from "../runner-context.js";
 import type {
 	Diagnostic,
 	DispatchContext,
@@ -29,10 +30,14 @@ const tsLspRunner: RunnerDefinition = {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
-		// When --lens-lsp is active, the `lsp` runner (priority 4) already
-		// handles TypeScript via the LSP service. Skip to avoid duplicate work.
+		// When --lens-lsp is active, prefer the unified lsp runner.
+		// But if LSP service isn't actually available for this file, keep ts fallback.
 		if (ctx.pi.getFlag("lens-lsp")) {
-			return { status: "skipped", diagnostics: [], semantic: "none" };
+			const lspService = getLSPService();
+			const hasLSP = await lspService.hasLSP(ctx.filePath);
+			if (hasLSP) {
+				return { status: "skipped", diagnostics: [], semantic: "none" };
+			}
 		}
 
 		// DEPRECATED: Fall back to built-in TypeScriptClient
@@ -45,6 +50,7 @@ const tsLspRunner: RunnerDefinition = {
  * Run with new LSP client (Phase 3)
  */
 async function runWithLSPClient(ctx: DispatchContext): Promise<RunnerResult> {
+	const diagnosticPath = resolveRunnerPath(ctx.cwd, ctx.filePath);
 	const lspService = getLSPService();
 
 	// Check if we have LSP available for this file
@@ -72,7 +78,7 @@ async function runWithLSPClient(ctx: DispatchContext): Promise<RunnerResult> {
 		.map((d) => ({
 			id: `ts-lsp:${d.code ?? "unknown"}:${d.range.start.line}`,
 			message: d.message,
-			filePath: ctx.filePath,
+			filePath: diagnosticPath,
 			line: d.range.start.line + 1,
 			column: d.range.start.character + 1,
 			severity:
@@ -96,6 +102,7 @@ async function runWithLSPClient(ctx: DispatchContext): Promise<RunnerResult> {
 async function runWithBuiltinClient(
 	ctx: DispatchContext,
 ): Promise<RunnerResult> {
+	const diagnosticPath = resolveRunnerPath(ctx.cwd, ctx.filePath);
 	const tsClient = new TypeScriptClient();
 
 	const content = readFileContent(ctx.filePath);
@@ -136,7 +143,7 @@ async function runWithBuiltinClient(
 			message: fixDescription
 				? `${d.message} [💡 ${fixDescription}]`
 				: d.message,
-			filePath: ctx.filePath,
+			filePath: diagnosticPath,
 			line: line + 1,
 			column: character + 1,
 			severity,
