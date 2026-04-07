@@ -2,6 +2,15 @@
 
 All notable changes to pi-lens will be documented in this file.
 
+## [3.8.17] - 2026-04-07
+
+### Changed
+- **Delta-only unused variable blocking** — diagnostics matching unused-value patterns are now promoted to blocking only when they are newly introduced in delta mode.
+- **Unused diagnostic heuristics** — improved detection covers TypeScript unused codes/messages and `no-unused*` rule identifiers, while preserving non-blocking behavior for pre-existing baseline debt.
+
+### Tests
+- Added dispatch flow coverage for delta-mode unused-value promotion in `tests/clients/dispatch/dispatcher-flow.test.ts`.
+
 ## [3.8.16] - 2026-04-07
 
 ### Changed

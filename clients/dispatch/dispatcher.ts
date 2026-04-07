@@ -268,6 +268,38 @@ function suppressLintOverlapsWithLsp(diagnostics: Diagnostic[]): Diagnostic[] {
 	});
 }
 
+function isUnusedValueDiagnostic(d: Diagnostic): boolean {
+	const raw = `${d.id ?? ""} ${d.rule ?? ""} ${d.message ?? ""}`.toLowerCase();
+	if (raw.includes("no-unused")) return true;
+	if (/\b(6133|6192|6196)\b/.test(raw)) return true;
+
+	const rule = String(d.rule ?? "").toLowerCase();
+	if (rule.includes("unused")) return true;
+
+	const message = d.message.toLowerCase();
+	return (
+		message.includes("is declared but its value is never read") ||
+		message.includes("is assigned a value but never used") ||
+		message.includes("declared but never used") ||
+		message.includes("unused")
+	);
+}
+
+function promoteDeltaUnusedToBlockers(diagnostics: Diagnostic[]): Diagnostic[] {
+	return diagnostics.map((d) => {
+		if (!isUnusedValueDiagnostic(d)) return d;
+		if (d.semantic === "blocking" || d.severity === "error") return d;
+		return {
+			...d,
+			severity: "error",
+			semantic: "blocking",
+			fixSuggestion:
+				d.fixSuggestion ??
+				"Remove the unused declaration or rename with '_' prefix if intentionally unused.",
+		};
+	});
+}
+
 // --- Latency Logger ---
 
 export interface RunnerLatency {
@@ -556,7 +588,7 @@ export async function dispatchForFile(
 	let resolvedCount = 0;
 	if (ctx.deltaMode && previousBaseline) {
 		const filtered = filterDelta(visibleDiagnostics, previousBaseline, (d) => d.id);
-		visibleDiagnostics = filtered.new;
+		visibleDiagnostics = promoteDeltaUnusedToBlockers(filtered.new);
 		resolvedCount = filtered.fixed.length;
 	}
 

@@ -454,6 +454,48 @@ describe("Dispatch Flow", () => {
 			// All issues reported (no filtering)
 			expect(result.diagnostics).toHaveLength(1);
 		});
+
+		it("promotes new unused-value diagnostics to blockers in delta mode", async () => {
+			const baselines = createBaselineStore();
+			baselines.set("test.ts", []);
+
+			registerRunner(
+				createMockRunner({
+					id: "reporter",
+					appliesTo: ["jsts"],
+					runResult: {
+						status: "succeeded",
+						diagnostics: [
+							{
+								id: "new-unused",
+								message: "'x' is declared but its value is never read.",
+								filePath: "test.ts",
+								severity: "warning",
+								semantic: "warning",
+								tool: "lsp",
+								code: "6133",
+							},
+						],
+						semantic: "warning",
+					},
+				}),
+			);
+
+			const ctx = createDispatchContext(
+				"test.ts",
+				"/project",
+				{ getFlag: () => false },
+				baselines,
+			);
+			const groups: RunnerGroup[] = [{ mode: "all", runnerIds: ["reporter"] }];
+
+			const result = await dispatchForFile(ctx, groups);
+
+			expect(result.diagnostics).toHaveLength(1);
+			expect(result.diagnostics[0].semantic).toBe("blocking");
+			expect(result.diagnostics[0].severity).toBe("error");
+			expect(result.hasBlockers).toBe(true);
+		});
 	});
 
 	describe("Conditional Runners (when)", () => {
