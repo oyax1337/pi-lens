@@ -220,6 +220,43 @@ function dedupeOverlappingDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
 	return [...byKey.values()];
 }
 
+function suppressLintOverlapsWithLsp(diagnostics: Diagnostic[]): Diagnostic[] {
+	const lspByLine = new Set<string>();
+	const isLintTool = (tool: string): boolean => {
+		const t = tool.toLowerCase();
+		return (
+			t === "eslint" ||
+			t.includes("biome") ||
+			t === "ruff-lint" ||
+			t === "oxlint" ||
+			t === "rubocop" ||
+			t === "go-vet" ||
+			t === "golangci-lint" ||
+			t === "rust-clippy" ||
+			t === "shellcheck" ||
+			t === "type-safety"
+		);
+	};
+
+	for (const d of diagnostics) {
+		if (d.tool !== "lsp" && d.tool !== "ts-lsp") continue;
+		const line = d.line ?? 1;
+		lspByLine.add(`${d.filePath}:${line}`);
+	}
+
+	if (lspByLine.size === 0) return diagnostics;
+
+	return diagnostics.filter((d) => {
+		if (d.tool === "lsp" || d.tool === "ts-lsp") return true;
+		if (!isLintTool(d.tool)) return true;
+		if (d.semantic === "blocking" || d.severity === "error") return true;
+
+		const line = d.line ?? 1;
+		const key = `${d.filePath}:${line}`;
+		return !lspByLine.has(key);
+	});
+}
+
 // --- Latency Logger ---
 
 export interface RunnerLatency {
@@ -503,7 +540,8 @@ export async function dispatchForFile(
 	// Apply delta mode ONCE across the full diagnostic set.
 	// This avoids partial-baseline corruption when processing multiple groups.
 	const dedupedDiagnostics = dedupeOverlappingDiagnostics(allDiagnostics);
-	let visibleDiagnostics = dedupedDiagnostics;
+	const overlapSuppressed = suppressLintOverlapsWithLsp(dedupedDiagnostics);
+	let visibleDiagnostics = overlapSuppressed;
 	let resolvedCount = 0;
 	if (ctx.deltaMode && previousBaseline) {
 		const filtered = filterDelta(visibleDiagnostics, previousBaseline, (d) => d.id);

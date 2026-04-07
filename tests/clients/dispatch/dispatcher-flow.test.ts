@@ -177,6 +177,68 @@ describe("Dispatch Flow", () => {
 			expect(result.hasBlockers).toBe(true);
 		});
 
+		it("suppresses overlapping non-blocking lint warnings when LSP reports same span/class", async () => {
+			registerRunner({
+				id: "lsp",
+				appliesTo: ["jsts"],
+				priority: 4,
+				enabledByDefault: true,
+				async run() {
+					return {
+						status: "succeeded",
+						diagnostics: [
+							{
+								id: "lsp-dup-1",
+								message: "Unused variable",
+								filePath: "test.ts",
+								line: 12,
+								severity: "warning",
+								semantic: "warning",
+								tool: "lsp",
+								defectClass: "unused-value",
+							},
+						],
+						semantic: "warning",
+					};
+				},
+			});
+
+			registerRunner({
+				id: "eslint",
+				appliesTo: ["jsts"],
+				priority: 12,
+				enabledByDefault: true,
+				async run() {
+					return {
+						status: "succeeded",
+						diagnostics: [
+							{
+								id: "eslint-dup-1",
+								message: "no-unused-vars: Unused variable",
+								filePath: "test.ts",
+								line: 12,
+								severity: "warning",
+								semantic: "warning",
+								tool: "eslint",
+								defectClass: "unused-value",
+							},
+						],
+						semantic: "warning",
+					};
+				},
+			});
+
+			const ctx = createMockContext("test.ts");
+			const groups: RunnerGroup[] = [
+				{ mode: "all", runnerIds: ["lsp", "eslint"] },
+			];
+
+			const result = await dispatchForFile(ctx, groups);
+
+			expect(result.diagnostics).toHaveLength(1);
+			expect(result.diagnostics[0].tool).toBe("lsp");
+		});
+
 		it("should skip unregistered runners gracefully", async () => {
 			registerRunner(createCleanRunner("registered"));
 
