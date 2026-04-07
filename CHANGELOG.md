@@ -13,6 +13,9 @@ All notable changes to pi-lens will be documented in this file.
 - **`--no-lsp` consistency** — LSP sync/reset/navigation and runner gating now respect `--no-lsp` consistently, so fallback behavior is predictable.
 - **LSP/lint overlap noise** — non-blocking lint diagnostics overlapping with LSP on the same file/line are suppressed to keep inline output focused.
 - **turn_end actionability** — blocker summaries for jscpd/knip now include direct file hints to reduce path-guessing loops.
+- **Architect invalid regex resilience** — malformed `must_not.pattern` expressions in `architect.yaml` are now logged and skipped instead of throwing during checks.
+- **Architect runner path/cache stability** — cwd cache keys are now normalized and relative paths use `path.relative(...)`, preventing stale cache misses and Windows path edge cases.
+- **`/lens-booboo` target-root consistency** — architectural checks now always reload config for the requested target path so scans don’t drift to a previous working directory.
 
 ## [3.8.9] - 2026-04-07
 
