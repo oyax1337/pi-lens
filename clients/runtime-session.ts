@@ -20,6 +20,7 @@ import { scanProjectRules } from "./rules-scanner.js";
 import type { RuffClient } from "./ruff-client.js";
 import type { RuntimeCoordinator } from "./runtime-coordinator.js";
 import type { RustClient } from "./rust-client.js";
+import { getKnipIgnorePatterns } from "./file-utils.js";
 import { getSourceFiles } from "./scan-utils.js";
 import { resolveStartupScanContext } from "./startup-scan.js";
 import type { TestRunnerClient } from "./test-runner-client.js";
@@ -228,7 +229,10 @@ export async function handleSessionStart(deps: SessionStartDeps): Promise<void> 
 				);
 			} else {
 				const startMs = Date.now();
-				const knipResult = knipClient.analyze(analysisRoot);
+				const knipResult = knipClient.analyze(
+					analysisRoot,
+					getKnipIgnorePatterns(),
+				);
 				cacheManager.writeCache("knip", knipResult, analysisRoot, {
 					scanDurationMs: Date.now() - startMs,
 				});

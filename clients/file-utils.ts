@@ -41,6 +41,27 @@ export function getExcludedDirGlobs(): string[] {
 }
 
 /**
+ * Shared Knip ignore patterns derived from central exclusions.
+ */
+export function getKnipIgnorePatterns(): string[] {
+	return [
+		...getExcludedDirGlobs(),
+		"**/*.test.ts",
+		"**/*.test.tsx",
+		"**/*.test.js",
+		"**/*.test.jsx",
+		"**/*.spec.ts",
+		"**/*.spec.tsx",
+		"**/*.spec.js",
+		"**/*.spec.jsx",
+		"**/*.poc.test.ts",
+		"**/*.poc.test.tsx",
+		"**/__tests__/**",
+		"**/tests/**",
+	];
+}
+
+/**
  * Check if file path is a test/fixture/mock file.
  * Used by secrets scanner, rate command, and dispatch runners
  * to skip these files (false positives on fake credentials, etc).

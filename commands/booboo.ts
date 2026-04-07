@@ -8,7 +8,11 @@ import type { ArchitectClient } from "../clients/architect-client.js";
 import type { AstGrepClient } from "../clients/ast-grep-client.js";
 import type { ComplexityClient } from "../clients/complexity-client.js";
 import type { DependencyChecker } from "../clients/dependency-checker.js";
-import { EXCLUDED_DIRS, isTestFile } from "../clients/file-utils.js";
+import {
+	EXCLUDED_DIRS,
+	getKnipIgnorePatterns,
+	isTestFile,
+} from "../clients/file-utils.js";
 import type { JscpdClient } from "../clients/jscpd-client.js";
 import type { KnipClient } from "../clients/knip-client.js";
 import { validateProductionReadiness } from "../clients/production-readiness.js";
@@ -791,23 +795,11 @@ export async function handleBooboo(
 
 	// Runner 6: Dead code
 	await tracker.run("dead code (Knip)", async () => {
-		if (!clients.knip.isAvailable()) {
+		if (!(await clients.knip.ensureAvailable())) {
 			return { findings: 0, status: "skipped" };
 		}
 
-		// Exclude test files from Knip analysis
-		const knipResult = clients.knip.analyze(targetPath, [
-			"**/*.test.ts",
-			"**/*.test.tsx",
-			"**/*.test.js",
-			"**/*.spec.ts",
-			"**/*.spec.tsx",
-			"**/*.spec.js",
-			"**/*.poc.test.ts",
-			"**/*.poc.test.tsx",
-			"**/__tests__/**",
-			"**/tests/**",
-		]);
+		const knipResult = clients.knip.analyze(targetPath, getKnipIgnorePatterns());
 
 		// Filter out test file issues as additional safeguard
 		const filteredIssues = knipResult.issues.filter(

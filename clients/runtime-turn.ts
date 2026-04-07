@@ -5,6 +5,8 @@ import { resolveRunnerPath, toRunnerDisplayPath } from "./dispatch/runner-contex
 import type { CacheManager } from "./cache-manager.js";
 import type { DependencyChecker } from "./dependency-checker.js";
 import type { JscpdClient } from "./jscpd-client.js";
+import type { KnipClient, KnipIssue } from "./knip-client.js";
+import { getKnipIgnorePatterns } from "./file-utils.js";
 import type { RuntimeCoordinator } from "./runtime-coordinator.js";
 
 interface TurnEndDeps {
@@ -14,6 +16,7 @@ interface TurnEndDeps {
 	runtime: RuntimeCoordinator;
 	cacheManager: CacheManager;
 	jscpdClient: JscpdClient;
+	knipClient: KnipClient;
 	depChecker: DependencyChecker;
 	resetLSPService: () => void;
 	resetFormatService: () => void;
@@ -43,6 +46,7 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 		runtime,
 		cacheManager,
 		jscpdClient,
+		knipClient,
 		depChecker,
 		resetLSPService,
 		resetFormatService,
@@ -118,6 +122,43 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 				blockerParts.push(report);
 			}
 			cacheManager.writeCache("jscpd", result, cwd);
+		}
+	}
+
+	if (await knipClient.ensureAvailable()) {
+		const knipResult = knipClient.analyze(cwd, getKnipIgnorePatterns());
+		const prevKnip = cacheManager.readCache<ReturnType<KnipClient["analyze"]>>(
+			"knip",
+			cwd,
+		);
+		cacheManager.writeCache("knip", knipResult, cwd);
+
+		if (knipResult.success && knipResult.issues.length > 0) {
+			const issueKey = (i: KnipIssue) =>
+				`${i.type}:${i.file ?? ""}:${i.name}:${i.line ?? 0}:${i.package ?? ""}`;
+			const prevKeys = new Set((prevKnip?.data?.issues ?? []).map(issueKey));
+			const modifiedSet = new Set(files.map((f) => resolveRunnerPath(cwd, f)));
+
+			const newIssues = knipResult.issues.filter((issue) => {
+				if (prevKeys.has(issueKey(issue))) return false;
+				if (!issue.file) return false;
+				const abs = resolveRunnerPath(cwd, issue.file);
+				return modifiedSet.has(abs);
+			});
+
+			const blockerIssues = newIssues.filter(
+				(i) => i.type === "unlisted" || i.type === "bin",
+			);
+			if (blockerIssues.length > 0) {
+				let report = "🔴 New unresolved imports/deps in modified code (Knip):\n";
+				for (const issue of blockerIssues.slice(0, 5)) {
+					const display = issue.file
+						? toRunnerDisplayPath(cwd, issue.file)
+						: "(unknown)";
+					report += `  ${display}${issue.line ? `:${issue.line}` : ""} — ${issue.type}: ${issue.name}\n`;
+				}
+				blockerParts.push(report);
+			}
 		}
 	}
 

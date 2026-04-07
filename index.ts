@@ -690,6 +690,7 @@ pi.on("turn_end", async (_event, ctx) => {
 			runtime,
 			cacheManager,
 			jscpdClient,
+			knipClient,
 			depChecker,
 			resetLSPService,
 			resetFormatService,

@@ -9,6 +9,7 @@
  * Docs: https://knip.dev/
  */
 
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { safeSpawn } from "./safe-spawn.js";
 
@@ -42,6 +43,25 @@ export class KnipClient {
 		this.log = verbose
 			? (msg: string) => console.error(`[knip] ${msg}`)
 			: () => {};
+	}
+
+	private resolveProjectRoot(startDir: string): string {
+		let current = path.resolve(startDir);
+		while (true) {
+			const markers = [
+				"package.json",
+				"knip.json",
+				"knip.ts",
+				"knip.config.js",
+				"knip.config.ts",
+			];
+			if (markers.some((m) => fs.existsSync(path.join(current, m)))) {
+				return current;
+			}
+			const parent = path.dirname(current);
+			if (parent === current) return path.resolve(startDir);
+			current = parent;
+		}
 	}
 
 	/**
@@ -111,7 +131,7 @@ export class KnipClient {
 			};
 		}
 
-		const targetDir = cwd || process.cwd();
+		const targetDir = this.resolveProjectRoot(cwd || process.cwd());
 
 		try {
 			const args = [
@@ -166,7 +186,7 @@ export class KnipClient {
 	 * Find unused exports in a specific file
 	 */
 	findUnusedExports(filePath: string): string[] {
-		const result = this.analyze(path.dirname(filePath));
+		const result = this.analyze(this.resolveProjectRoot(path.dirname(filePath)));
 		const basename = path.basename(filePath);
 
 		return result.unusedExports
@@ -234,8 +254,20 @@ export class KnipClient {
 			const unusedDeps: KnipIssue[] = [];
 			const unlistedDeps: KnipIssue[] = [];
 
-			// Knip JSON format: { issues: [ { file, exports:[], files:[], dependencies:[], ... } ] }
-			const fileEntries: any[] = data.issues ?? [];
+			const addIssue = (issue: KnipIssue) => {
+				issues.push(issue);
+				if (issue.type === "export") unusedExports.push(issue);
+				if (issue.type === "file") unusedFiles.push(issue);
+				if (issue.type === "dependency" || issue.type === "devDependency") {
+					unusedDeps.push(issue);
+				}
+				if (issue.type === "unlisted" || issue.type === "bin") {
+					unlistedDeps.push(issue);
+				}
+			};
+
+			// Knip JSON format (grouped): { issues: [ { file, exports:[], files:[], dependencies:[], ... } ] }
+			const fileEntries: any[] = Array.isArray(data?.issues) ? data.issues : [];
 
 			for (const entry of fileEntries) {
 				const file: string = entry.file ?? "";
@@ -243,18 +275,16 @@ export class KnipClient {
 				const push = (
 					arr: any[],
 					type: KnipIssue["type"],
-					target: KnipIssue[],
+					_target: KnipIssue[],
 				) => {
 					for (const item of arr) {
-						const issue: KnipIssue = {
+						addIssue({
 							type,
 							name: item.name ?? item.symbol ?? String(item),
 							file,
 							line: item.line,
 							package: item.package,
-						};
-						issues.push(issue);
-						target.push(issue);
+						});
 					}
 				};
 
@@ -264,6 +294,39 @@ export class KnipClient {
 				push(entry.dependencies ?? [], "dependency", unusedDeps);
 				push(entry.devDependencies ?? [], "devDependency", unusedDeps);
 				push(entry.unlisted ?? [], "unlisted", unlistedDeps);
+				push(entry.binaries ?? [], "bin", unlistedDeps);
+			}
+
+			// Fallback format: flat list of issue objects
+			if (issues.length === 0 && Array.isArray(data)) {
+				for (const item of data) {
+					if (!item || typeof item !== "object") continue;
+					const rawType = String(
+						item.type ?? item.issueType ?? item.kind ?? "file",
+					).toLowerCase();
+					const type: KnipIssue["type"] =
+						rawType === "export" || rawType === "exports"
+							? "export"
+							: rawType === "dependency"
+								? "dependency"
+								: rawType === "devdependency"
+									? "devDependency"
+									: rawType === "unlisted"
+										? "unlisted"
+										: rawType === "bin" || rawType === "binaries"
+											? "bin"
+											: rawType === "file"
+												? "file"
+												: "file";
+					addIssue({
+						type,
+						name:
+							String(item.name ?? item.symbol ?? item.package ?? item.message ?? "unknown"),
+						file: item.file ?? item.path ?? item.location?.file,
+						line: item.line ?? item.location?.line,
+						package: item.package,
+					});
+				}
 			}
 
 			return {
