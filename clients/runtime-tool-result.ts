@@ -173,7 +173,12 @@ export async function handleToolResult(
 	});
 	dbg(`tool_result fired for: ${filePath} (turn_state: ${turnStateMs}ms)`);
 
-	let result: { output: string; isError?: boolean; cascadeOutput?: string };
+	let result: {
+		output: string;
+		hasBlockers: boolean;
+		isError?: boolean;
+		cascadeOutput?: string;
+	};
 	try {
 		result = await runPipeline(
 			{
@@ -240,7 +245,7 @@ export async function handleToolResult(
 	}
 
 	let output = result.output;
-	if (behaviorWarnings.length > 0) {
+	if (behaviorWarnings.length > 0 && !result.hasBlockers) {
 		output += `\n\n${formatBehaviorWarnings(behaviorWarnings)}`;
 	}
 

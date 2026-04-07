@@ -120,7 +120,7 @@ export async function handleSessionStart(deps: SessionStartDeps): Promise<void> 
 		if (cleaned.length > 0) {
 			notify(
 				`🧹 Deleted stale TypeScript build cache (${cleaned.map((f) => path.basename(f)).join(", ")}) — phantom errors suppressed.`,
-				"info",
+				"warning",
 			);
 			dbg(`session_start: cleaned stale tsbuildinfo: ${cleaned.join(", ")}`);
 		}
@@ -195,14 +195,10 @@ export async function handleSessionStart(deps: SessionStartDeps): Promise<void> 
 	log(`Active tools: ${tools.join(", ")}`);
 	dbg(`session_start tools: ${tools.join(", ")}`);
 
-	const condensedGuidance =
-		"## Code Tool Selection\n- Navigation (definitions, references): lsp_navigation\n- Pattern search (functions, imports): ast_grep_search\n- Text/TODOs: grep\n- Full guides: skills/ast-grep, skills/lsp-navigation";
-
-	const parts: string[] = [];
-	parts.push(
-		"📌 Remember: If you find ANY errors (test failures, compile errors, lint issues) in this codebase, fix them — even if you didn't cause them. Don't skip errors as 'not my fault'.",
+	const startupNotes: string[] = [];
+	startupNotes.push(
+		"📌 pi-lens active — fix any errors you find (including pre-existing). Prefer: lsp_navigation for definitions/references, ast_grep_search for code patterns, grep for text/TODO search.",
 	);
-	parts.push(condensedGuidance);
 
 	runtime.projectRulesScan = scanProjectRules(analysisRoot);
 	if (runtime.projectRulesScan.hasCustomRules) {
@@ -211,7 +207,7 @@ export async function handleSessionStart(deps: SessionStartDeps): Promise<void> 
 		dbg(
 			`session_start: found ${ruleCount} project rule(s) from ${sources.join(", ")}`,
 		);
-		parts.push(
+		startupNotes.push(
 			`📋 Project rules found: ${ruleCount} file(s) in ${sources.join(", ")}. These apply alongside pi-lens defaults.`,
 		);
 	} else {
@@ -312,7 +308,9 @@ export async function handleSessionStart(deps: SessionStartDeps): Promise<void> 
 		}
 	}
 
-	dbg(`session_start: scans complete (${parts.length} part(s)), cached for commands`);
+	dbg(
+		`session_start: scans complete (${startupNotes.length} startup note(s)), cached for commands`,
+	);
 
 	const errorDebtEnabled = getFlag("error-debt");
 	const pendingDebt = cacheManager.readCache<{
@@ -334,7 +332,7 @@ export async function handleSessionStart(deps: SessionStartDeps): Promise<void> 
 		if (baselinePassed && !testsPassed) {
 			const msg = `🔴 ERROR DEBT: Tests were passing but now failing (${testResult.failed} failure(s)). Fix before continuing.`;
 			dbg(`session_start ERROR DEBT: ${msg}`);
-			parts.push(msg);
+			notify(msg, "warning");
 		}
 
 		runtime.errorDebtBaseline = {
@@ -367,9 +365,7 @@ export async function handleSessionStart(deps: SessionStartDeps): Promise<void> 
 		);
 	}
 
-	if (parts.length > 0) {
-		for (const part of parts) {
-			notify(part, "info");
-		}
+	if (startupNotes.length > 0) {
+		notify(startupNotes.join("\n"), "info");
 	}
 }

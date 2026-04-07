@@ -89,6 +89,8 @@ export interface PipelineDeps {
 export interface PipelineResult {
 	/** Text to append to tool_result content */
 	output: string;
+	/** True if blocking diagnostics/tests were found */
+	hasBlockers: boolean;
 	/**
 	 * Cascade diagnostics (errors in OTHER files caused by this edit).
 	 * Intentionally NOT included in output — surfaced at turn_end instead
@@ -287,6 +289,7 @@ export async function runPipeline(
 			});
 			return {
 				output: `\n\n${secretsOutput}`,
+				hasBlockers: true,
 				isError: true,
 				fileModified: false,
 			};
@@ -367,6 +370,7 @@ export async function runPipeline(
 	const autofixTools: string[] = []; // track which tools fixed something
 	let testSummary: { passed: number; total: number; failed: number } | null =
 		null;
+	let hasBlockers = false;
 
 	// --- 4. Auto-fix ---
 	// Biome (TS/JS) and Ruff (Python) never touch the same file, so their
@@ -467,6 +471,7 @@ export async function runPipeline(
 		piApi,
 		ctx.modifiedRanges,
 	);
+	hasBlockers = dispatchResult.hasBlockers;
 
 	// Log and track diagnostics for analytics
 	if (dispatchResult.diagnostics.length > 0) {
@@ -567,6 +572,9 @@ export async function runPipeline(
 						total: testResult.passed + testResult.failed + testResult.skipped,
 						failed: testResult.failed,
 					};
+					if (testSummary.failed > 0) {
+						hasBlockers = true;
+					}
 					const testOutput = testRunnerClient.formatResult(testResult);
 					if (testOutput) {
 						output += `\n\n${testOutput}`;
@@ -708,6 +716,7 @@ export async function runPipeline(
 
 	return {
 		output,
+		hasBlockers,
 		cascadeOutput,
 		isError: false,
 		fileModified: formatChanged || fixedCount > 0,
