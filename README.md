@@ -82,19 +82,25 @@ Some runners are language/config-gated and may skip when not applicable.
 
 ## Dependencies
 
-Auto-installed defaults:
+Auto-install behavior depends on gate type:
 
-| Tool | Purpose | Auto-installed |
-|---|---|---|
-| `typescript-language-server` | LSP type diagnostics | Yes |
-| `pyright` | Python type diagnostics fallback | Yes |
-| `prettier` | Formatting fallback | Yes |
-| `ruff` | Python lint/format/autofix | Yes |
-| `@biomejs/biome` | JS/TS lint/format/autofix | Yes |
-| `madge` | Circular dependency analysis | Yes |
-| `jscpd` | Duplicate code detection | Yes |
-| `@ast-grep/cli` (`sg`) | AST search/replace and scans | Yes |
-| `knip` | Dead code analysis | Yes |
+- **Config-gated**: installs only when project config/deps indicate usage.
+- **Flow/language-gated**: installs when the runtime path needs it for the current file/session flow.
+- **Operational prewarm**: installs during session warm scans / turn-end analysis paths.
+
+| Tool | Purpose | Auto-installed | Gate |
+|---|---|---|---|
+| `@biomejs/biome` | JS/TS lint/format/autofix | Yes | Config-gated (`biome.json`/`biome.jsonc` or `@biomejs/biome` dep) |
+| `prettier` | Formatting fallback | Yes | Config-gated (Prettier dep or `package.json#prettier`) |
+| `yamllint` | YAML linting | Yes | Config-gated (`.yamllint*` / tool section / dep hint) |
+| `sqlfluff` | SQL linting/formatting | Yes | Config-gated (`.sqlfluff` / tool section / dep hint) |
+| `ruff` | Python lint/format/autofix | Yes | Flow/language-gated (Python file paths/runners) |
+| `typescript-language-server` | Unified LSP diagnostics | Yes | Flow-gated (LSP enabled; default on unless `--no-lsp`) |
+| `pyright` | Python type diagnostics fallback | Yes | Flow/language-gated (Python fallback paths) |
+| `@ast-grep/cli` (`sg`) | AST scans/search/replace | Yes | Operational prewarm + analysis flows |
+| `knip` | Dead code analysis | Yes | Operational prewarm + turn-end flows |
+| `jscpd` | Duplicate code detection | Yes | Operational prewarm + turn-end flows |
+| `madge` | Circular dependency analysis | Yes | Turn-end analysis flow |
 
 LSP is enabled by default. pi-lens includes many language-server definitions (including up to 31+ servers), and activates them when the server is installed and the project/root detection matches the file.
 
@@ -105,5 +111,5 @@ Optional safety switch:
 
 ## Notes
 
-- Some tools are auto-installed; others are config/availability-based.
+- Not every auto-install runs in every project: gate type decides when install is attempted.
 - Rule packs are customizable via project-level rule directories.
