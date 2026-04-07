@@ -4,7 +4,7 @@
  * Minimal auto-install: Core tools that run frequently.
  * Other tools require manual installation with clear instructions.
  *
- * Auto-install (8 tools):
+ * Auto-install (10 tools):
  * - typescript-language-server (TypeScript LSP)
  * - pyright (Python LSP)
  * - ruff (Python linting)
@@ -13,6 +13,8 @@
  * - jscpd (duplicate code detection)
  * - @ast-grep/cli (structural code search)
  * - knip (dead code detection)
+ * - yamllint (YAML linting)
+ * - sqlfluff (SQL linting/formatting)
  *
  * Manual install required (25+ tools):
  * - yaml-language-server: npm install -g yaml-language-server
@@ -152,6 +154,24 @@ const TOOLS: ToolDefinition[] = [
 		installStrategy: "npm",
 		packageName: "knip",
 		binaryName: "knip",
+	},
+	{
+		id: "yamllint",
+		name: "yamllint",
+		checkCommand: "yamllint",
+		checkArgs: ["--version"],
+		installStrategy: "pip",
+		packageName: "yamllint",
+		binaryName: "yamllint",
+	},
+	{
+		id: "sqlfluff",
+		name: "sqlfluff",
+		checkCommand: "sqlfluff",
+		checkArgs: ["--version"],
+		installStrategy: "pip",
+		packageName: "sqlfluff",
+		binaryName: "sqlfluff",
 	},
 ];
 

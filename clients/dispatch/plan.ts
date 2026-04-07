@@ -108,7 +108,12 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 	yaml: {
 		name: "YAML Processing",
 		capabilities: ["format", "lint"],
-		writeGroups: [],
+		writeGroups: [{ mode: "fallback", runnerIds: ["yamllint"], filterKinds: ["yaml"] }],
+	},
+	sql: {
+		name: "SQL Processing",
+		capabilities: ["format", "lint"],
+		writeGroups: [{ mode: "fallback", runnerIds: ["sqlfluff"], filterKinds: ["sql"] }],
 	},
 };
 

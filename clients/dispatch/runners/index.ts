@@ -18,9 +18,11 @@ import rubocopRunner from "./rubocop.js";
 import ruffRunner from "./ruff.js";
 import rustClippyRunner from "./rust-clippy.js";
 import shellcheckRunner from "./shellcheck.js";
+import sqlfluffRunner from "./sqlfluff.js";
 // Import similarity runner
 import similarityRunner from "./similarity.js";
 import spellcheckRunner from "./spellcheck.js";
+import yamllintRunner from "./yamllint.js";
 // Import tree-sitter runner
 import treeSitterRunner from "./tree-sitter.js";
 import tsLspRunner from "./ts-lsp.js";
@@ -48,5 +50,7 @@ registerRunner(eslintRunner); // ESLint (priority 12, jsts, config-gated)
 registerRunner(golangciRunner); // golangci-lint (priority 20, go, config-gated)
 registerRunner(rubocopRunner); // RuboCop lint (priority 10, ruby)
 registerRunner(spellcheckRunner); // Spellcheck for markdown/docs (priority 30)
+registerRunner(yamllintRunner); // YAML lint (priority 22)
+registerRunner(sqlfluffRunner); // SQL lint (priority 24)
 registerRunner(goVetRunner); // Go analysis (priority 50)
 registerRunner(rustClippyRunner); // Rust analysis (priority 50)

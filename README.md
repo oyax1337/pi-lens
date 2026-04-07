@@ -74,6 +74,7 @@ Registered dispatch runners:
 - `biome-check-json`, `biome-lint`, `ruff-lint`, `eslint`, `oxlint`
 - `tree-sitter`, `ast-grep-napi`, `type-safety`, `similarity`
 - `architect`, `python-slop`, `shellcheck`, `spellcheck`
+- `yamllint`, `sqlfluff`
 - `go-vet`, `golangci-lint`, `rust-clippy`, `rubocop`
 
 Some runners are language/config-gated and may skip when not applicable.

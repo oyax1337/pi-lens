@@ -2,6 +2,22 @@
 
 All notable changes to pi-lens will be documented in this file.
 
+## [3.8.14] - 2026-04-07
+
+### Added
+- **YAML lint runner** — added `yamllint` dispatch support for `.yaml`/`.yml` files, with LSP prepended when enabled.
+- **SQL lint + format support** — added `sqlfluff` dispatch support for `.sql` files and `sqlfluff` formatter integration.
+- **SQL file kind support** — introduced `sql` file kind detection and language-id mapping.
+
+### Changed
+- **Capability matrix coverage expanded** — YAML and SQL now map to dedicated lint runners in the centralized capability matrix.
+- **Lazy auto-install expansion** — added lazy-install support for `yamllint` and `sqlfluff` via installer-managed pip tools.
+- **Runner inventory docs updated** — README runner list now includes `yamllint` and `sqlfluff`.
+
+### Tests
+- Added YAML/SQL runner parsing/semantics coverage in `tests/clients/dispatch/runners/yaml-sql-runners.test.ts`.
+- Updated dispatch plan/integration tests for YAML+SQL capability mapping and group ordering.
+
 ## [3.8.13] - 2026-04-07
 
 ### Changed

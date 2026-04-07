@@ -411,6 +411,45 @@ export const blackFormatter: FormatterInfo = {
 	},
 };
 
+export const sqlfluffFormatter: FormatterInfo = {
+	name: "sqlfluff",
+	command: ["sqlfluff", "fix", "--force", "$FILE"],
+	extensions: [".sql"],
+	async resolveCommand(filePath, cwd) {
+		const venv = await findInVenv("sqlfluff", cwd);
+		if (venv) return [venv, "fix", "--force", filePath];
+		return null;
+	},
+	async detect(cwd: string) {
+		const configs = [".sqlfluff", "pyproject.toml", "setup.cfg", "tox.ini"];
+		const found = await findUp(configs, cwd);
+		for (const configPath of found) {
+			if (configPath.endsWith("pyproject.toml")) {
+				const content = await fs.readFile(configPath, "utf-8");
+				if (content.includes("[tool.sqlfluff]")) return true;
+				continue;
+			}
+			if (configPath.endsWith("setup.cfg") || configPath.endsWith("tox.ini")) {
+				const content = await fs.readFile(configPath, "utf-8");
+				if (content.includes("[sqlfluff]")) return true;
+				continue;
+			}
+			if (configPath.endsWith(".sqlfluff")) return true;
+		}
+
+		const deps = ["requirements.txt", "pyproject.toml", "Pipfile"];
+		for (const dep of deps) {
+			const depPath = path.join(cwd, dep);
+			if (await fileExists(depPath)) {
+				const content = await fs.readFile(depPath, "utf-8");
+				if (content.toLowerCase().includes("sqlfluff")) return true;
+			}
+		}
+
+		return false;
+	},
+};
+
 export const gofmtFormatter: FormatterInfo = {
 	name: "gofmt",
 	command: ["gofmt", "-w", "$FILE"],
@@ -675,6 +714,7 @@ const ALL_FORMATTERS: FormatterInfo[] = [
 	prettierFormatter,
 	ruffFormatter,
 	blackFormatter,
+	sqlfluffFormatter,
 	gofmtFormatter,
 	rustfmtFormatter,
 	zigFormatter,

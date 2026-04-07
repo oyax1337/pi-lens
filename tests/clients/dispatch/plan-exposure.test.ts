@@ -57,4 +57,12 @@ describe("dispatch plan exposure", () => {
 			expect.arrayContaining(["types", "lint"]),
 		);
 	});
+
+	it("maps yaml/sql to dedicated lint runners", () => {
+		const yamlIds = flattenRunnerIds(TOOL_PLANS.yaml);
+		const sqlIds = flattenRunnerIds(TOOL_PLANS.sql);
+
+		expect(yamlIds).toContain("yamllint");
+		expect(sqlIds).toContain("sqlfluff");
+	});
 });

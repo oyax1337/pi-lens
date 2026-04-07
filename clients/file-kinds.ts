@@ -21,6 +21,7 @@ export type FileKind =
 	| "markdown" // Markdown (.md, .mdx)
 	| "css" // CSS (.css, .scss, .less)
 	| "yaml" // YAML (.yaml, .yml)
+	| "sql" // SQL (.sql)
 	| "ruby"; // Ruby (.rb, .rake, .gemspec, .ru)
 
 // --- Extension Maps ---
@@ -51,6 +52,7 @@ const KIND_EXTENSIONS: Record<FileKind, readonly string[]> = {
 	markdown: [".md", ".mdx"],
 	css: [".css", ".scss", ".sass", ".less"],
 	yaml: [".yaml", ".yml"],
+	sql: [".sql"],
 	ruby: [".rb", ".rake", ".gemspec", ".ru"],
 };
 
@@ -144,7 +146,7 @@ export function isCodeKind(kind: FileKind): boolean {
  * Check if a file kind represents a text/config file.
  */
 export function isConfigKind(kind: FileKind): boolean {
-	return ["json", "yaml", "markdown", "css"].includes(kind);
+	return ["json", "yaml", "markdown", "css", "sql"].includes(kind);
 }
 
 /**
@@ -163,6 +165,7 @@ export function getFileKindLabel(kind: FileKind): string {
 		markdown: "Markdown",
 		css: "CSS",
 		yaml: "YAML",
+		sql: "SQL",
 		ruby: "Ruby",
 	};
 	return labels[kind] ?? kind;
@@ -214,6 +217,7 @@ export function getLanguageId(kind: FileKind): string {
 		markdown: "markdown",
 		css: "css",
 		yaml: "yaml",
+		sql: "sql",
 		ruby: "ruby",
 	};
 	return languageIds[kind] ?? "plaintext";
