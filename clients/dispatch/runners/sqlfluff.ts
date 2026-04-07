@@ -1,3 +1,5 @@
+import * as nodeFs from "node:fs";
+import * as path from "node:path";
 import { ensureTool } from "../../installer/index.js";
 import { safeSpawn } from "../../safe-spawn.js";
 import { createAvailabilityChecker } from "./utils/runner-helpers.js";
@@ -9,6 +11,41 @@ import type {
 } from "../types.js";
 
 const sqlfluff = createAvailabilityChecker("sqlfluff", ".exe");
+
+const SQLFLUFF_CONFIGS = [".sqlfluff", "pyproject.toml", "setup.cfg", "tox.ini"];
+
+export function hasSqlfluffConfig(cwd: string): boolean {
+	for (const cfg of SQLFLUFF_CONFIGS) {
+		const cfgPath = path.join(cwd, cfg);
+		if (!nodeFs.existsSync(cfgPath)) continue;
+		if (cfg === "pyproject.toml") {
+			try {
+				const content = nodeFs.readFileSync(cfgPath, "utf-8");
+				if (content.includes("[tool.sqlfluff]")) return true;
+			} catch {}
+			continue;
+		}
+		if (cfg === "setup.cfg" || cfg === "tox.ini") {
+			try {
+				const content = nodeFs.readFileSync(cfgPath, "utf-8");
+				if (content.includes("[sqlfluff]")) return true;
+			} catch {}
+			continue;
+		}
+		return true;
+	}
+
+	for (const depFile of ["requirements.txt", "Pipfile", "pyproject.toml"]) {
+		const depPath = path.join(cwd, depFile);
+		if (!nodeFs.existsSync(depPath)) continue;
+		try {
+			const content = nodeFs.readFileSync(depPath, "utf-8").toLowerCase();
+			if (content.includes("sqlfluff")) return true;
+		} catch {}
+	}
+
+	return false;
+}
 
 type SqlfluffJson = Array<{
 	filepath?: string;
@@ -59,6 +96,10 @@ const sqlfluffRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		if (!hasSqlfluffConfig(cwd)) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
+
 		let cmd: string | null = null;
 		if (sqlfluff.isAvailable(cwd)) {
 			cmd = sqlfluff.getCommand(cwd);

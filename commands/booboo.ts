@@ -910,6 +910,8 @@ export async function handleBooboo(
 			});
 
 			let fullSection = `## Type Coverage\n\n**${tcResult.percentage.toFixed(1)}% typed** (${tcResult.typed}/${tcResult.total} identifiers)\n\n`;
+			fullSection +=
+				"Type coverage highlights identifiers that resolve to `any` (implicit or explicit). Inferred non-`any` types are treated as typed.\n\n";
 			const byFile: Record<string, number> = {};
 			for (const u of filteredLocations) {
 				byFile[u.file] = (byFile[u.file] || 0) + 1;
@@ -920,7 +922,7 @@ export async function handleBooboo(
 				.slice(0, 10);
 
 			if (sortedFiles.length > 0) {
-				fullSection += `### Top Files by Untyped Count\n\n| File | Untyped Count |\n|------|---------------|\n`;
+				fullSection += `### Top Files by Any-Typed Identifier Count\n\n| File | Any-Typed Count |\n|------|-----------------|\n`;
 				for (const [file, count] of sortedFiles) {
 					fullSection += `| ${file} | ${count} |\n`;
 				}

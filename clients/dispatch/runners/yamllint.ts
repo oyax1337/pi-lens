@@ -1,3 +1,5 @@
+import * as nodeFs from "node:fs";
+import * as path from "node:path";
 import { ensureTool } from "../../installer/index.js";
 import { safeSpawn } from "../../safe-spawn.js";
 import { createAvailabilityChecker } from "./utils/runner-helpers.js";
@@ -9,6 +11,49 @@ import type {
 } from "../types.js";
 
 const yamllint = createAvailabilityChecker("yamllint", ".exe");
+
+const YAMLLINT_CONFIGS = [
+	".yamllint",
+	".yamllint.yml",
+	".yamllint.yaml",
+	"pyproject.toml",
+	"setup.cfg",
+	"tox.ini",
+];
+
+export function hasYamllintConfig(cwd: string): boolean {
+	for (const cfg of YAMLLINT_CONFIGS) {
+		const cfgPath = path.join(cwd, cfg);
+		if (!nodeFs.existsSync(cfgPath)) continue;
+		if (cfg === "pyproject.toml") {
+			try {
+				const content = nodeFs.readFileSync(cfgPath, "utf-8");
+				if (content.includes("[tool.yamllint]")) return true;
+			} catch {}
+			continue;
+		}
+		if (cfg === "setup.cfg" || cfg === "tox.ini") {
+			try {
+				const content = nodeFs.readFileSync(cfgPath, "utf-8");
+				if (content.includes("[yamllint]")) return true;
+			} catch {}
+			continue;
+		}
+		return true;
+	}
+
+	// Dependency hint fallback for Python projects.
+	for (const depFile of ["requirements.txt", "Pipfile", "pyproject.toml"]) {
+		const depPath = path.join(cwd, depFile);
+		if (!nodeFs.existsSync(depPath)) continue;
+		try {
+			const content = nodeFs.readFileSync(depPath, "utf-8").toLowerCase();
+			if (content.includes("yamllint")) return true;
+		} catch {}
+	}
+
+	return false;
+}
 
 function parseYamllintParsable(raw: string, filePath: string): Diagnostic[] {
 	const diagnostics: Diagnostic[] = [];
@@ -44,6 +89,10 @@ const yamllintRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		if (!hasYamllintConfig(cwd)) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
+
 		let cmd: string | null = null;
 		if (yamllint.isAvailable(cwd)) {
 			cmd = yamllint.getCommand(cwd);
