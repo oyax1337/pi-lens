@@ -89,8 +89,9 @@ const yamllintRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
-		if (!hasYamllintConfig(cwd)) {
-			return { status: "skipped", diagnostics: [], semantic: "none" };
+		const hasConfig = hasYamllintConfig(cwd);
+		if (!hasConfig) {
+			ctx.log("yamllint: no config detected, running with default rules");
 		}
 
 		let cmd: string | null = null;

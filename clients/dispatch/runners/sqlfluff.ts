@@ -96,8 +96,9 @@ const sqlfluffRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
-		if (!hasSqlfluffConfig(cwd)) {
-			return { status: "skipped", diagnostics: [], semantic: "none" };
+		const hasConfig = hasSqlfluffConfig(cwd);
+		if (!hasConfig) {
+			ctx.log("sqlfluff: no config detected, using ANSI dialect defaults");
 		}
 
 		let cmd: string | null = null;
@@ -113,7 +114,12 @@ const sqlfluffRunner: RunnerDefinition = {
 
 		if (!cmd) return { status: "skipped", diagnostics: [], semantic: "none" };
 
-		const result = safeSpawn(cmd, ["lint", "--format", "json", ctx.filePath], {
+		const args = ["lint", "--format", "json", ctx.filePath];
+		if (!hasConfig) {
+			args.splice(2, 0, "--dialect", "ansi");
+		}
+
+		const result = safeSpawn(cmd, args, {
 			timeout: 20000,
 		});
 

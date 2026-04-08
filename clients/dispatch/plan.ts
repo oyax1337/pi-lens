@@ -78,12 +78,12 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 	cxx: {
 		name: "C/C++ Linting",
 		capabilities: ["types", "lint"],
-		writeGroups: [],
+		writeGroups: [{ mode: "fallback", runnerIds: ["lsp"], filterKinds: ["cxx"] }],
 	},
 	cmake: {
 		name: "CMake Processing",
 		capabilities: ["lint"],
-		writeGroups: [],
+		writeGroups: [{ mode: "fallback", runnerIds: ["lsp"], filterKinds: ["cmake"] }],
 	},
 	shell: {
 		name: "Shell Script Linting",
@@ -93,17 +93,20 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 	json: {
 		name: "JSON Processing",
 		capabilities: ["format"],
-		writeGroups: [],
+		writeGroups: [{ mode: "fallback", runnerIds: ["lsp"], filterKinds: ["json"] }],
 	},
 	markdown: {
 		name: "Markdown Processing",
 		capabilities: ["docs"],
-		writeGroups: [{ mode: "fallback", runnerIds: ["spellcheck"] }],
+		writeGroups: [
+			{ mode: "fallback", runnerIds: ["lsp"], filterKinds: ["markdown"] },
+			{ mode: "fallback", runnerIds: ["spellcheck"] },
+		],
 	},
 	css: {
 		name: "CSS Processing",
 		capabilities: ["format", "lint"],
-		writeGroups: [],
+		writeGroups: [{ mode: "fallback", runnerIds: ["lsp"], filterKinds: ["css"] }],
 	},
 	yaml: {
 		name: "YAML Processing",
