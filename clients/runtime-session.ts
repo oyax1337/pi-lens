@@ -6,6 +6,7 @@ import type { BiomeClient } from "./biome-client.js";
 import type { CacheManager } from "./cache-manager.js";
 import type { DependencyChecker } from "./dependency-checker.js";
 import { getDiagnosticTracker } from "./diagnostic-tracker.js";
+import { getKnipIgnorePatterns } from "./file-utils.js";
 import type { GoClient } from "./go-client.js";
 import type { JscpdClient } from "./jscpd-client.js";
 import type { KnipClient } from "./knip-client.js";
@@ -16,11 +17,10 @@ import {
 	loadIndex,
 	saveIndex,
 } from "./project-index.js";
-import { scanProjectRules } from "./rules-scanner.js";
 import type { RuffClient } from "./ruff-client.js";
+import { scanProjectRules } from "./rules-scanner.js";
 import type { RuntimeCoordinator } from "./runtime-coordinator.js";
 import type { RustClient } from "./rust-client.js";
-import { getKnipIgnorePatterns } from "./file-utils.js";
 import { getSourceFiles } from "./scan-utils.js";
 import { resolveStartupScanContext } from "./startup-scan.js";
 import type { TestRunnerClient } from "./test-runner-client.js";
@@ -54,7 +54,9 @@ interface SessionStartDeps {
 	resetLSPService: () => void;
 }
 
-export async function handleSessionStart(deps: SessionStartDeps): Promise<void> {
+export async function handleSessionStart(
+	deps: SessionStartDeps,
+): Promise<void> {
 	const {
 		ctxCwd,
 		getFlag,
@@ -174,9 +176,7 @@ export async function handleSessionStart(deps: SessionStartDeps): Promise<void> 
 						if (p) dbg(`session_start: prettier ready at ${p}`);
 						else dbg("session_start: prettier install failed silently");
 					})
-					.catch((err) =>
-						dbg(`session_start: prettier install error: ${err}`),
-					);
+					.catch((err) => dbg(`session_start: prettier install error: ${err}`));
 			}
 		} catch {
 			// no package.json at cwd root
@@ -203,7 +203,9 @@ export async function handleSessionStart(deps: SessionStartDeps): Promise<void> 
 	runtime.projectRulesScan = scanProjectRules(analysisRoot);
 	if (runtime.projectRulesScan.hasCustomRules) {
 		const ruleCount = runtime.projectRulesScan.rules.length;
-		const sources = [...new Set(runtime.projectRulesScan.rules.map((r) => r.source))];
+		const sources = [
+			...new Set(runtime.projectRulesScan.rules.map((r) => r.source)),
+		];
 		dbg(
 			`session_start: found ${ruleCount} project rule(s) from ${sources.join(", ")}`,
 		);
@@ -214,73 +216,126 @@ export async function handleSessionStart(deps: SessionStartDeps): Promise<void> 
 		dbg("session_start: no project rules found");
 	}
 
-	const todoResult = todoScanner.scanDirectory(analysisRoot);
-	dbg(
-		`session_start TODO scan: ${todoResult.items.length} items (baseline stored)`,
-	);
-	cacheManager.writeCache("todo-baseline", { items: todoResult.items }, analysisRoot);
+	const sessionGeneration = runtime.sessionGeneration;
+	const runStartupTask = (name: string, task: () => Promise<void>): void => {
+		runtime.markStartupScanInFlight(name, sessionGeneration);
+		void task()
+			.catch((err) => dbg(`session_start: ${name} background scan failed: ${err}`))
+			.finally(() => {
+				runtime.clearStartupScanInFlight(name, sessionGeneration);
+			});
+	};
+
+	// Fire off all heavy scans as background tasks — don't block session start.
+	// Each consumer already handles the "not ready yet" case gracefully
+	// (cachedExports.size > 0, cachedProjectIndex != null, cache miss paths).
+
+	// TODO scan is lightweight and synchronous — run in background via promise
+	runStartupTask("todo", async () => {
+		if (!runtime.isCurrentSession(sessionGeneration)) return;
+		const todoResult = todoScanner.scanDirectory(analysisRoot);
+		if (!runtime.isCurrentSession(sessionGeneration)) return;
+		dbg(
+			`session_start TODO scan: ${todoResult.items.length} items (baseline stored)`,
+		);
+		cacheManager.writeCache(
+			"todo-baseline",
+			{ items: todoResult.items },
+			analysisRoot,
+		);
+	});
 
 	if (!startupScan.canWarmCaches) {
-		dbg(`session_start: skipping heavy scans (${startupScan.reason ?? "unknown"})`);
+		dbg(
+			`session_start: skipping heavy scans (${startupScan.reason ?? "unknown"})`,
+		);
 	} else {
-		if (await knipClient.ensureAvailable()) {
-			const cached = cacheManager.readCache<ReturnType<KnipClient["analyze"]>>(
-				"knip",
-				analysisRoot,
-			);
-			if (cached) {
-				dbg(
-					`session_start Knip: cache hit (${Math.round((Date.now() - new Date(cached.meta.timestamp).getTime()) / 1000)}s ago)`,
-				);
+		dbg(
+			"session_start: launching background scans (knip, jscpd, ast-grep exports, project index)",
+		);
+
+		// Knip — dead code / unused exports
+		runStartupTask("knip", async () => {
+			if (await knipClient.ensureAvailable()) {
+				if (!runtime.isCurrentSession(sessionGeneration)) return;
+				const cached = cacheManager.readCache<
+					ReturnType<KnipClient["analyze"]>
+				>("knip", analysisRoot);
+				if (cached) {
+					if (!runtime.isCurrentSession(sessionGeneration)) return;
+					dbg(
+						`session_start Knip: cache hit (${Math.round((Date.now() - new Date(cached.meta.timestamp).getTime()) / 1000)}s ago)`,
+					);
+				} else {
+					const startMs = Date.now();
+					const knipResult = knipClient.analyze(
+						analysisRoot,
+						getKnipIgnorePatterns(),
+					);
+					if (!runtime.isCurrentSession(sessionGeneration)) return;
+					cacheManager.writeCache("knip", knipResult, analysisRoot, {
+						scanDurationMs: Date.now() - startMs,
+					});
+					dbg(`session_start Knip scan done (${Date.now() - startMs}ms)`);
+				}
 			} else {
-				const startMs = Date.now();
-				const knipResult = knipClient.analyze(
+				if (!runtime.isCurrentSession(sessionGeneration)) return;
+				dbg("session_start Knip: not available");
+			}
+		});
+
+		// jscpd — duplicate code detection
+		runStartupTask("jscpd", async () => {
+			if (await jscpdClient.ensureAvailable()) {
+				if (!runtime.isCurrentSession(sessionGeneration)) return;
+				const cached = cacheManager.readCache<ReturnType<JscpdClient["scan"]>>(
+					"jscpd",
 					analysisRoot,
-					getKnipIgnorePatterns(),
 				);
-				cacheManager.writeCache("knip", knipResult, analysisRoot, {
-					scanDurationMs: Date.now() - startMs,
-				});
-				dbg("session_start Knip scan done");
-			}
-		} else {
-			dbg("session_start Knip: not available");
-		}
-
-		if (await jscpdClient.ensureAvailable()) {
-			const cached = cacheManager.readCache<ReturnType<JscpdClient["scan"]>>(
-				"jscpd",
-				analysisRoot,
-			);
-			if (cached) {
-				dbg("session_start jscpd: cache hit");
+				if (cached) {
+					if (!runtime.isCurrentSession(sessionGeneration)) return;
+					dbg("session_start jscpd: cache hit");
+				} else {
+					const startMs = Date.now();
+					const jscpdResult = jscpdClient.scan(analysisRoot);
+					if (!runtime.isCurrentSession(sessionGeneration)) return;
+					cacheManager.writeCache("jscpd", jscpdResult, analysisRoot, {
+						scanDurationMs: Date.now() - startMs,
+					});
+					dbg(`session_start jscpd scan done (${Date.now() - startMs}ms)`);
+				}
 			} else {
-				const startMs = Date.now();
-				const jscpdResult = jscpdClient.scan(analysisRoot);
-				cacheManager.writeCache("jscpd", jscpdResult, analysisRoot, {
-					scanDurationMs: Date.now() - startMs,
-				});
-				dbg("session_start jscpd scan done");
+				if (!runtime.isCurrentSession(sessionGeneration)) return;
+				dbg("session_start jscpd: not available");
 			}
-		} else {
-			dbg("session_start jscpd: not available");
-		}
+		});
 
-		if (await astGrepClient.ensureAvailable()) {
-			const exports = await astGrepClient.scanExports(analysisRoot, "typescript");
-			dbg(`session_start exports scan: ${exports.size} functions found`);
-			for (const [name, file] of exports) {
-				runtime.cachedExports.set(name, file);
+		// ast-grep — export scan for duplicate detection
+		runStartupTask("ast-grep-exports", async () => {
+			if (await astGrepClient.ensureAvailable()) {
+				if (!runtime.isCurrentSession(sessionGeneration)) return;
+				const exports = await astGrepClient.scanExports(
+					analysisRoot,
+					"typescript",
+				);
+				if (!runtime.isCurrentSession(sessionGeneration)) return;
+				dbg(`session_start exports scan: ${exports.size} functions found`);
+				for (const [name, file] of exports) {
+					runtime.cachedExports.set(name, file);
+				}
 			}
-		}
+		});
 
-		try {
+		// Project index — structural similarity detection
+		runStartupTask("project-index", async () => {
 			const existing = await loadIndex(analysisRoot);
+			if (!runtime.isCurrentSession(sessionGeneration)) return;
 			if (
 				existing &&
 				existing.entries.size > 0 &&
 				(await isIndexFresh(analysisRoot))
 			) {
+				if (!runtime.isCurrentSession(sessionGeneration)) return;
 				runtime.cachedProjectIndex = existing;
 				dbg(
 					`session_start: loaded fresh project index (${existing.entries.size} entries)`,
@@ -295,21 +350,21 @@ export async function handleSessionStart(deps: SessionStartDeps): Promise<void> 
 						analysisRoot,
 						tsFiles,
 					);
+					if (!runtime.isCurrentSession(sessionGeneration)) return;
 					await saveIndex(runtime.cachedProjectIndex, analysisRoot);
 					dbg(
 						`session_start: built project index (${runtime.cachedProjectIndex.entries.size} entries from ${tsFiles.length} files)`,
 					);
 				} else {
+					if (!runtime.isCurrentSession(sessionGeneration)) return;
 					dbg(`session_start: skipped project index (${tsFiles.length} files)`);
 				}
 			}
-		} catch (err) {
-			dbg(`session_start: project index build failed: ${err}`);
-		}
+		});
 	}
 
 	dbg(
-		`session_start: scans complete (${startupNotes.length} startup note(s)), cached for commands`,
+		`session_start: background scans launched (${startupNotes.length} startup note(s))`,
 	);
 
 	const errorDebtEnabled = getFlag("error-debt");
