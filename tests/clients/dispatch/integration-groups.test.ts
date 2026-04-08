@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getDispatchGroupsForKind } from "../../../clients/dispatch/integration.js";
 
 	describe("dispatch integration groups", () => {
-	it("prepends lsp group when lens-lsp is enabled and plan lacks lsp", () => {
+	it("keeps centralized css primary group when lens-lsp is enabled", () => {
 		const groups = getDispatchGroupsForKind("css", {
 			getFlag: (name: string) => name === "lens-lsp",
 		});
@@ -17,10 +17,9 @@ import { getDispatchGroupsForKind } from "../../../clients/dispatch/integration.
 			getFlag: (name: string) => name === "lens-lsp",
 		});
 
-		expect(groups).toHaveLength(2);
+		expect(groups).toHaveLength(1);
 		expect(groups[0].runnerIds).toEqual(["lsp", "yamllint"]);
 		expect(groups[0].filterKinds).toEqual(["yaml"]);
-		expect(groups[1].runnerIds).toEqual(["yamllint"]);
 	});
 
 	it("does not duplicate lsp group when plan already includes lsp", () => {

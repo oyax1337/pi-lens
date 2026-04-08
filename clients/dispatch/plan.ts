@@ -1,4 +1,5 @@
 import type { FileKind } from "../file-kinds.js";
+import { getPrimaryDispatchGroup } from "../language-policy.js";
 import type { RunnerGroup, ToolPlan } from "./types.js";
 
 type CapabilityDimension =
@@ -17,12 +18,20 @@ interface CapabilityMatrixEntry {
 	fullOnlyGroups?: RunnerGroup[];
 }
 
+function primary(kind: FileKind): RunnerGroup {
+	const group = getPrimaryDispatchGroup(kind, true);
+	if (!group) {
+		throw new Error(`Missing primary dispatch group for ${kind}`);
+	}
+	return group;
+}
+
 export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry> = {
 	jsts: {
 		name: "JavaScript/TypeScript Linting",
 		capabilities: ["types", "security", "smells", "format", "lint", "architecture"],
 		writeGroups: [
-			{ mode: "fallback", runnerIds: ["lsp", "ts-lsp"], filterKinds: ["jsts"] },
+			primary("jsts"),
 			{ mode: "all", runnerIds: ["biome-check-json"], filterKinds: ["jsts"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["jsts"] },
 			{ mode: "all", runnerIds: ["ast-grep-napi"], filterKinds: ["jsts"] },
@@ -39,7 +48,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 		name: "Python Linting",
 		capabilities: ["types", "lint", "architecture", "smells"],
 		writeGroups: [
-			{ mode: "fallback", runnerIds: ["lsp", "pyright"], filterKinds: ["python"] },
+			primary("python"),
 			{ mode: "fallback", runnerIds: ["ruff-lint"], filterKinds: ["python"] },
 			{ mode: "fallback", runnerIds: ["architect"], filterKinds: ["python"] },
 		],
@@ -51,7 +60,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 		name: "Go Linting",
 		capabilities: ["types", "lint", "smells"],
 		writeGroups: [
-			{ mode: "all", runnerIds: ["lsp"], filterKinds: ["go"] },
+			primary("go"),
 			{ mode: "fallback", runnerIds: ["go-vet"], filterKinds: ["go"] },
 			{ mode: "fallback", runnerIds: ["golangci-lint"], filterKinds: ["go"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["go"] },
@@ -61,7 +70,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 		name: "Rust Linting",
 		capabilities: ["types", "lint", "smells"],
 		writeGroups: [
-			{ mode: "all", runnerIds: ["lsp"], filterKinds: ["rust"] },
+			primary("rust"),
 			{ mode: "fallback", runnerIds: ["rust-clippy"], filterKinds: ["rust"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["rust"] },
 		],
@@ -70,7 +79,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 		name: "Ruby Linting",
 		capabilities: ["types", "lint", "smells"],
 		writeGroups: [
-			{ mode: "all", runnerIds: ["lsp"], filterKinds: ["ruby"] },
+			primary("ruby"),
 			{ mode: "fallback", runnerIds: ["rubocop"], filterKinds: ["ruby"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["ruby"] },
 		],
@@ -78,45 +87,42 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 	cxx: {
 		name: "C/C++ Linting",
 		capabilities: ["types", "lint"],
-		writeGroups: [{ mode: "fallback", runnerIds: ["lsp"], filterKinds: ["cxx"] }],
+		writeGroups: [primary("cxx")],
 	},
 	cmake: {
 		name: "CMake Processing",
 		capabilities: ["lint"],
-		writeGroups: [{ mode: "fallback", runnerIds: ["lsp"], filterKinds: ["cmake"] }],
+		writeGroups: [primary("cmake")],
 	},
 	shell: {
 		name: "Shell Script Linting",
 		capabilities: ["lint", "security"],
-		writeGroups: [{ mode: "fallback", runnerIds: ["shellcheck"] }],
+		writeGroups: [primary("shell")],
 	},
 	json: {
 		name: "JSON Processing",
 		capabilities: ["format"],
-		writeGroups: [{ mode: "fallback", runnerIds: ["lsp"], filterKinds: ["json"] }],
+		writeGroups: [primary("json")],
 	},
 	markdown: {
 		name: "Markdown Processing",
 		capabilities: ["docs"],
-		writeGroups: [
-			{ mode: "fallback", runnerIds: ["lsp"], filterKinds: ["markdown"] },
-			{ mode: "fallback", runnerIds: ["spellcheck"] },
-		],
+		writeGroups: [primary("markdown")],
 	},
 	css: {
 		name: "CSS Processing",
 		capabilities: ["format", "lint"],
-		writeGroups: [{ mode: "fallback", runnerIds: ["lsp"], filterKinds: ["css"] }],
+		writeGroups: [primary("css")],
 	},
 	yaml: {
 		name: "YAML Processing",
 		capabilities: ["format", "lint"],
-		writeGroups: [{ mode: "fallback", runnerIds: ["yamllint"], filterKinds: ["yaml"] }],
+		writeGroups: [primary("yaml")],
 	},
 	sql: {
 		name: "SQL Processing",
 		capabilities: ["format", "lint"],
-		writeGroups: [{ mode: "fallback", runnerIds: ["sqlfluff"], filterKinds: ["sql"] }],
+		writeGroups: [primary("sql")],
 	},
 };
 
@@ -129,10 +135,11 @@ function toWritePlan(entry: CapabilityMatrixEntry): ToolPlan {
 
 function toFullPlan(kind: FileKind, entry: CapabilityMatrixEntry): ToolPlan {
 	if (kind === "jsts") {
+		const primaryGroup = primary("jsts");
 		return {
 			name: "JavaScript/TypeScript Full Lint",
 			groups: [
-				{ mode: "fallback", runnerIds: ["lsp", "ts-lsp"], filterKinds: ["jsts"] },
+				primaryGroup,
 				{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["jsts"] },
 				{ mode: "all", runnerIds: ["ast-grep-napi"], filterKinds: ["jsts"] },
 				...(entry.fullOnlyGroups ?? []),
@@ -145,10 +152,11 @@ function toFullPlan(kind: FileKind, entry: CapabilityMatrixEntry): ToolPlan {
 	}
 
 	if (kind === "python") {
+		const primaryGroup = primary("python");
 		return {
 			name: "Python Full Lint",
 			groups: [
-				{ mode: "fallback", runnerIds: ["lsp", "pyright"], filterKinds: ["python"] },
+				primaryGroup,
 				{ mode: "fallback", runnerIds: ["ruff-lint"], filterKinds: ["python"] },
 				...(entry.fullOnlyGroups ?? []),
 				{ mode: "fallback", runnerIds: ["architect"], filterKinds: ["python"] },
