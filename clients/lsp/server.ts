@@ -600,7 +600,7 @@ export const RubyServer: LSPServerInfo = {
 	name: "Ruby LSP",
 	installPolicy: "interactive",
 	extensions: [".rb", ".rake", ".gemspec", ".ru"],
-	root: createRootDetector(["Gemfile", ".ruby-version"]),
+	root: PriorityRoot([["Gemfile", ".ruby-version"], [".git"]]),
 	async spawn(root) {
 		// Try ruby-lsp first (prompts to install via gem if missing), fall back to solargraph
 		const proc = await spawnWithInteractiveInstall(
@@ -827,7 +827,7 @@ export const DockerServer: LSPServerInfo = {
 	name: "Dockerfile Language Server",
 	installPolicy: "package-manager",
 	extensions: [".dockerfile", "Dockerfile"],
-	root: async () => process.cwd(),
+	root: PriorityRoot([["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"], [".git"]]),
 	async spawn() {
 		const launched = await launchWithDirectOrPackageManager(
 			nodeBinCandidates(process.cwd(), "docker-langserver"),
@@ -845,7 +845,7 @@ export const YamlServer: LSPServerInfo = {
 	name: "YAML Language Server",
 	extensions: [".yaml", ".yml"],
 	installPolicy: "interactive",
-	root: async () => process.cwd(),
+	root: PriorityRoot([[".yamllint", "yamllint.yml", "yamllint.yaml", "pyproject.toml"], [".git"]]),
 	async spawn() {
 		const cwd = process.cwd();
 		const proc = await spawnWithInteractiveInstall(
@@ -864,7 +864,7 @@ export const JsonServer: LSPServerInfo = {
 	name: "VSCode JSON Language Server",
 	extensions: [".json", ".jsonc"],
 	installPolicy: "interactive",
-	root: async () => process.cwd(),
+	root: PriorityRoot([["package.json", "tsconfig.json", "jsconfig.json"], [".git"]]),
 	async spawn() {
 		const cwd = process.cwd();
 		const proc = await spawnWithInteractiveInstall(
@@ -986,7 +986,7 @@ export const CssServer: LSPServerInfo = {
 	name: "CSS Language Server",
 	installPolicy: "package-manager",
 	extensions: [".css", ".scss", ".sass", ".less"],
-	root: async () => process.cwd(),
+	root: PriorityRoot([["package.json", "postcss.config.js", "tailwind.config.js", "vite.config.ts"], [".git"]]),
 	async spawn() {
 		const launched = await launchWithDirectOrPackageManager(
 			nodeBinCandidates(process.cwd(), "vscode-css-language-server"),

@@ -57,6 +57,21 @@ describe("lsp server policy", () => {
 		expect(root).toBe(workspace);
 	});
 
+	it("uses git root fallback for ruby files without ruby config", async () => {
+		const { RubyServer } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-ruby-root-"));
+		dirs.push(tmp);
+
+		const workspace = path.join(tmp, "repo");
+		const file = path.join(workspace, "scripts", "tool.rb");
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.mkdirSync(path.join(workspace, ".git"), { recursive: true });
+		fs.writeFileSync(file, "puts 'ok'\n");
+
+		const root = await RubyServer.root(file);
+		expect(root).toBe(workspace);
+	});
+
 	it("skips managed TypeScript install when lsp install is disabled", async () => {
 		const { TypeScriptServer } = await import("../../../clients/lsp/server.js");
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-ts-policy-"));
