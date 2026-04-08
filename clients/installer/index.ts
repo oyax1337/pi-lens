@@ -332,8 +332,6 @@ async function installNpmTool(
 			);
 		}
 
-		console.error(`[auto-install] Installing ${packageName}...`);
-
 		// Install via npm or bun (use .cmd on Windows)
 		const isWindows = process.platform === "win32";
 		const pm = process.env.BUN_INSTALL
