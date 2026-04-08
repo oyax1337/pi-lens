@@ -289,7 +289,7 @@ export async function handleSessionStart(
 	const startupNotes: string[] = [];
 	const agentStartupGuidance: string[] = [];
 	agentStartupGuidance.push(
-		"📌 pi-lens active — fix any errors you find (including pre-existing). Prefer: lsp_navigation for definitions/references, ast_grep_search for code patterns, grep for text/TODO search.",
+		"📌 pi-lens active — as you work on this project, fix any errors you encounter (including pre-existing). Prefer: lsp_navigation for definitions/references, ast_grep_search for code patterns, grep for text/TODO search.",
 	);
 
 	runtime.projectRulesScan = scanProjectRules(analysisRoot);
