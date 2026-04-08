@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	canRunStartupHeavyScans,
 	getLspCapableKinds,
+	getPrimaryDispatchGroup,
 	getStartupDefaultsForProfile,
 } from "../../clients/language-policy.js";
 
@@ -73,5 +74,16 @@ describe("language-policy", () => {
 		expect(canRunStartupHeavyScans(profile, "jsts")).toBe(false);
 		const configured = { ...profile, configured: { jsts: true } };
 		expect(canRunStartupHeavyScans(configured, "jsts")).toBe(true);
+	});
+
+	it("provides language primary dispatch fallback groups", () => {
+		const py = getPrimaryDispatchGroup("python", true);
+		expect(py?.runnerIds).toEqual(["lsp", "pyright"]);
+
+		const pyNoLsp = getPrimaryDispatchGroup("python", false);
+		expect(pyNoLsp?.runnerIds).toEqual(["pyright"]);
+
+		const sql = getPrimaryDispatchGroup("sql", true);
+		expect(sql?.runnerIds).toEqual(["sqlfluff"]);
 	});
 });

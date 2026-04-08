@@ -7,7 +7,10 @@
 
 import { detectFileKind } from "../file-kinds.js";
 import type { FileKind } from "../file-kinds.js";
-import { getLspCapableKinds } from "../language-policy.js";
+import {
+	getLspCapableKinds,
+	getPrimaryDispatchGroup,
+} from "../language-policy.js";
 import {
 	clearLatencyReports,
 	createBaselineStore,
@@ -43,20 +46,38 @@ import "./runners/index.js";
 const sessionBaselines: BaselineStore = createBaselineStore();
 const LSP_CAPABLE_KINDS = new Set<FileKind>(getLspCapableKinds());
 
-function withPrimaryLspGroup(
+function withPrimaryPolicyGroup(
 	kind: keyof typeof TOOL_PLANS,
 	groups: RunnerGroup[],
 	pi: PiAgentAPI,
 ): RunnerGroup[] {
-	if (!pi.getFlag("lens-lsp") || !!pi.getFlag("no-lsp")) return groups;
+	const lspEnabled = !!pi.getFlag("lens-lsp") && !pi.getFlag("no-lsp");
+	const normalizedGroups = lspEnabled
+		? groups
+		: groups
+				.map((group) => {
+					const runnerIds = group.runnerIds.filter(
+						(id) => id !== "lsp" && id !== "ts-lsp",
+					);
+					if (runnerIds.length === 0) return null;
+					return {
+						...group,
+						runnerIds,
+					};
+				})
+				.filter((group): group is RunnerGroup => group !== null);
 
-	const alreadyHasLsp = groups.some((g) => g.runnerIds.includes("lsp"));
-	if (alreadyHasLsp) return groups;
+	const primary = getPrimaryDispatchGroup(kind as FileKind, lspEnabled);
+	if (!primary) return normalizedGroups;
 
-	return [
-		{ mode: "all", runnerIds: ["lsp"], filterKinds: [kind as FileKind] },
-		...groups,
-	];
+	const alreadyHasPrimary = normalizedGroups.some((group) => {
+		if (group.mode !== primary.mode) return false;
+		if (group.runnerIds.length !== primary.runnerIds.length) return false;
+		return group.runnerIds.every((id, index) => primary.runnerIds[index] === id);
+	});
+	if (alreadyHasPrimary) return normalizedGroups;
+
+	return [primary, ...normalizedGroups];
 }
 
 export function getDispatchGroupsForKind(
@@ -74,7 +95,7 @@ export function getDispatchGroupsForKind(
 		}
 		return [];
 	}
-	return withPrimaryLspGroup(kind, plan.groups, pi);
+	return withPrimaryPolicyGroup(kind, plan.groups, pi);
 }
 
 /**

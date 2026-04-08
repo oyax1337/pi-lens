@@ -12,13 +12,13 @@ import { getDispatchGroupsForKind } from "../../../clients/dispatch/integration.
 		expect(groups[0].filterKinds).toEqual(["css"]);
 	});
 
-	it("prepends lsp group for yaml ahead of yamllint plan", () => {
+	it("uses centralized yaml primary fallback group", () => {
 		const groups = getDispatchGroupsForKind("yaml", {
 			getFlag: (name: string) => name === "lens-lsp",
 		});
 
 		expect(groups).toHaveLength(2);
-		expect(groups[0].runnerIds).toEqual(["lsp"]);
+		expect(groups[0].runnerIds).toEqual(["lsp", "yamllint"]);
 		expect(groups[0].filterKinds).toEqual(["yaml"]);
 		expect(groups[1].runnerIds).toEqual(["yamllint"]);
 	});
@@ -32,13 +32,11 @@ import { getDispatchGroupsForKind } from "../../../clients/dispatch/integration.
 		expect(lspGroups).toHaveLength(1);
 	});
 
-	it("returns baseline plan groups when lens-lsp is disabled", () => {
+	it("strips lsp-only groups when lens-lsp is disabled", () => {
 		const groups = getDispatchGroupsForKind("css", {
 			getFlag: () => false,
 		});
 
-		expect(groups).toHaveLength(1);
-		expect(groups[0].runnerIds).toEqual(["lsp"]);
-		expect(groups[0].filterKinds).toEqual(["css"]);
+		expect(groups).toEqual([]);
 	});
 });
