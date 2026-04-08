@@ -506,6 +506,7 @@ export const RustServer: LSPServerInfo = {
 export const RubyServer: LSPServerInfo = {
 	id: "ruby",
 	name: "Ruby LSP",
+	installPolicy: "interactive",
 	extensions: [".rb", ".rake", ".gemspec", ".ru"],
 	root: createRootDetector(["Gemfile", ".ruby-version"]),
 	async spawn(root) {
@@ -519,7 +520,13 @@ export const RubyServer: LSPServerInfo = {
 				try {
 					return await launchLSP("ruby-lsp", [], { cwd: root });
 				} catch {
-					return await launchViaPackageManager("solargraph", ["stdio"], { cwd: root });
+					const fallback = await launchViaPackageManagerWithPolicy(
+						"solargraph",
+						["stdio"],
+						{ cwd: root },
+					);
+					if (!fallback) throw new Error("ENOENT: command not found");
+					return fallback;
 				}
 			},
 		);
@@ -530,12 +537,16 @@ export const RubyServer: LSPServerInfo = {
 export const PHPServer: LSPServerInfo = {
 	id: "php",
 	name: "Intelephense",
+	installPolicy: "package-manager",
 	extensions: [".php"],
 	root: createRootDetector(["composer.json", "composer.lock"]),
 	async spawn(root) {
-		const proc = await launchViaPackageManager("intelephense", ["--stdio"], {
-			cwd: root,
-		});
+		const proc = await launchViaPackageManagerWithPolicy(
+			"intelephense",
+			["--stdio"],
+			{ cwd: root },
+		);
+		if (!proc) return undefined;
 		return {
 			process: proc,
 			initialization: { storagePath: path.join(__dirname, ".intelephense") },
@@ -546,6 +557,7 @@ export const PHPServer: LSPServerInfo = {
 export const CSharpServer: LSPServerInfo = {
 	id: "csharp",
 	name: "csharp-ls",
+	installPolicy: "interactive",
 	extensions: [".cs"],
 	root: createRootDetector([".sln", ".csproj", ".slnx"]),
 	async spawn(root) {
@@ -563,6 +575,7 @@ export const CSharpServer: LSPServerInfo = {
 export const FSharpServer: LSPServerInfo = {
 	id: "fsharp",
 	name: "FSAutocomplete",
+	installPolicy: "interactive",
 	extensions: [".fs", ".fsi", ".fsx"],
 	root: createRootDetector([".sln", ".fsproj"]),
 	async spawn(root) {
@@ -580,6 +593,7 @@ export const FSharpServer: LSPServerInfo = {
 export const JavaServer: LSPServerInfo = {
 	id: "java",
 	name: "JDT Language Server",
+	installPolicy: "interactive",
 	extensions: [".java"],
 	root: createRootDetector(["pom.xml", "build.gradle", ".classpath"]),
 	async spawn(root) {
@@ -598,6 +612,7 @@ export const JavaServer: LSPServerInfo = {
 export const KotlinServer: LSPServerInfo = {
 	id: "kotlin",
 	name: "Kotlin Language Server",
+	installPolicy: "interactive",
 	extensions: [".kt", ".kts"],
 	root: createRootDetector(["build.gradle.kts", "build.gradle", "pom.xml"]),
 	async spawn(root) {
@@ -615,6 +630,7 @@ export const KotlinServer: LSPServerInfo = {
 export const SwiftServer: LSPServerInfo = {
 	id: "swift",
 	name: "SourceKit-LSP",
+	installPolicy: "interactive",
 	extensions: [".swift"],
 	root: createRootDetector(["Package.swift"]),
 	async spawn(root) {
@@ -632,6 +648,7 @@ export const SwiftServer: LSPServerInfo = {
 export const DartServer: LSPServerInfo = {
 	id: "dart",
 	name: "Dart Analysis Server",
+	installPolicy: "interactive",
 	extensions: [".dart"],
 	root: createRootDetector(["pubspec.yaml"]),
 	async spawn(root) {
@@ -650,6 +667,7 @@ export const DartServer: LSPServerInfo = {
 export const LuaServer: LSPServerInfo = {
 	id: "lua",
 	name: "Lua Language Server",
+	installPolicy: "interactive",
 	extensions: [".lua"],
 	root: createRootDetector([".luarc.json", ".luacheckrc"]),
 	async spawn(root) {
@@ -667,6 +685,7 @@ export const LuaServer: LSPServerInfo = {
 export const CppServer: LSPServerInfo = {
 	id: "cpp",
 	name: "clangd",
+	installPolicy: "interactive",
 	extensions: [".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"],
 	root: createRootDetector([
 		"compile_commands.json",
@@ -689,6 +708,7 @@ export const CppServer: LSPServerInfo = {
 export const ZigServer: LSPServerInfo = {
 	id: "zig",
 	name: "ZLS",
+	installPolicy: "interactive",
 	extensions: [".zig", ".zon"],
 	root: createRootDetector(["build.zig"]),
 	async spawn(root) {
@@ -706,6 +726,7 @@ export const ZigServer: LSPServerInfo = {
 export const HaskellServer: LSPServerInfo = {
 	id: "haskell",
 	name: "Haskell Language Server",
+	installPolicy: "interactive",
 	extensions: [".hs", ".lhs"],
 	root: createRootDetector(["stack.yaml", "cabal.project", "*.cabal"]),
 	async spawn(root) {
@@ -724,6 +745,7 @@ export const HaskellServer: LSPServerInfo = {
 export const ElixirServer: LSPServerInfo = {
 	id: "elixir",
 	name: "ElixirLS",
+	installPolicy: "interactive",
 	extensions: [".ex", ".exs"],
 	root: createRootDetector(["mix.exs"]),
 	async spawn(root) {
@@ -741,6 +763,7 @@ export const ElixirServer: LSPServerInfo = {
 export const GleamServer: LSPServerInfo = {
 	id: "gleam",
 	name: "Gleam LSP",
+	installPolicy: "interactive",
 	extensions: [".gleam"],
 	root: createRootDetector(["gleam.toml"]),
 	async spawn(root) {
@@ -758,6 +781,7 @@ export const GleamServer: LSPServerInfo = {
 export const OCamlServer: LSPServerInfo = {
 	id: "ocaml",
 	name: "ocamllsp",
+	installPolicy: "interactive",
 	extensions: [".ml", ".mli"],
 	root: createRootDetector(["dune-project", "opam"]),
 	async spawn(root) {
@@ -775,6 +799,7 @@ export const OCamlServer: LSPServerInfo = {
 export const ClojureServer: LSPServerInfo = {
 	id: "clojure",
 	name: "Clojure LSP",
+	installPolicy: "interactive",
 	extensions: [".clj", ".cljs", ".cljc", ".edn"],
 	root: createRootDetector(["deps.edn", "project.clj"]),
 	async spawn(root) {
@@ -792,6 +817,7 @@ export const ClojureServer: LSPServerInfo = {
 export const TerraformServer: LSPServerInfo = {
 	id: "terraform",
 	name: "Terraform LSP",
+	installPolicy: "interactive",
 	extensions: [".tf", ".tfvars"],
 	root: createRootDetector([".terraform.lock.hcl"]),
 	async spawn(root) {
@@ -809,6 +835,7 @@ export const TerraformServer: LSPServerInfo = {
 export const NixServer: LSPServerInfo = {
 	id: "nix",
 	name: "nixd",
+	installPolicy: "interactive",
 	extensions: [".nix"],
 	root: createRootDetector(["flake.nix"]),
 	async spawn(root) {
@@ -845,15 +872,17 @@ export const BashServer: LSPServerInfo = {
 export const DockerServer: LSPServerInfo = {
 	id: "docker",
 	name: "Dockerfile Language Server",
+	installPolicy: "package-manager",
 	extensions: [".dockerfile", "Dockerfile"],
 	root: async () => process.cwd(),
 	async spawn() {
 		// Use npx since it's not auto-installed
-		const proc = await launchViaPackageManager(
+		const proc = await launchViaPackageManagerWithPolicy(
 			"dockerfile-language-server-nodejs",
 			["--stdio"],
-			{},
+			{ cwd: process.cwd() },
 		);
+		if (!proc) return undefined;
 		return { process: proc };
 	},
 };
@@ -900,15 +929,17 @@ export const JsonServer: LSPServerInfo = {
 export const PrismaServer: LSPServerInfo = {
 	id: "prisma",
 	name: "Prisma Language Server",
+	installPolicy: "package-manager",
 	extensions: [".prisma"],
 	root: createRootDetector(["prisma/schema.prisma"]),
 	async spawn(root) {
 		// Use npx since it's not auto-installed
-		const proc = await launchViaPackageManager(
+		const proc = await launchViaPackageManagerWithPolicy(
 			"@prisma/language-server",
 			["--stdio"],
 			{ cwd: root },
 		);
+		if (!proc) return undefined;
 		return { process: proc };
 	},
 };
@@ -984,6 +1015,7 @@ export const SvelteServer: LSPServerInfo = {
 export const ESLintServer: LSPServerInfo = {
 	id: "eslint",
 	name: "ESLint Language Server",
+	installPolicy: "package-manager",
 	extensions: [".js", ".jsx", ".vue", ".svelte"], // Note: .ts/.tsx handled by TypeScript LSP + Biome
 	root: createRootDetector([
 		".eslintrc",
@@ -996,11 +1028,12 @@ export const ESLintServer: LSPServerInfo = {
 	async spawn(root) {
 		// Try via package manager (npx) since it's not auto-installed
 		try {
-			const proc = await launchViaPackageManager(
+			const proc = await launchViaPackageManagerWithPolicy(
 				"vscode-eslint-language-server",
 				["--stdio"],
 				{ cwd: root },
 			);
+			if (!proc) return undefined;
 			return { process: proc };
 		} catch {
 			// Fall back to global install message
@@ -1015,15 +1048,17 @@ export const ESLintServer: LSPServerInfo = {
 export const CssServer: LSPServerInfo = {
 	id: "css",
 	name: "CSS Language Server",
+	installPolicy: "package-manager",
 	extensions: [".css", ".scss", ".sass", ".less"],
 	root: async () => process.cwd(),
 	async spawn() {
 		// Use npx since it's not auto-installed
-		const proc = await launchViaPackageManager(
+		const proc = await launchViaPackageManagerWithPolicy(
 			"vscode-css-languageserver",
 			["--stdio"],
-			{},
+			{ cwd: process.cwd() },
 		);
+		if (!proc) return undefined;
 		return { process: proc };
 	},
 };

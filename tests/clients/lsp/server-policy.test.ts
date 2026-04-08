@@ -31,6 +31,14 @@ afterEach(() => {
 });
 
 describe("lsp server policy", () => {
+	it("declares installPolicy for every built-in server", async () => {
+		const { LSP_SERVERS } = await import("../../../clients/lsp/server.js");
+		const missing = LSP_SERVERS.filter((server) => !server.installPolicy).map(
+			(server) => server.id,
+		);
+		expect(missing).toEqual([]);
+	});
+
 	it("prioritizes go.work root over go.mod", async () => {
 		const { PriorityRoot } = await import("../../../clients/lsp/server.js");
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-go-root-"));
