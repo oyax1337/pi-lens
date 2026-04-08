@@ -427,27 +427,121 @@ async function installPipTool(
 	packageName: string,
 ): Promise<string | undefined> {
 	try {
-		const pipCmd = process.platform === "win32" ? "pip" : "pip3";
 		const isWindows = process.platform === "win32";
-		const proc = spawn(pipCmd, ["install", "--user", packageName], {
-			stdio: ["ignore", "pipe", "pipe"],
-			shell: isWindows, // Required for .cmd files on Windows
-		});
+		const pipCandidates = isWindows
+			? [
+					{ command: "pip", args: ["install", "--user", packageName] },
+					{ command: "py", args: ["-m", "pip", "install", "--user", packageName] },
+					{
+						command: "python",
+						args: ["-m", "pip", "install", "--user", packageName],
+					},
+				]
+			: [
+					{ command: "pip3", args: ["install", "--user", packageName] },
+					{ command: "pip", args: ["install", "--user", packageName] },
+					{
+						command: "python3",
+						args: ["-m", "pip", "install", "--user", packageName],
+					},
+					{ command: "python", args: ["-m", "pip", "install", "--user", packageName] },
+				];
 
-		return new Promise((resolve, reject) => {
-			let stderr = "";
-			proc.stderr?.on("data", (data) => (stderr += data));
+		let lastError = "";
+		for (const candidate of pipCandidates) {
+			const outcome = await new Promise<{ ok: boolean; error: string }>((resolve) => {
+				const proc = spawn(candidate.command, candidate.args, {
+					stdio: ["ignore", "pipe", "pipe"],
+					shell: isWindows, // Required for .cmd files on Windows
+				});
 
-			proc.on("exit", (code) => {
-				if (code === 0) {
-					resolve(packageName); // pip installs to PATH
-				} else {
-					reject(new Error(`Failed to install ${packageName}: ${stderr}`));
-				}
+				let stderr = "";
+				proc.stderr?.on("data", (data) => (stderr += data));
+
+				proc.on("exit", (code) => {
+					if (code === 0) {
+						resolve({ ok: true, error: "" });
+					} else {
+						resolve({ ok: false, error: stderr.trim() });
+					}
+				});
+
+				proc.on("error", (err) => {
+					resolve({ ok: false, error: err.message });
+				});
 			});
 
-			proc.on("error", (err) => reject(err));
-		});
+			if (outcome.ok) {
+				// Ensure user-level scripts directory is available in current process PATH.
+				// This helps tools installed via `pip install --user` become immediately callable.
+				const userBaseResult = await new Promise<string>((resolve) => {
+					const probe = spawn(candidate.command, ["-m", "site", "--user-base"], {
+						stdio: ["ignore", "pipe", "pipe"],
+						shell: isWindows,
+					});
+					let stdout = "";
+					probe.stdout?.on("data", (data) => (stdout += data));
+					probe.on("exit", (code) => {
+						if (code === 0) resolve(stdout.trim());
+						else resolve("");
+					});
+					probe.on("error", () => resolve(""));
+				});
+
+				if (userBaseResult) {
+					const candidateScriptDirs: string[] = [
+						path.join(userBaseResult, isWindows ? "Scripts" : "bin"),
+					];
+
+					if (isWindows) {
+						// Some Python setups report USER_BASE as ...\Roaming\Python,
+						// while scripts live in ...\Roaming\Python\PythonXY\Scripts.
+						try {
+							const children = await fs.readdir(userBaseResult, {
+								withFileTypes: true,
+							});
+							for (const entry of children) {
+								if (!entry.isDirectory()) continue;
+								if (!/^python\d+$/i.test(entry.name)) continue;
+								candidateScriptDirs.push(
+									path.join(userBaseResult, entry.name, "Scripts"),
+								);
+							}
+						} catch {
+							// ignore
+						}
+					}
+
+					const currentPath = process.env.PATH || "";
+					const separator = isWindows ? ";" : ":";
+					const normalizedPath = currentPath
+						.toLowerCase()
+						.split(separator)
+						.map((p) => p.trim());
+
+					for (const scriptsDir of candidateScriptDirs) {
+						try {
+							await fs.access(scriptsDir);
+							if (!normalizedPath.includes(scriptsDir.toLowerCase())) {
+								process.env.PATH = `${scriptsDir}${separator}${process.env.PATH || ""}`;
+								debugLog(`Added pip user scripts dir to PATH: ${scriptsDir}`);
+							}
+						} catch {
+							debugLog(`pip user scripts dir not accessible: ${scriptsDir}`);
+						}
+					}
+				}
+
+				return packageName;
+			}
+
+			lastError = `${candidate.command} ${candidate.args.join(" ")}: ${outcome.error}`;
+			debugLog(`[pip-fallback] ${lastError}`);
+		}
+
+		throw new Error(
+			`Failed to install ${packageName}: no usable pip command found (${lastError || "unknown error"})`,
+		);
 	} catch (err) {
 		console.error(
 			`[auto-install] Failed to install ${packageName}: ${(err as Error).message}`,
