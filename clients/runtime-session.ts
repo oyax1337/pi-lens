@@ -182,6 +182,10 @@ export async function handleSessionStart(
 	dbg(
 		`session_start language profile: ${languageProfile.detectedKinds.join(", ") || "none"}`,
 	);
+	dbg(
+		`session_start language counts: ${JSON.stringify(languageProfile.counts)} configured=${JSON.stringify(languageProfile.configured)}`,
+	);
+	dbg(`session_start workspace cwd available: ${hasWorkspaceCwd}`);
 	if (analysisRoot !== cwd) {
 		dbg(`session_start: monorepo analysis root override -> ${analysisRoot}`);
 	}
@@ -282,6 +286,7 @@ export async function handleSessionStart(
 
 	if (hasWorkspaceCwd) {
 		const installHints = getLanguageInstallHints(languageProfile);
+		dbg(`session_start tooling hints count: ${installHints.length}`);
 		if (installHints.length > 0) {
 			startupNotes.push(`🧰 Tooling hints: ${installHints.join(" ")}`);
 		}

@@ -54,10 +54,12 @@ const _getExtensionDir = () => {
 	return ".";
 };
 
-const DEBUG_LOG = path.join(os.homedir(), "pi-lens-debug.log");
+const DEBUG_LOG_DIR = path.join(os.homedir(), ".pi-lens");
+const DEBUG_LOG = path.join(DEBUG_LOG_DIR, "sessionstart.log");
 function dbg(msg: string) {
 	const line = `[${new Date().toISOString()}] ${msg}\n`;
 	try {
+		nodeFs.mkdirSync(DEBUG_LOG_DIR, { recursive: true });
 		nodeFs.appendFileSync(DEBUG_LOG, line);
 	} catch (e) {
 		// Pipeline error logged
