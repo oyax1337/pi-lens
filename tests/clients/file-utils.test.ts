@@ -19,4 +19,11 @@ describe("file-utils exclusion matching", () => {
 		expect(isExcludedDirName("build-cache", ["build-*"])).toBe(true);
 		expect(isExcludedDirName("custom-in", ["custom-out"])).toBe(false);
 	});
+
+	it("excludes common agent/tooling directories", () => {
+		expect(isExcludedDirName(".claude")).toBe(true);
+		expect(isExcludedDirName(".codex")).toBe(true);
+		expect(isExcludedDirName(".worktrees")).toBe(true);
+		expect(isExcludedDirName(".vscode")).toBe(true);
+	});
 });

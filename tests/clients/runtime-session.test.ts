@@ -6,6 +6,7 @@ describe("runtime-session notifications", () => {
 	it("emits one compact startup info note and keeps critical warnings separate", async () => {
 		const env = setupTestEnvironment("pi-lens-runtime-session-");
 		const notify = vi.fn();
+		const scanDirectory = vi.fn(() => ({ items: [] }));
 
 		try {
 			await handleSessionStart({
@@ -44,7 +45,7 @@ describe("runtime-session notifications", () => {
 						return null;
 					},
 				},
-				todoScanner: { scanDirectory: () => ({ items: [] }) },
+				todoScanner: { scanDirectory },
 				astGrepClient: {
 					isAvailable: () => false,
 					ensureAvailable: async () => false,
@@ -82,6 +83,7 @@ describe("runtime-session notifications", () => {
 				true,
 			);
 			expect(warningCalls.some(([msg]) => msg.includes("ERROR DEBT"))).toBe(true);
+			expect(scanDirectory).not.toHaveBeenCalled();
 		} finally {
 			env.cleanup();
 		}
