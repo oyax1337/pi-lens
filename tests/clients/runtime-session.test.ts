@@ -76,9 +76,7 @@ describe("runtime-session notifications", () => {
 				([, level]) => level === "warning",
 			);
 
-			expect(infoCalls).toHaveLength(1);
-			expect(infoCalls[0][0]).toContain("pi-lens active");
-			expect(infoCalls[0][0]).toContain("lsp_navigation");
+			expect(infoCalls).toHaveLength(0);
 
 			expect(warningCalls.some(([msg]) => msg.includes("TypeScript build cache"))).toBe(
 				true,
