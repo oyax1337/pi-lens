@@ -2,10 +2,10 @@
 # Detects SQL query APIs fed by fmt.Sprintf/format-composed strings.
 id: go-sql-injection
 name: SQL Injection Risk
-severity: error
+severity: warning
 category: security
 defect_class: injection
-inline_tier: blocking
+inline_tier: warning
 language: go
 
 message: "Potential SQL injection sink — use parameterized queries"

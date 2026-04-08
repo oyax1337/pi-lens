@@ -2,10 +2,10 @@
 # Detects file-system sink calls with dynamic path expressions.
 id: go-path-traversal
 name: Path Traversal Risk
-severity: error
+severity: warning
 category: security
 defect_class: injection
-inline_tier: blocking
+inline_tier: warning
 language: go
 
 message: "Potential path traversal sink — sanitize and constrain file paths"

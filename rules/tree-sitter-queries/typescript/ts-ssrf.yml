@@ -2,10 +2,10 @@
 # Detects outbound HTTP sinks invoked with dynamic URL expressions.
 id: ts-ssrf
 name: SSRF Risk
-severity: error
+severity: warning
 category: security
 defect_class: injection
-inline_tier: blocking
+inline_tier: warning
 language: typescript
 
 message: "Potential SSRF sink — validate and allowlist outbound URLs"

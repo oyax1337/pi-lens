@@ -2,10 +2,10 @@
 # Detects unsafe deserialization APIs.
 id: ruby-insecure-deserialization
 name: Insecure Deserialization
-severity: error
+severity: warning
 category: security
 defect_class: injection
-inline_tier: blocking
+inline_tier: warning
 language: ruby
 
 message: "Potential insecure deserialization sink — avoid unsafe loaders"

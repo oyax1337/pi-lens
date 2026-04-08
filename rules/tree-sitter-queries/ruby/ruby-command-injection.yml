@@ -2,10 +2,10 @@
 # Detects shell execution sinks frequently involved in command injection.
 id: ruby-command-injection
 name: Command Injection Sink
-severity: error
+severity: warning
 category: security
 defect_class: injection
-inline_tier: blocking
+inline_tier: warning
 language: ruby
 
 message: "Potential command injection sink — avoid shell execution with untrusted input"

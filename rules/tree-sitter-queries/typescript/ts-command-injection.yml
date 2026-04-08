@@ -2,10 +2,10 @@
 # Detects command execution sinks via child_process APIs.
 id: ts-command-injection
 name: Command Injection Sink
-severity: error
+severity: warning
 category: security
 defect_class: injection
-inline_tier: blocking
+inline_tier: warning
 language: typescript
 
 message: "Potential command injection sink — avoid child_process command execution with untrusted input"

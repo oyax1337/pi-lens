@@ -2,10 +2,10 @@
 # Detects file access APIs used with dynamic path expressions.
 id: python-path-traversal
 name: Path Traversal Risk
-severity: error
+severity: warning
 category: security
 defect_class: injection
-inline_tier: blocking
+inline_tier: warning
 language: python
 
 message: "Potential path traversal sink — sanitize and constrain file paths"

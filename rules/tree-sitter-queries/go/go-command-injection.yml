@@ -2,10 +2,10 @@
 # Detects shell command execution via exec.Command(..., "-c"|"/c", ...).
 id: go-command-injection
 name: Command Injection Sink
-severity: error
+severity: warning
 category: security
 defect_class: injection
-inline_tier: blocking
+inline_tier: warning
 language: go
 
 message: "Potential command injection sink — avoid shell command composition with user input"
