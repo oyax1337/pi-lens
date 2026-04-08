@@ -115,7 +115,12 @@ const lspRunner: RunnerDefinition = {
 		}
 
 		if (lspDiags.length === 0) {
-			return { status: "skipped", diagnostics: [], semantic: "none" };
+			return {
+				status: "succeeded",
+				diagnostics: [],
+				semantic: "none",
+				rawOutput: "no-diagnostics",
+			};
 		}
 
 		// Convert LSP diagnostics to our format
