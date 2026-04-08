@@ -21,9 +21,10 @@ On every `write` and `edit`, pi-lens runs a fast, language-aware pipeline (check
 At `session_start`, pi-lens:
 
 - resets runtime state and diagnostic telemetry
-- detects project root and active tools
-- warms caches and optional indexes
-- preps LSP/tool installers when needed
+- detects project root, language profile, and active tools
+- applies language-aware startup defaults for tool preinstall
+- warms caches and optional indexes (with overlap/session guardrails)
+- emits missing-tool install hints for detected languages when relevant
 
 ### Turn End
 
@@ -94,12 +95,12 @@ Auto-install behavior depends on gate type:
 | `prettier` | Formatting fallback | Yes | Config-gated (Prettier dep or `package.json#prettier`) |
 | `yamllint` | YAML linting | Yes | Config-gated (`.yamllint*` / tool section / dep hint) |
 | `sqlfluff` | SQL linting/formatting | Yes | Config-gated (`.sqlfluff` / tool section / dep hint) |
-| `ruff` | Python lint/format/autofix | Yes | Flow/language-gated (Python file paths/runners) |
-| `typescript-language-server` | Unified LSP diagnostics | Yes | Flow-gated (LSP enabled; default on unless `--no-lsp`) |
+| `ruff` | Python lint/format/autofix | Yes | Language-default + flow-gated (Python detected; respects `--no-autofix-ruff`) |
+| `typescript-language-server` | Unified LSP diagnostics | Yes | Language-default + flow-gated (JS/TS detected and LSP enabled) |
 | `pyright` | Python type diagnostics fallback | Yes | Flow/language-gated (Python fallback paths) |
 | `@ast-grep/cli` (`sg`) | AST scans/search/replace | Yes | Operational prewarm + analysis flows |
-| `knip` | Dead code analysis | Yes | Operational prewarm + turn-end flows |
-| `jscpd` | Duplicate code detection | Yes | Operational prewarm + turn-end flows |
+| `knip` | Dead code analysis | Yes | Operational prewarm + turn-end flows (JS/TS language + config gated at startup) |
+| `jscpd` | Duplicate code detection | Yes | Operational prewarm + turn-end flows (JS/TS language + config gated at startup) |
 | `madge` | Circular dependency analysis | Yes | Turn-end analysis flow |
 
 LSP is enabled by default. pi-lens includes many language-server definitions (including up to 31+ servers), and activates them when the server is installed and the project/root detection matches the file.

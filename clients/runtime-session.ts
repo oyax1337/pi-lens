@@ -253,7 +253,8 @@ export async function handleSessionStart(
 	dbg(`session_start tools: ${tools.join(", ")}`);
 
 	const startupNotes: string[] = [];
-	startupNotes.push(
+	const agentStartupGuidance: string[] = [];
+	agentStartupGuidance.push(
 		"📌 pi-lens active — fix any errors you find (including pre-existing). Prefer: lsp_navigation for definitions/references, ast_grep_search for code patterns, grep for text/TODO search.",
 	);
 
@@ -276,6 +277,14 @@ export async function handleSessionStart(
 	const installHints = getLanguageInstallHints(languageProfile);
 	if (installHints.length > 0) {
 		startupNotes.push(`🧰 Tooling hints: ${installHints.join(" ")}`);
+	}
+
+	if (agentStartupGuidance.length > 0) {
+		cacheManager.writeCache(
+			"session-start-guidance",
+			{ content: agentStartupGuidance.join("\n") },
+			analysisRoot,
+		);
 	}
 
 	const sessionGeneration = runtime.sessionGeneration;

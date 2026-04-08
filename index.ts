@@ -29,7 +29,10 @@ import { captureSnapshot } from "./clients/metrics-history.js";
 import { findSimilarFunctions } from "./clients/project-index.js";
 import { RuffClient } from "./clients/ruff-client.js";
 import { RuntimeCoordinator } from "./clients/runtime-coordinator.js";
-import { consumeTurnEndFindings } from "./clients/runtime-context.js";
+import {
+	consumeSessionStartGuidance,
+	consumeTurnEndFindings,
+} from "./clients/runtime-context.js";
 import { handleSessionStart } from "./clients/runtime-session.js";
 import { handleToolResult } from "./clients/runtime-tool-result.js";
 import { handleTurnEnd } from "./clients/runtime-turn.js";
@@ -733,7 +736,14 @@ pi.on("turn_end", async (_event, ctx) => {
 (pi as any).on("context", async (_event: unknown, ctx: { cwd?: string }) => {
 	try {
 		const cwd = ctx.cwd ?? process.cwd();
-		return consumeTurnEndFindings(cacheManager, cwd);
+		const turnEndFindings = consumeTurnEndFindings(cacheManager, cwd);
+		const sessionGuidance = consumeSessionStartGuidance(cacheManager, cwd);
+		const messages = [
+			...(sessionGuidance?.messages ?? []),
+			...(turnEndFindings?.messages ?? []),
+		];
+		if (messages.length === 0) return;
+		return { messages };
 	} catch (err) {
 		dbg(`context event error: ${err}`);
 	}

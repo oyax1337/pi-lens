@@ -2,6 +2,23 @@
 
 All notable changes to pi-lens will be documented in this file.
 
+## [3.8.20] - 2026-04-08
+
+### Changed
+- **Session startup hardening** — background startup tasks now run with session-generation safety guards and startup in-flight tracking, preventing stale task writes across session boundaries.
+- **Turn-end overlap guardrails** — turn-end `knip`/`jscpd` checks now skip when the corresponding startup scan is still in-flight.
+- **Language-profile centralization** — startup and dispatch now share a centralized project language profile for supported language detection and LSP-capable kind policy.
+- **No-config startup defaults** — startup preinstall now applies language defaults (for example JS/TS -> `typescript-language-server`, Python -> `pyright`/`ruff`) while keeping heavy JS/TS scans config-gated.
+- **Language setup hints** — `session_start` now emits actionable install hints for detected Go/Rust/Ruby projects when key tools are missing.
+
+### Fixed
+- **TODO baseline scan resilience** — unreadable files are now skipped safely instead of crashing TODO scanning in cloud-synced projects.
+- **Startup scan gating consistency** — TODO warmup now respects startup warm-cache gating and avoids unnecessary scan work in restricted startup contexts.
+- **Path exclusion coverage** — shared exclusion list now includes common agent/tooling directories (`.claude`, `.codex`, `.worktrees`, `.vscode`, and related dirs).
+- **Ruff auto-install on Windows** — pip-based installation now supports fallback chains (`pip`, `py -m pip`, `python -m pip`) and process PATH normalization for user-level scripts.
+- **Installer race duplication** — concurrent `ensureTool(...)` calls are now deduplicated per tool to avoid duplicate install attempts/noisy logs.
+- **Python LSP root fallback** — Python LSP root detection now supports `.git` projects without Python config files.
+
 ## [3.8.19] - 2026-04-07
 
 ### Fixed

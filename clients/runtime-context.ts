@@ -25,3 +25,29 @@ export function consumeTurnEndFindings(
 		],
 	};
 }
+
+export function consumeSessionStartGuidance(
+	cacheManager: CacheManager,
+	cwd: string,
+): { messages: Array<{ role: "user"; content: string }> } | undefined {
+	const guidance = cacheManager.readCache<{ content: string }>(
+		"session-start-guidance",
+		cwd,
+	);
+	if (!guidance?.data?.content) return;
+
+	cacheManager.writeCache(
+		"session-start-guidance",
+		null as unknown as { content: string },
+		cwd,
+	);
+
+	return {
+		messages: [
+			{
+				role: "user",
+				content: `[pi-lens] Session guidance:\n\n${guidance.data.content}`,
+			},
+		],
+	};
+}
