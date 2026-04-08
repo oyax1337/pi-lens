@@ -1,0 +1,107 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { detectFileKind, type FileKind } from "./file-kinds.js";
+import { getSourceFiles } from "./scan-utils.js";
+
+export const SUPPORTED_FILE_KINDS: readonly FileKind[] = [
+	"jsts",
+	"python",
+	"go",
+	"rust",
+	"cxx",
+	"cmake",
+	"shell",
+	"json",
+	"markdown",
+	"css",
+	"yaml",
+	"sql",
+	"ruby",
+];
+
+export const LSP_CAPABLE_FILE_KINDS: readonly FileKind[] = [
+	"jsts",
+	"python",
+	"go",
+	"rust",
+	"ruby",
+	"cxx",
+	"cmake",
+	"shell",
+	"json",
+	"markdown",
+	"css",
+	"yaml",
+];
+
+const PROJECT_MARKERS_BY_KIND: Partial<Record<FileKind, readonly string[]>> = {
+	jsts: ["package.json", "tsconfig.json", "jsconfig.json"],
+	python: ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg"],
+	go: ["go.mod"],
+	rust: ["Cargo.toml"],
+	ruby: ["Gemfile", "Rakefile"],
+};
+
+export interface ProjectLanguageProfile {
+	present: Record<FileKind, boolean>;
+	counts: Partial<Record<FileKind, number>>;
+	detectedKinds: FileKind[];
+}
+
+export function detectProjectLanguageProfile(
+	projectRoot: string,
+	sourceFiles?: string[],
+): ProjectLanguageProfile {
+	const present = Object.fromEntries(
+		SUPPORTED_FILE_KINDS.map((kind) => [kind, false]),
+	) as Record<FileKind, boolean>;
+	const counts: Partial<Record<FileKind, number>> = {};
+
+	for (const [kind, markers] of Object.entries(PROJECT_MARKERS_BY_KIND)) {
+		if (!markers) continue;
+		for (const marker of markers) {
+			if (fs.existsSync(path.join(projectRoot, marker))) {
+				present[kind as FileKind] = true;
+				break;
+			}
+		}
+	}
+
+	let files = sourceFiles;
+	if (!files) {
+		try {
+			files = getSourceFiles(projectRoot, true);
+		} catch {
+			files = [];
+		}
+	}
+
+	for (const file of files) {
+		const kind = detectFileKind(file);
+		if (!kind) continue;
+		present[kind] = true;
+		counts[kind] = (counts[kind] ?? 0) + 1;
+	}
+
+	const detectedKinds = SUPPORTED_FILE_KINDS.filter((kind) => present[kind]);
+
+	return {
+		present,
+		counts,
+		detectedKinds,
+	};
+}
+
+export function hasLanguage(
+	profile: ProjectLanguageProfile,
+	kind: FileKind,
+): boolean {
+	return !!profile.present[kind];
+}
+
+export function hasAnyLanguage(
+	profile: ProjectLanguageProfile,
+	kinds: readonly FileKind[],
+): boolean {
+	return kinds.some((kind) => hasLanguage(profile, kind));
+}

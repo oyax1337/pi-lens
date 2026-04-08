@@ -7,6 +7,7 @@
 
 import { detectFileKind } from "../file-kinds.js";
 import type { FileKind } from "../file-kinds.js";
+import { LSP_CAPABLE_FILE_KINDS } from "../language-profile.js";
 import {
 	clearLatencyReports,
 	createBaselineStore,
@@ -40,20 +41,7 @@ import "./runners/index.js";
 // store, so baselines.get() always returns undefined and every issue
 // looks "new" every time.
 const sessionBaselines: BaselineStore = createBaselineStore();
-const LSP_CAPABLE_KINDS = new Set<FileKind>([
-	"jsts",
-	"python",
-	"go",
-	"rust",
-	"ruby",
-	"cxx",
-	"cmake",
-	"shell",
-	"json",
-	"markdown",
-	"css",
-	"yaml",
-]);
+const LSP_CAPABLE_KINDS = new Set<FileKind>(LSP_CAPABLE_FILE_KINDS);
 
 function withPrimaryLspGroup(
 	kind: keyof typeof TOOL_PLANS,

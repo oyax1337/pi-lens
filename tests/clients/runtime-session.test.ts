@@ -7,6 +7,7 @@ describe("runtime-session notifications", () => {
 		const env = setupTestEnvironment("pi-lens-runtime-session-");
 		const notify = vi.fn();
 		const scanDirectory = vi.fn(() => ({ items: [] }));
+		const ensureTool = vi.fn(async () => null);
 
 		try {
 			await handleSessionStart({
@@ -64,7 +65,7 @@ describe("runtime-session notifications", () => {
 				},
 				goClient: { isGoAvailable: () => false },
 				rustClient: { isAvailable: () => false },
-				ensureTool: async () => null,
+				ensureTool,
 				cleanStaleTsBuildInfo: () => ["tsconfig.tsbuildinfo"],
 				resetDispatchBaselines: () => {},
 				resetLSPService: () => {},
@@ -84,6 +85,7 @@ describe("runtime-session notifications", () => {
 			);
 			expect(warningCalls.some(([msg]) => msg.includes("ERROR DEBT"))).toBe(true);
 			expect(scanDirectory).not.toHaveBeenCalled();
+			expect(ensureTool).not.toHaveBeenCalled();
 		} finally {
 			env.cleanup();
 		}

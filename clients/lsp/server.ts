@@ -266,6 +266,7 @@ export const PythonServer: LSPServerInfo = {
 	name: "Pyright Language Server",
 	extensions: [".py", ".pyi"],
 	root: createRootDetector([
+		".git",
 		"pyproject.toml",
 		"setup.py",
 		"setup.cfg",
@@ -327,7 +328,9 @@ export const PythonServer: LSPServerInfo = {
 				try {
 					await fs.access(candidate);
 					langserverPath = candidate;
-					console.error(`[lsp] Found pyright-langserver: ${candidate}`);
+					if (process.env.PI_LENS_DEBUG === "1") {
+						console.error(`[lsp] Found pyright-langserver: ${candidate}`);
+					}
 					break;
 				} catch {
 					/* not found */
