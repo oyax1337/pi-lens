@@ -374,6 +374,26 @@ export const TypeScriptServer: LSPServerInfo = {
 			}
 		}
 
+		if (!tsserverPath && !isLspInstallDisabled()) {
+			const tscPath = await ensureTool("typescript");
+			if (tscPath) {
+				const managedTsserverCandidates = [
+					path.join(path.dirname(tscPath), "..", "typescript", "lib", "tsserver.js"),
+					path.join(path.dirname(tscPath), "..", "..", "typescript", "lib", "tsserver.js"),
+				];
+				for (const checkPath of managedTsserverCandidates) {
+					try {
+						await fs.access(checkPath);
+						tsserverPath = checkPath;
+						source = "managed";
+						break;
+					} catch {
+						/* not found */
+					}
+				}
+			}
+		}
+
 		// Use absolute path and proper environment
 		const env = await getToolEnvironment();
 		const proc = await launchLSP(lspPath, ["--stdio"], {

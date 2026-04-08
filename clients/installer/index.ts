@@ -94,6 +94,15 @@ const TOOLS: ToolDefinition[] = [
 		binaryName: "typescript-language-server",
 	},
 	{
+		id: "typescript",
+		name: "TypeScript",
+		checkCommand: "tsc",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "typescript",
+		binaryName: "tsc",
+	},
+	{
 		id: "pyright",
 		name: "Pyright",
 		checkCommand: "pyright",
