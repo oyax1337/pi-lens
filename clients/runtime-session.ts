@@ -226,33 +226,33 @@ export async function handleSessionStart(
 			});
 	};
 
-	// Fire off all heavy scans as background tasks — don't block session start.
+	// Fire off heavy scans as background tasks — don't block session start.
 	// Each consumer already handles the "not ready yet" case gracefully
 	// (cachedExports.size > 0, cachedProjectIndex != null, cache miss paths).
-
-	// TODO scan is lightweight and synchronous — run in background via promise
-	runStartupTask("todo", async () => {
-		if (!runtime.isCurrentSession(sessionGeneration)) return;
-		const todoResult = todoScanner.scanDirectory(analysisRoot);
-		if (!runtime.isCurrentSession(sessionGeneration)) return;
-		dbg(
-			`session_start TODO scan: ${todoResult.items.length} items (baseline stored)`,
-		);
-		cacheManager.writeCache(
-			"todo-baseline",
-			{ items: todoResult.items },
-			analysisRoot,
-		);
-	});
 
 	if (!startupScan.canWarmCaches) {
 		dbg(
 			`session_start: skipping heavy scans (${startupScan.reason ?? "unknown"})`,
 		);
+		dbg(`session_start: skipping TODO scan (${startupScan.reason ?? "unknown"})`);
 	} else {
 		dbg(
-			"session_start: launching background scans (knip, jscpd, ast-grep exports, project index)",
+			"session_start: launching background scans (todo, knip, jscpd, ast-grep exports, project index)",
 		);
+
+		runStartupTask("todo", async () => {
+			if (!runtime.isCurrentSession(sessionGeneration)) return;
+			const todoResult = todoScanner.scanDirectory(analysisRoot);
+			if (!runtime.isCurrentSession(sessionGeneration)) return;
+			dbg(
+				`session_start TODO scan: ${todoResult.items.length} items (baseline stored)`,
+			);
+			cacheManager.writeCache(
+				"todo-baseline",
+				{ items: todoResult.items },
+				analysisRoot,
+			);
+		});
 
 		// Knip — dead code / unused exports
 		runStartupTask("knip", async () => {

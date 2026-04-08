@@ -23,8 +23,19 @@ export const EXCLUDED_DIRS = [
 	".gradle",
 	".next",
 	".pi-lens",
-	".pi",              // pi agent directory
-	".ruff_cache",      // Python linter cache
+	".pi", // pi agent directory
+	".ruff_cache", // Python linter cache
+	".worktrees",
+	".claude",
+	".codex",
+	".rescue",
+	".agents",
+	".gstack",
+	".superpowers",
+	".guardrails",
+	".playwright-cli",
+	".playwright-mcp",
+	".vscode",
 	"venv",
 	".venv",
 	"coverage",

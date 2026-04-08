@@ -91,7 +91,12 @@ export class TodoScanner {
 		const absolutePath = path.resolve(filePath);
 		if (!fs.existsSync(absolutePath)) return [];
 
-		const content = fs.readFileSync(absolutePath, "utf-8");
+		let content: string;
+		try {
+			content = fs.readFileSync(absolutePath, "utf-8");
+		} catch {
+			return [];
+		}
 		const lines = content.split("\n");
 		const items: TodoItem[] = [];
 
