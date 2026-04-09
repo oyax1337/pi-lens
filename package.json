@@ -22,6 +22,7 @@
 		"rust:build:debug": "cargo build --manifest-path rust/Cargo.toml",
 		"check": "node scripts/check-extensions.mjs",
 		"audit:tree-sitter": "node scripts/audit-tree-sitter-rules.mjs",
+		"audit:rule-catalog": "node scripts/validate-rule-catalog.mjs",
 		"download-grammars": "node scripts/download-grammars.js",
 		"postinstall": "node scripts/download-grammars.js"
 	},
@@ -53,6 +54,7 @@
 		"scripts/download-grammars.js",
 		"scripts/check-extensions.mjs",
 		"scripts/audit-tree-sitter-rules.mjs",
+		"scripts/validate-rule-catalog.mjs",
 		"rust/src/",
 		"rust/Cargo.toml",
 		"default-architect.yaml",

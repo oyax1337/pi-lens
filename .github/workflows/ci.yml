@@ -22,6 +22,10 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Rule catalog report (non-blocking)
+        continue-on-error: true
+        run: npm run audit:rule-catalog
+
       - name: Pack tarball
         run: npm pack
 
