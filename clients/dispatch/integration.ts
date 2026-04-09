@@ -47,13 +47,21 @@ import { fileContentProvider } from "./facts/file-content.js";
 registerProvider(fileContentProvider);
 import { tryCatchFactProvider } from "./facts/try-catch-facts.js";
 registerProvider(tryCatchFactProvider);
+import { functionFactProvider } from "./facts/function-facts.js";
+registerProvider(functionFactProvider);
+import { commentFactProvider } from "./facts/comment-facts.js";
+registerProvider(commentFactProvider);
 
 // Register fact rules
 import { registerRule } from "./fact-rule-runner.js";
 import { errorObscuringRule } from "./rules/error-obscuring.js";
 import { errorSwallowingRule } from "./rules/error-swallowing.js";
+import { asyncNoiseRule } from "./rules/async-noise.js";
+import { passThroughWrappersRule } from "./rules/pass-through-wrappers.js";
 registerRule(errorObscuringRule);
 registerRule(errorSwallowingRule);
+registerRule(asyncNoiseRule);
+registerRule(passThroughWrappersRule);
 
 // --- Persistent Baseline Store ---
 // Survives across dispatchLint calls within a session.
@@ -152,6 +160,7 @@ export async function dispatchLint(
 		true,
 		modifiedRanges,
 	);
+	sessionFacts.clearFileFactsFor(ctx.filePath);
 
 	const kind = ctx.kind;
 	if (!kind) return "";
@@ -182,6 +191,7 @@ export async function dispatchLintWithResult(
 		true,
 		modifiedRanges,
 	);
+	sessionFacts.clearFileFactsFor(ctx.filePath);
 
 	const kind = ctx.kind;
 	if (!kind) {
