@@ -9,6 +9,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 const yamllint = createAvailabilityChecker("yamllint", ".exe");
 
@@ -83,7 +84,7 @@ function parseYamllintParsable(raw: string, filePath: string): Diagnostic[] {
 const yamllintRunner: RunnerDefinition = {
 	id: "yamllint",
 	appliesTo: ["yaml"],
-	priority: 22,
+	priority: PRIORITY.YAML_LINT,
 	enabledByDefault: true,
 	skipTestFiles: false,
 

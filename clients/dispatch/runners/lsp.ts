@@ -21,6 +21,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 import { readFileContent } from "./utils.js";
 
 const LSP_MAX_FILE_BYTES = RUNTIME_CONFIG.pipeline.lspMaxFileBytes;
@@ -69,7 +70,7 @@ const lspRunner: RunnerDefinition = {
 		"css",
 		"yaml",
 	],
-	priority: 4, // Run before everything (even ts-lsp was priority 5)
+	priority: PRIORITY.LSP_PRIMARY,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {

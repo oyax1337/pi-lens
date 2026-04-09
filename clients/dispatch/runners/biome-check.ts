@@ -18,6 +18,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 const BIOME_CONFIGS = ["biome.json", "biome.jsonc"];
 
@@ -52,12 +53,16 @@ interface BiomeDiagnostic {
 	tags?: string[];
 }
 
-function parseBiomeJson(raw: string, filePath: string): Diagnostic[] {
+function parseBiomeJson(
+	raw: string,
+	filePath: string,
+): { diagnostics: Diagnostic[]; parseError?: string } {
 	try {
 		const result = JSON.parse(raw);
 		const diagnostics: BiomeDiagnostic[] = result.diagnostics || [];
 
-		return diagnostics.map((d) => ({
+		return {
+			diagnostics: diagnostics.map((d) => ({
 			id: `biome:${d.category}:${d.location.start.line}`,
 			message: d.message,
 			filePath,
@@ -67,16 +72,20 @@ function parseBiomeJson(raw: string, filePath: string): Diagnostic[] {
 			semantic: d.severity === "error" ? "blocking" : ("warning" as const),
 			tool: "biome",
 			rule: d.category,
-		}));
-	} catch {
-		return [];
+			})),
+		};
+	} catch (err) {
+		return {
+			diagnostics: [],
+			parseError: err instanceof Error ? err.message : String(err),
+		};
 	}
 }
 
 const biomeCheckJsonRunner: RunnerDefinition = {
 	id: "biome-check-json",
 	appliesTo: ["jsts"],
-	priority: 10,
+	priority: PRIORITY.FORMAT_AND_LINT_PRIMARY,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
@@ -122,13 +131,36 @@ const biomeCheckJsonRunner: RunnerDefinition = {
 			{ timeout: 30000, cwd },
 		);
 
-		const diagnostics =
+		const parsed =
 			checkResult.status === 0 || checkResult.status === 1
 				? parseBiomeJson(
 						checkResult.stdout || checkResult.stderr || "",
 						ctx.filePath,
 					)
-				: [];
+				: { diagnostics: [] as Diagnostic[] };
+
+		if (parsed.parseError) {
+			const raw = checkResult.stdout || checkResult.stderr || "";
+			const preview = raw.replace(/\s+/g, " ").slice(0, 160);
+			return {
+				status: "failed",
+				diagnostics: [
+					{
+						id: "biome:parse-error:1",
+						message: `Biome JSON parse failed: ${parsed.parseError}${preview ? ` (output preview: ${preview})` : ""}`,
+						filePath: ctx.filePath,
+						line: 1,
+						column: 1,
+						severity: "warning",
+						semantic: "warning",
+						tool: "biome",
+					},
+				],
+				semantic: "warning",
+			};
+		}
+
+		const diagnostics = parsed.diagnostics;
 
 		// Step 2: Auto-fix (silently)
 		await safeSpawnAsync(

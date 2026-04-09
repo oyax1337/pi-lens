@@ -16,12 +16,13 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 import { readFileContent } from "./utils.js";
 
 const tsLspRunner: RunnerDefinition = {
 	id: "ts-lsp",
 	appliesTo: ["jsts"],
-	priority: 5,
+	priority: PRIORITY.LSP_FALLBACK,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {

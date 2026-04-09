@@ -18,6 +18,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 import {
 	createConfigFinder,
 	getSgCommand,
@@ -29,7 +30,7 @@ const findSlopConfig = createConfigFinder("python-slop-rules");
 const pythonSlopRunner: RunnerDefinition = {
 	id: "python-slop",
 	appliesTo: ["python"],
-	priority: 25, // Between pyright (5) and ruff (10)
+	priority: PRIORITY.PYTHON_SLOP,
 	enabledByDefault: true,
 	skipTestFiles: true, // Slop rules can be noisy in test files
 

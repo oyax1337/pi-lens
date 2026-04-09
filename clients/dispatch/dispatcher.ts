@@ -26,6 +26,7 @@ import { RUNTIME_CONFIG } from "../runtime-config.js";
 import { safeSpawnAsync } from "../safe-spawn.js";
 import { classifyDiagnostic } from "./diagnostic-taxonomy.js";
 import { resolveRunnerPath } from "./runner-context.js";
+import { getToolProfile } from "./tool-profile.js";
 import type {
 	BaselineStore,
 	Diagnostic,
@@ -127,7 +128,7 @@ export function createDispatchContext(
 	filePath: string,
 	cwd: string,
 	pi: PiAgentAPI,
-	baselines?: BaselineStore,
+	baselines: BaselineStore,
 	blockingOnly?: boolean,
 	modifiedRanges?: import("./types.js").ModifiedRange[],
 ): DispatchContext {
@@ -144,7 +145,7 @@ export function createDispatchContext(
 		pi,
 		autofix: !!(pi.getFlag("autofix-biome") || pi.getFlag("autofix-ruff")),
 		deltaMode: !pi.getFlag("no-delta"),
-		baselines: baselines ?? createBaselineStore(),
+		baselines,
 		blockingOnly,
 		modifiedRanges,
 
@@ -186,14 +187,7 @@ function semanticRank(semantic: OutputSemantic): number {
 }
 
 function toolPriority(tool: string, defectClass: string): number {
-	const t = tool.toLowerCase();
-	if (defectClass === "silent-error" && t === "tree-sitter") return 200;
-	if (t === "lsp" || t === "ts-lsp") return 120;
-	if (t === "eslint") return 110;
-	if (t.includes("biome")) return 100;
-	if (t === "tree-sitter") return 90;
-	if (t.includes("ast-grep")) return 80;
-	return 50;
+	return getToolProfile(tool, defectClass).dedupPriority;
 }
 
 function dedupeOverlappingDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
@@ -228,19 +222,7 @@ function suppressLintOverlapsWithLsp(diagnostics: Diagnostic[]): Diagnostic[] {
 	const lspBySpanClass = new Set<string>();
 	const lspByLine = new Set<string>();
 	const isLintTool = (tool: string): boolean => {
-		const t = tool.toLowerCase();
-		return (
-			t === "eslint" ||
-			t.includes("biome") ||
-			t === "ruff-lint" ||
-			t === "oxlint" ||
-			t === "rubocop" ||
-			t === "go-vet" ||
-			t === "golangci-lint" ||
-			t === "rust-clippy" ||
-			t === "shellcheck" ||
-			t === "type-safety"
-		);
+		return getToolProfile(tool).lintLike;
 	};
 
 	for (const d of diagnostics) {
@@ -809,7 +791,7 @@ export async function dispatchLint(
 	filePath: string,
 	cwd: string,
 	pi: PiAgentAPI,
-	baselines?: BaselineStore,
+	baselines: BaselineStore,
 ): Promise<string> {
 	// By default, only run BLOCKING rules for fast feedback on file write
 	const ctx = createDispatchContext(filePath, cwd, pi, baselines, true);

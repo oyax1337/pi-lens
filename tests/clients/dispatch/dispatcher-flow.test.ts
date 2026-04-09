@@ -563,7 +563,12 @@ describe("Dispatch Flow", () => {
 			const mockPi = {
 				getFlag: (f: string) => f === "autofix-biome",
 			};
-			const ctx = createDispatchContext("test.ts", "/project", mockPi);
+			const ctx = createDispatchContext(
+				"test.ts",
+				"/project",
+				mockPi,
+				createBaselineStore(),
+			);
 			const groups: RunnerGroup[] = [
 				{ mode: "all", runnerIds: ["conditional"] },
 			];
@@ -580,7 +585,12 @@ describe("Dispatch Flow", () => {
 			);
 
 			const mockPi = { getFlag: () => false };
-			const ctx = createDispatchContext("test.ts", "/project", mockPi);
+			const ctx = createDispatchContext(
+				"test.ts",
+				"/project",
+				mockPi,
+				createBaselineStore(),
+			);
 			const groups: RunnerGroup[] = [
 				{ mode: "all", runnerIds: ["conditional"] },
 			];
@@ -633,5 +643,5 @@ describe("Dispatch Flow", () => {
 function createMockContext(filePath: string) {
 	return createDispatchContext(filePath, "/project", {
 		getFlag: () => false,
-	});
+	}, createBaselineStore());
 }

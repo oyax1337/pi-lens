@@ -17,6 +17,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 import {
 	calculateRuleComplexity,
 	hasUnsupportedConditions,
@@ -389,7 +390,7 @@ function getAllNodes(node: any, currentDepth: number): unknown[] {
 const astGrepNapiRunner: RunnerDefinition = {
 	id: "ast-grep-napi",
 	appliesTo: ["jsts"],
-	priority: 15,
+	priority: PRIORITY.SPECIALIZED_ANALYSIS,
 	enabledByDefault: true,
 	skipTestFiles: true,
 

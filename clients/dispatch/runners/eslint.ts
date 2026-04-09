@@ -17,6 +17,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 const ESLINT_CONFIGS = [
 	".eslintrc",
@@ -75,7 +76,10 @@ interface EslintFileResult {
 	messages: EslintMessage[];
 }
 
-function parseEslintJson(raw: string, filePath: string): Diagnostic[] {
+function parseEslintJson(
+	raw: string,
+	filePath: string,
+): { diagnostics: Diagnostic[]; parseError?: string } {
 	try {
 		const results: EslintFileResult[] = JSON.parse(raw);
 		const diagnostics: Diagnostic[] = [];
@@ -98,16 +102,19 @@ function parseEslintJson(raw: string, filePath: string): Diagnostic[] {
 			}
 		}
 
-		return diagnostics;
-	} catch {
-		return [];
+		return { diagnostics };
+	} catch (err) {
+		return {
+			diagnostics: [],
+			parseError: err instanceof Error ? err.message : String(err),
+		};
 	}
 }
 
 const eslintRunner: RunnerDefinition = {
 	id: "eslint",
 	appliesTo: ["jsts"],
-	priority: 12,
+	priority: PRIORITY.LINT_SECONDARY,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
@@ -166,7 +173,28 @@ const eslintRunner: RunnerDefinition = {
 			return { status: "succeeded", diagnostics: [], semantic: "none" };
 		}
 
-		const diagnostics = parseEslintJson(raw, ctx.filePath);
+		const parsed = parseEslintJson(raw, ctx.filePath);
+		if (parsed.parseError && raw.trim().length > 0) {
+			const preview = raw.replace(/\s+/g, " ").slice(0, 160);
+			return {
+				status: "failed",
+				diagnostics: [
+					{
+						id: "eslint:parse-error:1",
+						message: `ESLint JSON parse failed: ${parsed.parseError}${preview ? ` (output preview: ${preview})` : ""}`,
+						filePath: ctx.filePath,
+						line: 1,
+						column: 1,
+						severity: "warning",
+						semantic: "warning",
+						tool: "eslint",
+					},
+				],
+				semantic: "warning",
+			};
+		}
+
+		const diagnostics = parsed.diagnostics;
 		if (diagnostics.length === 0) {
 			return { status: "succeeded", diagnostics: [], semantic: "none" };
 		}

@@ -9,6 +9,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 const sqlfluff = createAvailabilityChecker("sqlfluff", ".exe");
 
@@ -90,7 +91,7 @@ function parseSqlfluffOutput(raw: string, filePath: string): Diagnostic[] {
 const sqlfluffRunner: RunnerDefinition = {
 	id: "sqlfluff",
 	appliesTo: ["sql"],
-	priority: 24,
+	priority: PRIORITY.SQL_LINT,
 	enabledByDefault: true,
 	skipTestFiles: false,
 

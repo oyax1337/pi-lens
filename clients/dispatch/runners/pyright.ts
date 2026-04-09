@@ -16,6 +16,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 import { createAvailabilityChecker } from "./utils/runner-helpers.js";
 
 const pyright = createAvailabilityChecker("pyright", ".exe");
@@ -23,7 +24,7 @@ const pyright = createAvailabilityChecker("pyright", ".exe");
 const pyrightRunner: RunnerDefinition = {
 	id: "pyright",
 	appliesTo: ["python"],
-	priority: 5, // Higher priority than ruff (10) - type errors are more important
+	priority: PRIORITY.LSP_FALLBACK,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {

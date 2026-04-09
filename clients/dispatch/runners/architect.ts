@@ -17,6 +17,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 import { readFileContent } from "./utils.js";
 
 // Module-level singleton — loadConfig once per cwd, not on every file write
@@ -40,7 +41,7 @@ function getClient(cwd: string): ArchitectClient {
 const architectRunner: RunnerDefinition = {
 	id: "architect",
 	appliesTo: ["jsts", "python", "go", "rust", "cxx", "shell", "cmake"],
-	priority: 40,
+	priority: PRIORITY.ARCHITECTURE,
 	enabledByDefault: true,
 	skipTestFiles: true, // Skip test files - rules can be noisy there
 

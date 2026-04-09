@@ -10,13 +10,14 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 import { createBiomeParser } from "./utils/diagnostic-parsers.js";
 import { biome } from "./utils/runner-helpers.js";
 
 const biomeRunner: RunnerDefinition = {
 	id: "biome-lint",
 	appliesTo: ["jsts", "json"],
-	priority: 10,
+	priority: PRIORITY.FORMAT_AND_LINT_PRIMARY,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {

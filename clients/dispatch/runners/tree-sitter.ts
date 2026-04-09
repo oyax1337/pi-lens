@@ -22,6 +22,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 // Module-level singleton: web-tree-sitter WASM must only be initialized once per process.
 // Creating a new TreeSitterClient() on every write resets TRANSFER_BUFFER (a module-level
@@ -361,7 +362,7 @@ function getSharedClient(): TreeSitterClient {
 const treeSitterRunner: RunnerDefinition = {
 	id: "tree-sitter",
 	appliesTo: ["jsts", "python", "go", "rust", "ruby"],
-	priority: 14, // Between oxlint (12) and ast-grep-napi (15)
+	priority: PRIORITY.STRUCTURAL_ANALYSIS,
 	enabledByDefault: true,
 	skipTestFiles: false, // Run on test files too (structural issues matter there)
 

@@ -24,6 +24,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 // Singleton Rust client — initialised once, reused across runner invocations.
 const rustClient = new NativeRustCoreClient();
@@ -97,7 +98,7 @@ export function hasMeaningfulNameOverlap(sourceName: string, targetName: string)
 const similarityRunner: RunnerDefinition = {
 	id: "similarity",
 	appliesTo: ["jsts"], // TypeScript/JavaScript only for MVP
-	priority: 35, // After ts-lsp, before ast-grep
+	priority: PRIORITY.SIMILARITY,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {

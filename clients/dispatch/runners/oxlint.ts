@@ -14,6 +14,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 import { createAvailabilityChecker } from "./utils/runner-helpers.js";
 
 const oxlint = createAvailabilityChecker("oxlint", ".exe");
@@ -21,7 +22,7 @@ const oxlint = createAvailabilityChecker("oxlint", ".exe");
 const oxlintRunner: RunnerDefinition = {
 	id: "oxlint",
 	appliesTo: ["jsts"],
-	priority: 12,
+	priority: PRIORITY.LINT_SECONDARY,
 	enabledByDefault: false, // Opt-in: may conflict with ESLint in existing projects
 	skipTestFiles: true,
 

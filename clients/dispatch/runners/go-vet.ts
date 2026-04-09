@@ -12,11 +12,12 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 const goVetRunner: RunnerDefinition = {
 	id: "go-vet",
 	appliesTo: ["go"],
-	priority: 15,
+	priority: PRIORITY.SPECIALIZED_ANALYSIS,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {

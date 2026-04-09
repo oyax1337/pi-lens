@@ -18,6 +18,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 function findRubocop(cwd: string): { cmd: string; args: string[] } {
 	// Prefer bundle exec if Gemfile exists
@@ -93,7 +94,7 @@ function parseRubocopJson(raw: string, filePath: string): Diagnostic[] {
 const rubocopRunner: RunnerDefinition = {
 	id: "rubocop",
 	appliesTo: ["ruby"],
-	priority: 10,
+	priority: PRIORITY.FORMAT_AND_LINT_PRIMARY,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {

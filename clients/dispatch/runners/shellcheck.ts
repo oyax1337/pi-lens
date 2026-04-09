@@ -30,6 +30,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 const shellcheck = createAvailabilityChecker("shellcheck", ".exe");
 
@@ -129,7 +130,7 @@ function parseShellcheckOutput(raw: string, filePath: string): Diagnostic[] {
 const shellcheckRunner: RunnerDefinition = {
 	id: "shellcheck",
 	appliesTo: ["shell"],
-	priority: 20,
+	priority: PRIORITY.GENERAL_ANALYSIS,
 	enabledByDefault: true,
 	skipTestFiles: false, // Shell scripts in test directories should still be checked
 

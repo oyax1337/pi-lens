@@ -13,12 +13,13 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 import { readFileContent } from "./utils.js";
 
 const typeSafetyRunner: RunnerDefinition = {
 	id: "type-safety",
 	appliesTo: ["jsts"],
-	priority: 20,
+	priority: PRIORITY.GENERAL_ANALYSIS,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {

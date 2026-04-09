@@ -27,6 +27,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 const typos = createAvailabilityChecker("typos", ".exe");
 
@@ -91,7 +92,7 @@ function parseTyposOutput(raw: string, filePath: string): Diagnostic[] {
 const spellcheckRunner: RunnerDefinition = {
 	id: "spellcheck",
 	appliesTo: ["markdown"],
-	priority: 30, // Run after code quality checks (biome=10, slop=25)
+	priority: PRIORITY.DOC_QUALITY,
 	enabledByDefault: true,
 	skipTestFiles: false, // Check docs in test files too
 

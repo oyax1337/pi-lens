@@ -15,11 +15,12 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 const rustClippyRunner: RunnerDefinition = {
 	id: "rust-clippy",
 	appliesTo: ["rust"],
-	priority: 15,
+	priority: PRIORITY.SPECIALIZED_ANALYSIS,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {

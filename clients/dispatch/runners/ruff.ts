@@ -14,6 +14,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 import { parseRuffOutput } from "./utils/diagnostic-parsers.js";
 import { createAvailabilityChecker } from "./utils/runner-helpers.js";
 
@@ -55,7 +56,7 @@ function parseRuffJson(raw: string, filePath: string): Diagnostic[] {
 const ruffRunner: RunnerDefinition = {
 	id: "ruff-lint",
 	appliesTo: ["python"],
-	priority: 10,
+	priority: PRIORITY.FORMAT_AND_LINT_PRIMARY,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {

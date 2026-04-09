@@ -21,6 +21,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
+import { PRIORITY } from "../priorities.js";
 
 const GOLANGCI_CONFIGS = [
 	".golangci.yml",
@@ -82,7 +83,7 @@ function parseGolangciJson(raw: string, filePath: string): Diagnostic[] {
 const golangciRunner: RunnerDefinition = {
 	id: "golangci-lint",
 	appliesTo: ["go"],
-	priority: 20,
+	priority: PRIORITY.GENERAL_ANALYSIS,
 	enabledByDefault: true,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
