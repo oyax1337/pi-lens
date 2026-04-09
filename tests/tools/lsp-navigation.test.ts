@@ -19,6 +19,15 @@ describe("lsp_navigation tool", () => {
 			hasLSP: vi.fn().mockResolvedValue(true),
 			openFile: vi.fn().mockResolvedValue(undefined),
 			getOperationSupport: vi.fn().mockResolvedValue(null),
+			references: vi.fn().mockResolvedValue([
+				{
+					uri: "file:///tmp/sample.ts",
+					range: {
+						start: { line: 1, character: 1 },
+						end: { line: 1, character: 5 },
+					},
+				},
+			]),
 			workspaceSymbol: vi.fn().mockResolvedValue([]),
 			incomingCalls: vi.fn().mockResolvedValue([]),
 			outgoingCalls: vi.fn().mockResolvedValue([]),
@@ -137,6 +146,30 @@ describe("lsp_navigation tool", () => {
 				(mocked.service as { workspaceSymbol: ReturnType<typeof vi.fn> })
 					.workspaceSymbol,
 			).toHaveBeenCalledTimes(2);
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it("adds low-count references hint for usage-side calls", async () => {
+		const tool = createLspNavigationTool((flag) => flag === "lens-lsp");
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-lsp-nav-"));
+		const filePath = path.join(tmpDir, "refs.ts");
+		fs.writeFileSync(filePath, "const a = normalizeMapKey('x');\n");
+
+		try {
+			const result = await tool.execute(
+				"5",
+				{ operation: "references", filePath, line: 1, character: 12 },
+				new AbortController().signal,
+				null,
+				{ cwd: "." },
+			);
+
+			expect(result.isError).toBeUndefined();
+			expect(String(result.content[0]?.text)).toContain(
+				"references from usage sites can be partial",
+			);
 		} finally {
 			fs.rmSync(tmpDir, { recursive: true, force: true });
 		}

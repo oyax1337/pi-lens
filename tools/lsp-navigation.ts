@@ -68,7 +68,7 @@ export function createLspNavigationTool(
 	return {
 		name: "lsp_navigation" as const,
 		label: "LSP Navigate",
-		description:
+			description:
 			"Navigate code using LSP (Language Server Protocol). Requires --lens-lsp flag.\n" +
 			"Operations:\n" +
 			"- definition: Jump to where a symbol is defined\n" +
@@ -76,7 +76,7 @@ export function createLspNavigationTool(
 			"- hover: Get type/doc info at a position\n" +
 			"- signatureHelp: Show callable signatures at cursor\n" +
 			"- documentSymbol: List all symbols (functions/classes/vars) in a file\n" +
-			"- workspaceSymbol: Search symbols across the whole project\n" +
+			"- workspaceSymbol: Search symbols across the whole project (best with filePath context)\n" +
 			"- codeAction: Find available quick fixes/refactors at a range\n" +
 			"- rename: Compute workspace edits for renaming a symbol\n" +
 			"- implementation: Jump to interface implementations\n" +
@@ -143,7 +143,8 @@ export function createLspNavigationTool(
 			),
 			query: Type.Optional(
 				Type.String({
-					description: "Symbol name to search. Used by workspaceSymbol",
+					description:
+						"Symbol name to search. Used by workspaceSymbol (best with filePath for active project context).",
 				}),
 			),
 			callHierarchyItem: Type.Optional(
@@ -488,6 +489,14 @@ export function createLspNavigationTool(
 			if (isEmpty && operation === "workspaceSymbol" && !rawPath) {
 				output +=
 					"\nHint: provide filePath to scope workspaceSymbol to the active language server/root.";
+			}
+			if (
+				operation === "references" &&
+				Array.isArray(result) &&
+				result.length <= 2
+			) {
+				output +=
+					"\nHint: references from usage sites can be partial; retry from the symbol definition for broader cross-file results.";
 			}
 
 			return {
