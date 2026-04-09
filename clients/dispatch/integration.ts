@@ -11,6 +11,7 @@ import {
 	getLspCapableKinds,
 	getPrimaryDispatchGroup,
 } from "../language-policy.js";
+import { FactStore } from "./fact-store.js";
 import {
 	clearLatencyReports,
 	clearCoverageNoticeState,
@@ -45,6 +46,7 @@ import "./runners/index.js";
 // store, so baselines.get() always returns undefined and every issue
 // looks "new" every time.
 const sessionBaselines: BaselineStore = createBaselineStore();
+const sessionFacts = new FactStore();
 const LSP_CAPABLE_KINDS = new Set<FileKind>(getLspCapableKinds());
 
 function withPrimaryPolicyGroup(
@@ -105,6 +107,7 @@ export function getDispatchGroupsForKind(
  */
 export function resetDispatchBaselines(): void {
 	sessionBaselines.clear();
+	sessionFacts.clearAll();
 	clearCoverageNoticeState();
 }
 
@@ -130,6 +133,7 @@ export async function dispatchLint(
 		cwd,
 		pi,
 		sessionBaselines,
+		sessionFacts,
 		true,
 		modifiedRanges,
 	);
@@ -158,6 +162,7 @@ export async function dispatchLintWithResult(
 		cwd,
 		pi,
 		sessionBaselines,
+		sessionFacts,
 		true,
 		modifiedRanges,
 	);

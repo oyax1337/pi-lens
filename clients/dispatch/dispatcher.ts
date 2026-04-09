@@ -25,6 +25,7 @@ import { normalizeMapKey } from "../path-utils.js";
 import { RUNTIME_CONFIG } from "../runtime-config.js";
 import { safeSpawnAsync } from "../safe-spawn.js";
 import { classifyDiagnostic } from "./diagnostic-taxonomy.js";
+import { FactStore } from "./fact-store.js";
 import { resolveRunnerPath } from "./runner-context.js";
 import { getToolProfile } from "./tool-profile.js";
 import type {
@@ -129,6 +130,7 @@ export function createDispatchContext(
 	cwd: string,
 	pi: PiAgentAPI,
 	baselines: BaselineStore,
+	facts: FactStore,
 	blockingOnly?: boolean,
 	modifiedRanges?: import("./types.js").ModifiedRange[],
 ): DispatchContext {
@@ -146,6 +148,7 @@ export function createDispatchContext(
 		autofix: !!(pi.getFlag("autofix-biome") || pi.getFlag("autofix-ruff")),
 		deltaMode: !pi.getFlag("no-delta"),
 		baselines,
+		facts,
 		blockingOnly,
 		modifiedRanges,
 
@@ -787,6 +790,12 @@ async function runRunner(
 
 // --- Simple Integration Helper ---
 
+/**
+ * @internal
+ * Low-level dispatch entry point. Use `dispatchLint` from `./integration.js` instead —
+ * that version provides session-persistent baselines and FactStore.
+ * This function creates an ephemeral FactStore per call; facts do not persist across calls.
+ */
 export async function dispatchLint(
 	filePath: string,
 	cwd: string,
@@ -794,7 +803,7 @@ export async function dispatchLint(
 	baselines: BaselineStore,
 ): Promise<string> {
 	// By default, only run BLOCKING rules for fast feedback on file write
-	const ctx = createDispatchContext(filePath, cwd, pi, baselines, true);
+	const ctx = createDispatchContext(filePath, cwd, pi, baselines, new FactStore(), true);
 
 	// Get runners for this file kind
 	const runners = getRunnersForKind(ctx.kind);

@@ -136,6 +136,7 @@ export interface DispatchContext {
 	readonly autofix: boolean;
 	readonly deltaMode: boolean;
 	readonly baselines: BaselineStore;
+	readonly facts: import("./fact-store.js").FactStore;
 	/** Only run blocking rules (severity: error) - used for fast feedback on file write */
 	readonly blockingOnly?: boolean;
 	readonly modifiedRanges?: ModifiedRange[];
