@@ -29,6 +29,8 @@ metavars:
   - FN
   - ARGS
 
+post_filter: ts_insecure_random_source
+
 cwe:
   - CWE-330
 owasp:

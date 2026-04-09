@@ -33,6 +33,8 @@ metavars:
   - FN
   - URL
 
+post_filter: ts_ssrf_sink
+
 has_fix: false
 
 tags:

@@ -941,6 +941,64 @@ export class TreeSitterClient {
 					}
 				}
 
+				// TS security/concurrency: strict sink filtering (query predicates are not reliable in this runtime)
+				if (postFilter === "ts_command_injection_sink") {
+					const mod = captures.MOD?.text ?? "";
+					const fn = captures.FN?.text ?? "";
+					if (mod !== "child_process") continue;
+					if (!/^(exec|execSync)$/.test(fn)) continue;
+				}
+
+				if (postFilter === "ts_ssrf_sink") {
+					const fn = captures.FN?.text ?? "";
+					const obj = captures.OBJ?.text ?? "";
+					const allowedFns = new Set([
+						"fetch",
+						"request",
+						"get",
+						"post",
+						"put",
+						"patch",
+						"delete",
+					]);
+					if (!allowedFns.has(fn)) continue;
+
+					if (!obj) {
+						if (fn !== "fetch") continue;
+					} else {
+						const allowedObjs = new Set([
+							"axios",
+							"http",
+							"https",
+							"got",
+							"request",
+							"superagent",
+							"undici",
+						]);
+						if (!allowedObjs.has(obj)) continue;
+					}
+				}
+
+				if (postFilter === "ts_weak_hash_algorithm") {
+					const fn = captures.FN?.text ?? "";
+					const alg = captures.ALG?.text ?? "";
+					if (fn !== "createHash") continue;
+					if (!/^(md5|sha1)$/i.test(alg)) continue;
+				}
+
+				if (postFilter === "ts_insecure_random_source") {
+					const obj = captures.OBJ?.text ?? "";
+					const fn = captures.FN?.text ?? "";
+					if (obj !== "Math" || fn !== "random") continue;
+				}
+
+				if (postFilter === "ts_detached_async_call") {
+					const fn = captures.FN?.text ?? "";
+					if (!/(Async$|fetch$|request$)/.test(fn)) {
+						continue;
+					}
+				}
+
 				// Use first capture for position info
 				if (match.captures.length > 0) {
 					const firstNode = match.captures[0].node;

@@ -24,11 +24,13 @@ query: |
           property: (property_identifier) @FN)
       ]
       arguments: (arguments) @ARGS))
-  (#match? @FN "(Async$|fetch$|request$|create$|update$|delete$|save$)")
+  (#match? @FN "(Async$|fetch$|request$)")
 
 metavars:
   - FN
   - ARGS
+
+post_filter: ts_detached_async_call
 
 cwe:
   - CWE-703

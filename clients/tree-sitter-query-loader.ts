@@ -308,8 +308,9 @@ export class TreeSitterQueryLoader {
 				break;
 			}
 
-			// Skip comment lines (they're not part of the value)
-			if (trimmed.startsWith("#")) continue;
+			// Skip YAML comment lines for most keys, but preserve native
+			// tree-sitter predicate lines in query blocks (#eq?, #match?, ...).
+			if (trimmed.startsWith("#") && key !== "query") continue;
 
 			// This is part of the multiline value
 			valueLines.push(line.slice(startIndent));

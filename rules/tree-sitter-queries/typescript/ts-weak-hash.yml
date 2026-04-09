@@ -29,6 +29,8 @@ metavars:
   - FN
   - ALG
 
+post_filter: ts_weak_hash_algorithm
+
 cwe:
   - CWE-327
 owasp:

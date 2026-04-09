@@ -62,6 +62,7 @@ migrate-*.js
 # Local-only docs (not in git or npm)
 docs/features.md
 docs/plans/
+internal_docs/
 
 # Auto-generated reports (CAPS)
 ANALYSIS_*.md

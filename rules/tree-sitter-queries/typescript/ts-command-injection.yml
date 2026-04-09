@@ -40,6 +40,8 @@ metavars:
   - FN
   - ARGS
 
+post_filter: ts_command_injection_sink
+
 has_fix: false
 
 tags:

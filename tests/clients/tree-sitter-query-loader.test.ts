@@ -93,4 +93,39 @@ has_fix: false
 		expect(query?.owasp).toEqual(["A03", "A01"]);
 		expect(query?.confidence).toBe("medium");
 	});
+
+	it("preserves tree-sitter predicates in query blocks", async () => {
+		const root = makeTempRulesRoot();
+		writeRule(
+			root,
+			"rules/tree-sitter-queries/typescript/predicate-preserve.yml",
+			`id: predicate-preserve
+name: Predicate Preserve
+severity: warning
+category: correctness
+language: typescript
+message: test
+query: |
+  (call_expression
+    function: (member_expression
+      object: (identifier) @OBJ
+      property: (property_identifier) @FN))
+  (#eq? @OBJ "Math")
+  (#eq? @FN "random")
+metavars:
+  - OBJ
+  - FN
+defect_class: correctness
+inline_tier: warning
+has_fix: false
+`,
+		);
+
+		const loader = new TreeSitterQueryLoader();
+		await loader.loadQueries(root);
+		const query = loader.getQueryById("predicate-preserve");
+		expect(query).toBeTruthy();
+		expect(query?.query).toContain("#eq? @OBJ \"Math\"");
+		expect(query?.query).toContain("#eq? @FN \"random\"");
+	});
 });
