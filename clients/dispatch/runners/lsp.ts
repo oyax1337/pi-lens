@@ -36,16 +36,14 @@ function buildCodeActionSuggestion(
 	actions: import("../../lsp/client.js").LSPCodeAction[],
 ): string | undefined {
 	if (!actions.length) return undefined;
-
-	const quickFixFirst = [...actions].sort((a, b) => {
-		const aQuick = a.kind?.startsWith("quickfix") ? 0 : 1;
-		const bQuick = b.kind?.startsWith("quickfix") ? 0 : 1;
-		return aQuick - bQuick;
-	});
+	const quickFixes = actions.filter((action) =>
+		action.kind?.startsWith("quickfix"),
+	);
+	if (!quickFixes.length) return undefined;
 
 	const titles = Array.from(
 		new Set(
-			quickFixFirst
+			quickFixes
 				.map((action) => normalizeActionTitle(action.title))
 				.filter((title) => title.length > 0),
 		),

@@ -19,6 +19,9 @@ describe("lsp_navigation tool", () => {
 			hasLSP: vi.fn().mockResolvedValue(true),
 			openFile: vi.fn().mockResolvedValue(undefined),
 			getOperationSupport: vi.fn().mockResolvedValue(null),
+			codeAction: vi.fn().mockResolvedValue([
+				{ title: "Move to new file", kind: "refactor.move.newFile" },
+			]),
 			references: vi.fn().mockResolvedValue([
 				{
 					uri: "file:///tmp/sample.ts",
@@ -170,6 +173,42 @@ describe("lsp_navigation tool", () => {
 			expect(String(result.content[0]?.text)).toContain(
 				"references from usage sites can be partial",
 			);
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it("marks refactor-only codeAction results as non-quickfix", async () => {
+		const tool = createLspNavigationTool((flag) => flag === "lens-lsp");
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-lsp-nav-"));
+		const filePath = path.join(tmpDir, "actions.ts");
+		fs.writeFileSync(filePath, "const x = 1;\n");
+
+		try {
+			const result = await tool.execute(
+				"6",
+				{
+					operation: "codeAction",
+					filePath,
+					line: 1,
+					character: 1,
+					endLine: 1,
+					endCharacter: 5,
+				},
+				new AbortController().signal,
+				null,
+				{ cwd: "." },
+			);
+
+			expect(result.isError).toBeUndefined();
+			expect(String(result.content[0]?.text)).toContain(
+				"no diagnostic quick fixes returned; refactor-only actions available",
+			);
+			expect(result.details?.codeActionKinds).toEqual({
+				quickfix: 0,
+				refactor: 1,
+				other: 0,
+			});
 		} finally {
 			fs.rmSync(tmpDir, { recursive: true, force: true });
 		}

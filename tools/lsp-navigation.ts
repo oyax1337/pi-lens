@@ -44,6 +44,22 @@ function emptyReasonForOperation(operation: string): string {
 	return "no-results";
 }
 
+function classifyCodeActions(
+	actions: Array<{ kind?: string }> | undefined,
+): { quickfix: number; refactor: number; other: number } {
+	if (!actions || actions.length === 0) return { quickfix: 0, refactor: 0, other: 0 };
+	let quickfix = 0;
+	let refactor = 0;
+	let other = 0;
+	for (const action of actions) {
+		const kind = action.kind ?? "";
+		if (kind.startsWith("quickfix")) quickfix += 1;
+		else if (kind.startsWith("refactor")) refactor += 1;
+		else other += 1;
+	}
+	return { quickfix, refactor, other };
+}
+
 async function openFileBestEffort(
 	lspService: ReturnType<typeof getLSPService>,
 	filePath: string,
@@ -498,6 +514,16 @@ export function createLspNavigationTool(
 				output +=
 					"\nHint: references from usage sites can be partial; retry from the symbol definition for broader cross-file results.";
 			}
+			const actionStats =
+				operation === "codeAction" && Array.isArray(result)
+					? classifyCodeActions(result as Array<{ kind?: string }>)
+					: null;
+			if (operation === "codeAction" && actionStats) {
+				if (actionStats.quickfix === 0 && actionStats.refactor > 0) {
+					output +=
+						"\nNote: no diagnostic quick fixes returned; refactor-only actions available.";
+				}
+			}
 
 			return {
 				content: [{ type: "text" as const, text: output }],
@@ -505,6 +531,7 @@ export function createLspNavigationTool(
 					operation,
 					supported,
 					emptyReason: isEmpty ? emptyReasonForOperation(operation) : undefined,
+					codeActionKinds: actionStats ?? undefined,
 					resultCount: Array.isArray(result) ? result.length : result ? 1 : 0,
 				},
 			};

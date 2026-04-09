@@ -231,4 +231,40 @@ describe("runner status/semantic edge cases", () => {
 			env.cleanup();
 		}
 	});
+
+	it("lsp runner ignores refactor-only code actions for fix guidance", async () => {
+		const runner = (await import(
+			"../../../../clients/dispatch/runners/lsp.js"
+		)).default;
+		const env = setupTestEnvironment("pi-lens-lsp-refactor-");
+		try {
+			const filePath = path.join(env.tmpDir, "main.ts");
+			fs.writeFileSync(filePath, "const a: string = 1;\n");
+
+			hasLSP.mockResolvedValue(true);
+			openFile.mockResolvedValue(undefined);
+			getDiagnostics.mockResolvedValue([
+				{
+					severity: 1,
+					message: "Type 'number' is not assignable to type 'string'.",
+					range: {
+						start: { line: 0, character: 6 },
+						end: { line: 0, character: 7 },
+					},
+					code: "2322",
+				},
+			]);
+			codeAction.mockResolvedValue([
+				{ title: "Move to a new file", kind: "refactor.move.newFile" },
+			]);
+
+			const result = await runner.run(ctx(filePath, env.tmpDir) as never);
+			expect(result.status).toBe("failed");
+			expect(result.semantic).toBe("blocking");
+			expect(result.diagnostics[0]?.fixable).toBe(false);
+			expect(result.diagnostics[0]?.fixSuggestion).toBeUndefined();
+		} finally {
+			env.cleanup();
+		}
+	});
 });
