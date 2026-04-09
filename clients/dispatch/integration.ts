@@ -45,6 +45,15 @@ import { registerProvider } from "./fact-runner.js";
 import { runProviders } from "./fact-runner.js";
 import { fileContentProvider } from "./facts/file-content.js";
 registerProvider(fileContentProvider);
+import { tryCatchFactProvider } from "./facts/try-catch-facts.js";
+registerProvider(tryCatchFactProvider);
+
+// Register fact rules
+import { registerRule } from "./fact-rule-runner.js";
+import { errorObscuringRule } from "./rules/error-obscuring.js";
+import { errorSwallowingRule } from "./rules/error-swallowing.js";
+registerRule(errorObscuringRule);
+registerRule(errorSwallowingRule);
 
 // --- Persistent Baseline Store ---
 // Survives across dispatchLint calls within a session.
