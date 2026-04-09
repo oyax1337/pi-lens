@@ -1,9 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import * as os from "node:os";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { FactStore } from "../../../clients/dispatch/fact-store.js";
-import { registerProvider, runProviders } from "../../../clients/dispatch/fact-runner.js";
+import { registerProvider, runProviders, clearProviders } from "../../../clients/dispatch/fact-runner.js";
 import { fileContentProvider } from "../../../clients/dispatch/facts/file-content.js";
 import type { DispatchContext } from "../../../clients/dispatch/types.js";
 
@@ -25,23 +25,19 @@ function makeCtx(filePath: string, facts: FactStore): DispatchContext {
 }
 
 describe("runProviders smoke test", () => {
-  it("populates file.content fact from a real temp file", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-lens-test-"));
-    const filePath = path.join(dir, "hello.ts");
-    await fs.writeFile(filePath, "const x = 1;\n", "utf-8");
+  afterEach(() => clearProviders());
 
+  it("runProviders with no providers registered is a no-op", async () => {
+    const filePath = "/nonexistent/path/empty.ts";
     const facts = new FactStore();
     const ctx = makeCtx(filePath, facts);
 
-    // Use a fresh registry by calling runProviders with just fileContentProvider
-    // We register it in a local wrapper to avoid polluting the shared registry
-    await fileContentProvider.run(ctx, facts);
+    // No providers registered — runProviders should complete without error
+    await runProviders(ctx);
 
-    const content = facts.getFileFact<string>(filePath, "file.content");
-    expect(typeof content).toBe("string");
-    expect(content).toContain("const x = 1;");
-
-    await fs.rm(dir, { recursive: true });
+    // Facts store should remain empty
+    const content = facts.getFileFact(filePath, "file.content");
+    expect(content).toBeUndefined();
   });
 
   it("runProviders populates file.content via registered provider", async () => {
@@ -52,7 +48,6 @@ describe("runProviders smoke test", () => {
     const facts = new FactStore();
     const ctx = makeCtx(filePath, facts);
 
-    // Register the real provider (idempotent — may already be registered)
     registerProvider(fileContentProvider);
     await runProviders(ctx);
 

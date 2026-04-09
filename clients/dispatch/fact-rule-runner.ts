@@ -7,6 +7,10 @@ export function registerRule(r: FactRule): void {
   rules.push(r);
 }
 
+export function clearRules(): void {
+  rules.length = 0;
+}
+
 export function evaluateRules(ctx: DispatchContext): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   for (const rule of rules) {

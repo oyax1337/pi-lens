@@ -7,6 +7,10 @@ export function registerProvider(p: FactProvider): void {
   providers.push(p);
 }
 
+export function clearProviders(): void {
+  providers.length = 0;
+}
+
 export async function runProviders(ctx: DispatchContext): Promise<void> {
   for (const provider of providers) {
     if (!provider.appliesTo(ctx)) continue;
