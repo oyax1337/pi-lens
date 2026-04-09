@@ -16,11 +16,25 @@ Use `lsp_navigation` as **PRIMARY** for code intelligence. Do NOT use grep/glob/
 | "Where is this defined?" | `definition` | filePath, line, character |
 | "Find all usages" | `references` | filePath, line, character |
 | "What type is this?" | `hover` | filePath, line, character |
+| "Show call signature here" | `signatureHelp` | filePath, line, character (at call-site args) |
 | "What symbols in this file?" | `documentSymbol` | filePath |
-| "Find symbol across project" | `workspaceSymbol` | filePath, query |
+| "Find symbol across project" | `workspaceSymbol` | query + **filePath strongly recommended** |
+| "What quick fixes are available?" | `codeAction` | filePath, line, character, endLine, endCharacter |
+| "Rename symbol safely" | `rename` | filePath, line, character, newName |
 | "Who implements this interface?" | `implementation` | filePath, line, character |
 | "Who calls this function?" | `prepareCallHierarchy` → `incomingCalls` | filePath, line, character |
 | "What does this function call?" | `prepareCallHierarchy` → `outgoingCalls` | filePath, line, character |
+| "Show tracked LSP diagnostics" | `workspaceDiagnostics` | optional filePath (snapshot, not full pull workspace) |
+
+## Operational Guidance (From Field Tests)
+
+- Always pass `filePath` for `workspaceSymbol` when possible. Unscoped queries are best-effort and often empty.
+- For `references`, prefer querying from the definition site for broader cross-file coverage; usage-site queries can be partial.
+- Use `signatureHelp` only at call-site argument positions; declaration positions often return empty.
+- Treat `workspaceDiagnostics` as tracked push snapshot (`publishDiagnostics`), not protocol pull `workspace/diagnostic` coverage.
+- For `codeAction`, separate `quickfix` from generic refactors (for example "Move to new file"). Do not treat generic refactors as error fixes.
+- `prepareCallHierarchy` is server-capability dependent; if unsupported, skip incoming/outgoing calls.
+- If TypeScript returns `No Project` on `workspaceSymbol`, retry after opening the scoped file context.
 
 ## Call Hierarchy Pattern
 
@@ -36,14 +50,12 @@ const items = await lsp_navigation({
 // Step 2: Get callers (who calls this function)
 const callers = await lsp_navigation({
   operation: "incomingCalls",
-  filePath: "src/api.ts",
   callHierarchyItem: items[0]
 });
 
 // Step 2: Get callees (what this function calls)
 const callees = await lsp_navigation({
   operation: "outgoingCalls",
-  filePath: "src/api.ts",
   callHierarchyItem: items[0]
 });
 ```
