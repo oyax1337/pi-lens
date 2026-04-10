@@ -19,6 +19,7 @@ import type { LSPServerInfo } from "./server.js";
 import { normalizeMapKey, uriToPath } from "../path-utils.js";
 import { detectFileKind } from "../file-kinds.js";
 import { detectProjectLanguageProfile } from "../language-profile.js";
+import { logLatency } from "../latency-logger.js";
 
 // --- Types ---
 
@@ -75,8 +76,31 @@ export class LSPService {
 		// Try each matching server
 		for (const server of servers) {
 			const spawned = await this.ensureClientForServer(filePath, server);
-			if (spawned) return spawned;
+			if (spawned) {
+				logLatency({
+					type: "phase",
+					phase: "lsp_client_selected",
+					filePath,
+					durationMs: 0,
+					metadata: {
+						serverId: server.id,
+						candidateCount: servers.length,
+					},
+				});
+				return spawned;
+			}
 		}
+
+		logLatency({
+			type: "phase",
+			phase: "lsp_client_unavailable",
+			filePath,
+			durationMs: 0,
+			metadata: {
+				candidateCount: servers.length,
+				servers: servers.map((server) => server.id),
+			},
+		});
 
 		return undefined;
 	}
@@ -123,6 +147,16 @@ export class LSPService {
 
 		const brokenUntil = this.state.broken.get(key);
 		if (typeof brokenUntil === "number" && brokenUntil > Date.now()) {
+			logLatency({
+				type: "phase",
+				phase: "lsp_client_skipped_broken",
+				filePath,
+				durationMs: 0,
+				metadata: {
+					serverId: server.id,
+					retryInMs: Math.max(0, brokenUntil - Date.now()),
+				},
+			});
 			return undefined;
 		}
 		if (typeof brokenUntil === "number" && brokenUntil <= Date.now()) {
@@ -278,18 +312,43 @@ export class LSPService {
 	async getDiagnostics(
 		filePath: string,
 	): Promise<import("./client.js").LSPDiagnostic[]> {
+		const startedAt = Date.now();
 		const spawned = await this.getClientsForFile(filePath);
-		if (spawned.length === 0) return [];
+		if (spawned.length === 0) {
+			logLatency({
+				type: "phase",
+				phase: "lsp_diagnostics_aggregate",
+				filePath,
+				durationMs: Date.now() - startedAt,
+				metadata: {
+					serverCountAttempted: 0,
+					serverCountReady: 0,
+					mergedCount: 0,
+					dedupDroppedCount: 0,
+					servers: [],
+				},
+			});
+			return [];
+		}
 
-		await Promise.all(
-			spawned.map((entry) => entry.client.waitForDiagnostics(filePath, 3000)),
+		const perServer = await Promise.all(
+			spawned.map(async (entry) => {
+				const waitStart = Date.now();
+				await entry.client.waitForDiagnostics(filePath, 3000);
+				const diagnostics = entry.client.getDiagnostics(filePath);
+				return {
+					serverId: entry.info.id,
+					waitMs: Date.now() - waitStart,
+					diagnosticCount: diagnostics.length,
+					diagnostics,
+				};
+			}),
 		);
 
 		const merged: import("./client.js").LSPDiagnostic[] = [];
 		const seen = new Set<string>();
-		for (const entry of spawned) {
-			const diagnostics = entry.client.getDiagnostics(filePath);
-			for (const diagnostic of diagnostics) {
+		for (const entry of perServer) {
+			for (const diagnostic of entry.diagnostics) {
 				const key = [
 					diagnostic.range.start.line,
 					diagnostic.range.start.character,
@@ -303,6 +362,27 @@ export class LSPService {
 				merged.push(diagnostic);
 			}
 		}
+
+		logLatency({
+			type: "phase",
+			phase: "lsp_diagnostics_aggregate",
+			filePath,
+			durationMs: Date.now() - startedAt,
+			metadata: {
+				serverCountAttempted: getServersForFileWithConfig(filePath).length,
+				serverCountReady: perServer.length,
+				mergedCount: merged.length,
+				dedupDroppedCount: perServer.reduce(
+					(sum, entry) => sum + entry.diagnosticCount,
+					0,
+				) - merged.length,
+				servers: perServer.map((entry) => ({
+					id: entry.serverId,
+					waitMs: entry.waitMs,
+					diagnosticCount: entry.diagnosticCount,
+				})),
+			},
+		});
 
 		return merged;
 	}
