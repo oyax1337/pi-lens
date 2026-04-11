@@ -6,6 +6,7 @@
 
 import * as nodeFs from "node:fs";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { Type } from "@sinclair/typebox";
 import type { LSPCallHierarchyItem } from "../clients/lsp/client.js";
 import { getLSPService } from "../clients/lsp/index.js";
@@ -43,6 +44,74 @@ function emptyReasonForOperation(operation: string): string {
 	if (operation === "incomingCalls" || operation === "outgoingCalls")
 		return "no-call-hierarchy-results";
 	return "no-results";
+}
+
+function tokenAtPosition(
+	content: string,
+	line1: number,
+	char1: number,
+): string | undefined {
+	const lines = content.split(/\r?\n/);
+	const line = lines[line1 - 1];
+	if (!line) return undefined;
+	const chars = [...line];
+	const idx = Math.max(0, Math.min(chars.length - 1, char1 - 1));
+	const isWord = (ch: string | undefined) =>
+		!!ch && /[A-Za-z0-9_?!]/.test(ch);
+
+	let left = idx;
+	let right = idx;
+	if (!isWord(chars[idx]) && isWord(chars[idx + 1])) {
+		left = idx + 1;
+		right = idx + 1;
+	}
+	while (left > 0 && isWord(chars[left - 1])) left -= 1;
+	while (right < chars.length - 1 && isWord(chars[right + 1])) right += 1;
+	const token = chars.slice(left, right + 1).join("").trim();
+	return token.length > 0 ? token : undefined;
+}
+
+type SymbolNode = {
+	name?: string;
+	location?: { uri: string; range: Record<string, unknown> };
+	range?: Record<string, unknown>;
+	children?: SymbolNode[];
+};
+
+function flattenSymbols(symbols: SymbolNode[]): SymbolNode[] {
+	const all: SymbolNode[] = [];
+	for (const symbol of symbols) {
+		all.push(symbol);
+		if (symbol.children && symbol.children.length > 0) {
+			all.push(...flattenSymbols(symbol.children));
+		}
+	}
+	return all;
+}
+
+function pickLocalSymbolLocation(
+	symbols: SymbolNode[],
+	token: string,
+	filePath: string,
+): Array<{ uri: string; range: Record<string, unknown> }> {
+	const flat = flattenSymbols(symbols).filter(
+		(symbol) => symbol.name === token,
+	);
+	if (flat.length === 0) return [];
+	const uri = pathToFileURL(filePath).href;
+	return flat
+		.map((symbol) => {
+			if (symbol.location?.uri && symbol.location.range) {
+				return { uri: symbol.location.uri, range: symbol.location.range };
+			}
+			if (symbol.range) {
+				return { uri, range: symbol.range };
+			}
+			return undefined;
+		})
+		.filter((entry): entry is { uri: string; range: Record<string, unknown> } =>
+			Boolean(entry),
+		);
 }
 
 function classifyCodeActions(
@@ -506,6 +575,7 @@ export function createLspNavigationTool(
 			};
 
 			let result: unknown;
+			let usedDocumentSymbolFallback = false;
 			try {
 				result = await runOperation();
 				const isEmptyInitial =
@@ -526,6 +596,30 @@ export function createLspNavigationTool(
 				if (shouldRetryOnEmpty) {
 					await openFileBestEffort(lspService, filePath, true);
 					result = await runOperation();
+				}
+
+				const stillEmpty =
+					!result || (Array.isArray(result) && result.length === 0);
+				if (
+					stillEmpty &&
+					needsFilePath &&
+					(operation === "definition" || operation === "workspaceSymbol")
+				) {
+					const content = nodeFs.readFileSync(filePath, "utf-8");
+					const token =
+						operation === "workspaceSymbol"
+							? (query?.trim() || undefined)
+							: line && character
+								? tokenAtPosition(content, line, character)
+								: undefined;
+					if (token) {
+						const docSymbols = (await lspService.documentSymbol(filePath)) as SymbolNode[];
+						const locations = pickLocalSymbolLocation(docSymbols, token, filePath);
+						if (locations.length > 0) {
+							result = locations;
+							usedDocumentSymbolFallback = true;
+						}
+					}
 				}
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
@@ -572,6 +666,9 @@ export function createLspNavigationTool(
 				output +=
 					"\nHint: provide filePath to scope workspaceSymbol to the active language server/root.";
 			}
+			if (usedDocumentSymbolFallback) {
+				output += "\nNote: served from documentSymbol fallback due to empty primary result.";
+			}
 			if (
 				operation === "references" &&
 				Array.isArray(result) &&
@@ -606,7 +703,11 @@ export function createLspNavigationTool(
 				{
 					operation,
 					filePath: rawPath ? filePath : "(workspace)",
-					failureKind: isEmpty ? "empty_result" : "success",
+					failureKind: isEmpty
+						? "empty_result"
+						: usedDocumentSymbolFallback
+							? "fallback_success"
+							: "success",
 					resultCount,
 				},
 			);
