@@ -310,6 +310,58 @@ export class LSPService {
 	}
 
 	/**
+	 * Touch a file like OpenCode's LSP flow: ensure document is open/synced,
+	 * and optionally wait briefly for diagnostics warm-up.
+	 */
+	async touchFile(
+		filePath: string,
+		content: string,
+		waitForDiagnostics = false,
+	): Promise<void> {
+		const startedAt = Date.now();
+		const normalizedPath = normalizeMapKey(filePath);
+		const spawned = await this.getClientsForFile(filePath);
+		if (spawned.length === 0) {
+			logLatency({
+				type: "phase",
+				phase: "lsp_touch_file",
+				filePath: normalizedPath,
+				durationMs: Date.now() - startedAt,
+				metadata: {
+					serverCountReady: 0,
+					failureKind: "no_clients",
+				},
+			});
+			return;
+		}
+
+		const languageId = getLanguageId(filePath) ?? "plaintext";
+		await Promise.all(
+			spawned.map((entry) => entry.client.notify.open(filePath, content, languageId)),
+		);
+
+		if (waitForDiagnostics) {
+			await Promise.all(
+				spawned.map((entry) =>
+					entry.client.waitForDiagnostics(filePath, 1200).catch(() => undefined),
+				),
+			);
+		}
+
+		logLatency({
+			type: "phase",
+			phase: "lsp_touch_file",
+			filePath: normalizedPath,
+			durationMs: Date.now() - startedAt,
+			metadata: {
+				serverCountReady: spawned.length,
+				waitForDiagnostics,
+				failureKind: "success",
+			},
+		});
+	}
+
+	/**
 	 * Get diagnostics for a file
 	 */
 	async getDiagnostics(

@@ -531,10 +531,20 @@ pi.on("tool_call", async (event, ctx) => {
 		}
 	}
 
-	const filePath =
+	const inputObj = (event.input ?? {}) as Record<string, unknown>;
+	const rawFilePath =
 		isToolCallEventType("write", event) || isToolCallEventType("edit", event)
 			? (event.input as { path: string }).path
-			: undefined;
+			: toolName === "read" || toolName === "lsp_navigation"
+				? typeof inputObj.filePath === "string"
+					? inputObj.filePath
+					: undefined
+				: undefined;
+	const filePath = rawFilePath
+		? path.isAbsolute(rawFilePath)
+			? rawFilePath
+			: path.resolve(ctx.cwd ?? runtime.projectRoot, rawFilePath)
+		: undefined;
 
 	if (!filePath) return;
 
@@ -542,6 +552,24 @@ pi.on("tool_call", async (event, ctx) => {
 		`tool_call fired for: ${filePath} (exists: ${nodeFs.existsSync(filePath)})`,
 	);
 	if (!nodeFs.existsSync(filePath)) return;
+
+	const shouldAutoTouch =
+		(toolName === "read" ||
+			toolName === "write" ||
+			toolName === "edit" ||
+			toolName === "lsp_navigation") &&
+		!!pi.getFlag("lens-lsp") &&
+		!pi.getFlag("no-lsp");
+	if (shouldAutoTouch) {
+		try {
+			const fileContent = nodeFs.readFileSync(filePath, "utf-8");
+			void getLSPService()
+				.touchFile(filePath, fileContent, false)
+				.catch((err) => dbg(`lsp auto-touch failed for ${filePath}: ${err}`));
+		} catch {
+			// Best effort only; never block tool calls.
+		}
+	}
 
 	// Record complexity baseline for historical tracking (booboo/tdi).
 	// Not shown inline — just captured for delta analysis.
