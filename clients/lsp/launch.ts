@@ -26,6 +26,38 @@ export interface LSPProcess {
 
 const isWindows = process.platform === "win32";
 
+function buildAugmentedPath(basePath?: string): string {
+	if (!isWindows) return basePath ?? "";
+
+	const userProfile = process.env.USERPROFILE;
+	const candidates: string[] = [];
+	if (userProfile) {
+		candidates.push(path.join(userProfile, ".cargo", "bin"));
+		candidates.push(path.join(userProfile, "go", "bin"));
+	}
+	candidates.push(path.join("C:\\", "Ruby34-x64", "bin"));
+	candidates.push(path.join("C:\\", "Ruby33-x64", "bin"));
+
+	const existing = new Set<string>();
+	for (const entry of (basePath ?? "").split(path.delimiter)) {
+		if (!entry) continue;
+		existing.add(path.normalize(entry).toLowerCase());
+	}
+
+	const toAppend: string[] = [];
+	for (const candidate of candidates) {
+		if (!candidate || !fs.existsSync(candidate)) continue;
+		const normalized = path.normalize(candidate).toLowerCase();
+		if (existing.has(normalized)) continue;
+		toAppend.push(candidate);
+		existing.add(normalized);
+	}
+
+	if (toAppend.length === 0) return basePath ?? "";
+	if (!basePath) return toAppend.join(path.delimiter);
+	return `${basePath}${path.delimiter}${toAppend.join(path.delimiter)}`;
+}
+
 /**
  * Find binary in npm global directory
  * Works around PATH caching issue after npm install -g
@@ -169,7 +201,11 @@ export async function launchLSP(
 	options: SpawnOptions = {},
 ): Promise<LSPProcess> {
 	const cwd = String(options.cwd ?? process.cwd());
-	const env = { ...process.env, ...options.env };
+	const mergedEnv = { ...process.env, ...options.env };
+	const env: NodeJS.ProcessEnv = {
+		...mergedEnv,
+		PATH: buildAugmentedPath(mergedEnv.PATH),
+	};
 
 	// Resolve command path
 	// - If already absolute, use as-is
@@ -332,7 +368,11 @@ export async function launchViaPackageManager(
 		const shellCommand = `npx --no ${packageName}${argsStr ? ` ${argsStr}` : ""}`;
 
 		const cwd = String(options.cwd ?? process.cwd());
-		const env = { ...process.env, ...options.env };
+		const mergedEnv = { ...process.env, ...options.env };
+		const env: NodeJS.ProcessEnv = {
+			...mergedEnv,
+			PATH: buildAugmentedPath(mergedEnv.PATH),
+		};
 
 		const proc = nodeSpawn(shellCommand, [], {
 			cwd,
