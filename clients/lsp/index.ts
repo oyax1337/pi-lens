@@ -55,6 +55,7 @@ export class LSPService {
 	private state: LSPState;
 	private languagePolicyCache = new Map<string, { allowInstall: boolean; expiresAt: number }>();
 	private workspaceProbeLogged = new Set<string>();
+	private emitConsoleLspErrors = process.env.PI_LENS_CONSOLE_LSP === "1";
 
 	constructor() {
 		this.state = {
@@ -265,20 +266,22 @@ export class LSPService {
 				`lsp spawn ${server.id}: failed (${Date.now() - startedAt}ms) error=${err instanceof Error ? err.message : String(err)}`,
 			);
 			const errorMsg = err instanceof Error ? err.message : String(err);
-			if (errorMsg.includes("Timeout")) {
-				console.error(
-					`[lsp] ${server.id} timed out during initialization (${errorMsg}). The server may be downloading or the project is large. Skipping.`,
-				);
-			} else if (errorMsg.includes("stream was destroyed")) {
-				console.error(
-					`[lsp] ${server.id} stream was destroyed. The server binary may be missing or crashed immediately. Try reinstalling: npm install -g ${server.id}-language-server`,
-				);
-			} else if (errorMsg.includes("exited immediately")) {
-				console.error(
-					`[lsp] ${server.id} ${errorMsg}. Try reinstalling: npm install -g ${server.id}-language-server`,
-				);
-			} else {
-				console.error(`[lsp] Failed to spawn ${server.id}:`, err);
+			if (this.emitConsoleLspErrors) {
+				if (errorMsg.includes("Timeout")) {
+					console.error(
+						`[lsp] ${server.id} timed out during initialization (${errorMsg}). The server may be downloading or the project is large. Skipping.`,
+					);
+				} else if (errorMsg.includes("stream was destroyed")) {
+					console.error(
+						`[lsp] ${server.id} stream was destroyed. The server binary may be missing or crashed immediately. Try reinstalling: npm install -g ${server.id}-language-server`,
+					);
+				} else if (errorMsg.includes("exited immediately")) {
+					console.error(
+						`[lsp] ${server.id} ${errorMsg}. Try reinstalling: npm install -g ${server.id}-language-server`,
+					);
+				} else {
+					console.error(`[lsp] Failed to spawn ${server.id}:`, err);
+				}
 			}
 			this.state.broken.set(key, Date.now() + BROKEN_RETRY_COOLDOWN_MS);
 			return undefined;
@@ -598,16 +601,8 @@ export class LSPService {
 	 * Check if LSP is available for a file
 	 */
 	async hasLSP(filePath: string): Promise<boolean> {
-		const servers = getServersForFileWithConfig(filePath);
-		if (servers.length === 0) return false;
-
-		// Check if any server can provide a root
-		for (const server of servers) {
-			const root = await server.root(filePath);
-			if (root) return true;
-		}
-
-		return false;
+		const spawned = await this.getClientForFile(filePath);
+		return Boolean(spawned);
 	}
 
 	/**

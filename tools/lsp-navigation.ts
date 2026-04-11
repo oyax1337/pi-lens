@@ -340,62 +340,36 @@ export function createLspNavigationTool(
 			const lspEndLine = (endLine ?? line ?? 1) - 1;
 			const lspEndChar = (endCharacter ?? character ?? 1) - 1;
 
-			let result: unknown;
-			try {
+			const runOperation = async (): Promise<unknown> => {
 				switch (operation) {
 					case "definition":
-						result = await lspService.definition(filePath, lspLine, lspChar);
-						break;
+						return lspService.definition(filePath, lspLine, lspChar);
 					case "references":
-						result = await lspService.references(filePath, lspLine, lspChar);
-						break;
+						return lspService.references(filePath, lspLine, lspChar);
 					case "hover":
-						result = await lspService.hover(filePath, lspLine, lspChar);
-						break;
+						return lspService.hover(filePath, lspLine, lspChar);
 					case "signatureHelp":
-						result = await lspService.signatureHelp(filePath, lspLine, lspChar);
-						break;
+						return lspService.signatureHelp(filePath, lspLine, lspChar);
 					case "documentSymbol":
-						result = await lspService.documentSymbol(filePath);
-						break;
+						return lspService.documentSymbol(filePath);
 					case "workspaceSymbol":
 						supported = operationSupportStatus(
 							operation,
 							await lspService.getOperationSupport(rawPath ? filePath : undefined),
 						);
 						if (supported === false) {
-							return {
-								content: [
-									{
-										type: "text" as const,
-										text: "Active LSP server does not advertise support for workspaceSymbol",
-									},
-								],
-								isError: true,
-								details: {
-									operation,
-									supported: false,
-									emptyReason: "unsupported",
-								},
-							};
+							throw new Error(
+								"__UNSUPPORTED__ Active LSP server does not advertise support for workspaceSymbol",
+							);
 						}
 						if (!query || query.trim().length === 0) {
-							return {
-								content: [
-									{
-										type: "text" as const,
-										text: "query parameter required for workspaceSymbol",
-									},
-								],
-								isError: true,
-								details: {},
-							};
+							throw new Error("__BADINPUT__ query parameter required for workspaceSymbol");
 						}
 						if (rawPath) {
 							await openFileBestEffort(lspService, filePath);
 						}
 						try {
-							result = await lspService.workspaceSymbol(
+							return await lspService.workspaceSymbol(
 								query ?? "",
 								rawPath ? filePath : undefined,
 							);
@@ -404,88 +378,93 @@ export function createLspNavigationTool(
 							if (rawPath && /No Project/i.test(msg)) {
 								await openFileBestEffort(lspService, filePath);
 								await new Promise((resolve) => setTimeout(resolve, 120));
-								result = await lspService.workspaceSymbol(query ?? "", filePath);
-							} else {
-								throw err;
+								return lspService.workspaceSymbol(query ?? "", filePath);
 							}
+							throw err;
 						}
-						break;
 					case "codeAction":
-						result = await lspService.codeAction(
+						return lspService.codeAction(
 							filePath,
 							lspLine,
 							lspChar,
 							lspEndLine,
 							lspEndChar,
 						);
-						break;
 					case "rename":
 						if (!newName || newName.trim().length === 0) {
-							return {
-								content: [
-									{
-										type: "text" as const,
-										text: "newName parameter required for rename",
-									},
-								],
-								isError: true,
-								details: {},
-							};
+							throw new Error("__BADINPUT__ newName parameter required for rename");
 						}
-						result = await lspService.rename(filePath, lspLine, lspChar, newName);
-						break;
+						return lspService.rename(filePath, lspLine, lspChar, newName);
 					case "implementation":
-						result = await lspService.implementation(filePath, lspLine, lspChar);
-						break;
+						return lspService.implementation(filePath, lspLine, lspChar);
 					case "prepareCallHierarchy":
-						result = await lspService.prepareCallHierarchy(
-							filePath,
-							lspLine,
-							lspChar,
-						);
-						break;
+						return lspService.prepareCallHierarchy(filePath, lspLine, lspChar);
 					case "incomingCalls": {
 						const callItem = (
 							params as { callHierarchyItem?: LSPCallHierarchyItem }
 						).callHierarchyItem;
 						if (!callItem) {
-							return {
-								content: [
-									{
-										type: "text" as const,
-										text: "callHierarchyItem parameter required for incomingCalls",
-									},
-								],
-								isError: true,
-								details: {},
-							};
+							throw new Error(
+								"__BADINPUT__ callHierarchyItem parameter required for incomingCalls",
+							);
 						}
-						result = await lspService.incomingCalls(callItem);
-						break;
+						return lspService.incomingCalls(callItem);
 					}
 					case "outgoingCalls": {
 						const callItem = (
 							params as { callHierarchyItem?: LSPCallHierarchyItem }
 						).callHierarchyItem;
 						if (!callItem) {
-							return {
-								content: [
-									{
-										type: "text" as const,
-										text: "callHierarchyItem parameter required for outgoingCalls",
-									},
-								],
-								isError: true,
-								details: {},
-							};
+							throw new Error(
+								"__BADINPUT__ callHierarchyItem parameter required for outgoingCalls",
+							);
 						}
-						result = await lspService.outgoingCalls(callItem);
-						break;
+						return lspService.outgoingCalls(callItem);
 					}
 					default:
-						result = [];
+						return [];
+				}
+			};
+
+			let result: unknown;
+			try {
+				result = await runOperation();
+				const isEmptyInitial =
+					!result || (Array.isArray(result) && result.length === 0);
+				const shouldRetryOnEmpty =
+					isEmptyInitial &&
+					needsFilePath &&
+					[
+						"definition",
+						"references",
+						"hover",
+						"signatureHelp",
+						"workspaceSymbol",
+						"codeAction",
+						"rename",
+						"implementation",
+					].includes(operation);
+				if (shouldRetryOnEmpty) {
+					await new Promise((resolve) => setTimeout(resolve, 180));
+					await openFileBestEffort(lspService, filePath);
+					result = await runOperation();
 				}
 			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				if (msg.startsWith("__UNSUPPORTED__ ")) {
+					return {
+						content: [{ type: "text" as const, text: msg.replace("__UNSUPPORTED__ ", "") }],
+						isError: true,
+						details: { operation, supported: false, emptyReason: "unsupported" },
+					};
+				}
+				if (msg.startsWith("__BADINPUT__ ")) {
+					return {
+						content: [{ type: "text" as const, text: msg.replace("__BADINPUT__ ", "") }],
+						isError: true,
+						details: {},
+					};
+				}
 				return {
 					content: [
 						{
