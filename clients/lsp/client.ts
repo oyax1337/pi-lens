@@ -620,7 +620,7 @@ export async function createLSPClient(options: {
 					latestCount = await requestPullDiagnostics(filePath);
 				}
 
-				return;
+				if (latestCount > 0) return;
 			}
 
 			// Fast path: diagnostics already available
