@@ -18,6 +18,7 @@ describe("lsp_navigation tool", () => {
 		mocked.service = {
 			hasLSP: vi.fn().mockResolvedValue(true),
 			openFile: vi.fn().mockResolvedValue(undefined),
+			getDiagnostics: vi.fn().mockResolvedValue([]),
 			getOperationSupport: vi.fn().mockResolvedValue(null),
 			codeAction: vi.fn().mockResolvedValue([
 				{ title: "Move to new file", kind: "refactor.move.newFile" },
@@ -209,6 +210,55 @@ describe("lsp_navigation tool", () => {
 				refactor: 1,
 				other: 0,
 			});
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it("collects file diagnostics when workspaceDiagnostics gets filePath", async () => {
+		const tool = createLspNavigationTool((flag) => flag === "lens-lsp");
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-lsp-nav-"));
+		const filePath = path.join(tmpDir, "diag.rs");
+		fs.writeFileSync(filePath, "fn main() { let x: i32 = \"oops\"; }\n");
+		(
+			mocked.service as {
+				getWorkspaceDiagnosticsSupport: ReturnType<typeof vi.fn>;
+				getDiagnostics: ReturnType<typeof vi.fn>;
+			}
+		).getWorkspaceDiagnosticsSupport = vi
+			.fn()
+			.mockResolvedValue({ mode: "pull" });
+		(
+			mocked.service as {
+				getDiagnostics: ReturnType<typeof vi.fn>;
+			}
+		).getDiagnostics = vi.fn().mockResolvedValue([
+			{
+				severity: 1,
+				message: "mismatched types",
+				range: {
+					start: { line: 0, character: 20 },
+					end: { line: 0, character: 26 },
+				},
+			},
+		]);
+
+		try {
+			const result = await tool.execute(
+				"7",
+				{ operation: "workspaceDiagnostics", filePath },
+				new AbortController().signal,
+				null,
+				{ cwd: "." },
+			);
+
+			expect(result.isError).toBeUndefined();
+			expect(result.details?.coverage).toBe("requested-file");
+			expect(result.details?.resultCount).toBe(1);
+			expect(
+				(mocked.service as { getDiagnostics: ReturnType<typeof vi.fn> })
+					.getDiagnostics,
+			).toHaveBeenCalledWith(filePath);
 		} finally {
 			fs.rmSync(tmpDir, { recursive: true, force: true });
 		}

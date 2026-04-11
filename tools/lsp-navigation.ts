@@ -394,23 +394,84 @@ export function createLspNavigationTool(
 
 			const lspService = getLSPService();
 			if (operation === "workspaceDiagnostics") {
-				const allDiagnostics = await lspService.getAllDiagnostics();
 				const wsDiagSupport = await lspService.getWorkspaceDiagnosticsSupport(
 					rawPath ? filePath : undefined,
 				);
 				diagnosticsMode = wsDiagSupport?.mode ?? "unknown";
-				const result = Array.from(allDiagnostics.entries()).map(
-					([trackedFile, diags]) => ({
-						filePath: trackedFile,
-						diagnostics: diags,
-						count: diags.length,
-					}),
-				);
+
+				if (rawPath) {
+					const hasLSP = await lspService.hasLSP(filePath);
+					if (!hasLSP) {
+						return finalize(
+							{
+								content: [
+									{
+										type: "text" as const,
+										text: `No LSP server available for ${path.basename(filePath)}. Check that the language server is installed.`,
+									},
+								],
+								isError: true,
+							},
+							{
+								operation,
+								filePath,
+								failureKind: "no_server",
+								resultCount: 0,
+							},
+						);
+					}
+
+					await openFileBestEffort(lspService, filePath, true);
+					const diagnostics = await lspService.getDiagnostics(filePath);
+					const result = [
+						{
+							filePath,
+							diagnostics,
+							count: diagnostics.length,
+						},
+					];
+					const note =
+						diagnosticsMode === "pull"
+							? "Note: filePath mode requests pull diagnostics for this file and returns the aggregated result."
+							: diagnosticsMode === "push-only"
+								? "Note: server is push-only; result depends on published diagnostics for this file."
+								: "Note: workspace diagnostics mode unknown (no active capability snapshot).";
+					const resultCount = diagnostics.length;
+					return finalize(
+						{
+							content: [
+								{
+									type: "text" as const,
+									text: `${note}\n${JSON.stringify(result, null, 2)}`,
+								},
+							],
+							details: {
+								operation,
+								resultCount,
+								diagnosticsMode,
+								coverage: "requested-file",
+							},
+						},
+						{
+							operation,
+							filePath,
+							failureKind: resultCount === 0 ? "empty_result" : "success",
+							resultCount,
+						},
+					);
+				}
+
+				const allDiagnostics = await lspService.getAllDiagnostics();
+				const result = Array.from(allDiagnostics.entries()).map(([trackedFile, diags]) => ({
+					filePath: trackedFile,
+					diagnostics: diags,
+					count: diags.length,
+				}));
 				const note =
 					diagnosticsMode === "push-only"
 						? "Note: push-only tracked diagnostics snapshot (not full workspace pull diagnostics)."
 						: diagnosticsMode === "pull"
-							? "Note: server advertises workspace pull diagnostics support."
+							? "Note: tracked diagnostics snapshot from active clients. Provide filePath to force file-level diagnostics collection."
 							: "Note: workspace diagnostics mode unknown (no active capability snapshot).";
 				return finalize(
 					{
