@@ -226,6 +226,46 @@ const DIAGNOSTICS_WAIT_TIMEOUT_MS = positiveIntFromEnv(
 	10_000,
 );
 
+const LSP_CRASH_CODES = new Set([
+	"ERR_STREAM_DESTROYED",
+	"ERR_STREAM_WRITE_AFTER_END",
+	"EPIPE",
+	"ECONNRESET",
+]);
+
+let crashGuardInstalled = false;
+
+function isIgnorableLspRuntimeCrash(err: unknown): boolean {
+	if (!(err instanceof Error)) return false;
+	const code = (err as { code?: string }).code;
+	if (code && LSP_CRASH_CODES.has(code)) return true;
+	const msg = err.message.toLowerCase();
+	const stack = (err.stack ?? "").toLowerCase();
+	return (
+		msg.includes("stream") ||
+		msg.includes("write after end") ||
+		stack.includes("vscode-jsonrpc/lib/node/ril.js")
+	);
+}
+
+function installCrashGuard(): void {
+	if (crashGuardInstalled) return;
+	crashGuardInstalled = true;
+
+	process.on("uncaughtException", (err) => {
+		if (isIgnorableLspRuntimeCrash(err)) {
+			return;
+		}
+		throw err;
+	});
+
+	process.on("unhandledRejection", (reason) => {
+		if (isIgnorableLspRuntimeCrash(reason)) {
+			return;
+		}
+	});
+}
+
 // --- Client Factory ---
 
 export async function createLSPClient(options: {
@@ -234,6 +274,8 @@ export async function createLSPClient(options: {
 	root: string;
 	initialization?: Record<string, unknown>;
 }): Promise<LSPClientInfo> {
+	installCrashGuard();
+
 	const { serverId, process: lspProcess, root, initialization } = options;
 
 	// Attach persistent 'error' listeners to all three stdio streams.
