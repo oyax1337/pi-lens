@@ -338,25 +338,44 @@ export async function createLSPClient(options: {
 	let isConnected = true;
 	let lastError: Error | undefined;
 	let isDestroyed = false;
+	let connectionDisposed = false;
+
+	function disposeConnection(): void {
+		if (connectionDisposed) return;
+		connectionDisposed = true;
+		try {
+			connection.end();
+		} catch {
+			// ignore
+		}
+		try {
+			connection.dispose();
+		} catch {
+			// ignore
+		}
+	}
 
 	// Handle connection errors and close events
 	connection.onError((error) => {
 		lastError = error instanceof Error ? error : new Error(String(error));
 		isConnected = false;
 		isDestroyed = true;
+		disposeConnection();
 		console.error(`[lsp] ${serverId} connection error:`, lastError.message);
 	});
 
 	connection.onClose(() => {
 		isConnected = false;
 		isDestroyed = true;
+		disposeConnection();
 	});
 
 	// Also handle process exit to catch crashes immediately
 	lspProcess.process.on("exit", (code) => {
+		isConnected = false;
+		isDestroyed = true;
+		disposeConnection();
 		if (code !== 0 && code !== null) {
-			isConnected = false;
-			isDestroyed = true;
 			console.error(`[lsp] ${serverId} process exited with code ${code}`);
 		}
 	});
@@ -756,6 +775,7 @@ export async function createLSPClient(options: {
 
 		async shutdown() {
 			isConnected = false;
+			isDestroyed = true;
 			// Clear pending timers
 			for (const timer of pendingDiagnostics.values()) {
 				clearTimeout(timer);
@@ -778,8 +798,7 @@ export async function createLSPClient(options: {
 				/* ignore */
 			}
 
-			connection.end();
-			connection.dispose();
+			disposeConnection();
 			lspProcess.process.kill();
 		},
 	};
