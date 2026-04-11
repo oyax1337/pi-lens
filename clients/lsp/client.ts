@@ -297,21 +297,22 @@ export async function createLSPClient(options: {
 		"textDocument/publishDiagnostics",
 		(params: { uri: string; diagnostics?: LSPDiagnostic[] }) => {
 			const filePath = uriToPath(params.uri);
+			const normalizedPath = normalizeMapKey(filePath);
 			const newDiags: LSPDiagnostic[] = params.diagnostics || [];
 
 			// Debounce: clear existing timer and set new one
-			const existingTimer = pendingDiagnostics.get(filePath);
+			const existingTimer = pendingDiagnostics.get(normalizedPath);
 			if (existingTimer) clearTimeout(existingTimer);
 
 			const timer = setTimeout(() => {
-				diagnostics.set(filePath, newDiags);
-				pendingDiagnostics.delete(filePath);
+				diagnostics.set(normalizedPath, newDiags);
+				pendingDiagnostics.delete(normalizedPath);
 
 				// Signal any active waitForDiagnostics calls for this file.
-				diagnosticEmitter.emit("diagnostics", filePath);
+				diagnosticEmitter.emit("diagnostics", normalizedPath);
 			}, DIAGNOSTICS_DEBOUNCE_MS);
 
-			pendingDiagnostics.set(filePath, timer);
+			pendingDiagnostics.set(normalizedPath, timer);
 		},
 	);
 
@@ -532,6 +533,11 @@ export async function createLSPClient(options: {
 
 		async waitForDiagnostics(filePath, timeoutMs = DIAGNOSTICS_WAIT_TIMEOUT_MS) {
 			const normalizedPath = normalizeMapKey(filePath);
+
+			if (workspaceDiagnosticsSupport.mode === "pull") {
+				const pulled = await requestPullDiagnostics(filePath);
+				if (pulled) return;
+			}
 
 			// Fast path: diagnostics already available
 			if (diagnostics.has(normalizedPath)) return;
@@ -777,6 +783,39 @@ export async function createLSPClient(options: {
 			lspProcess.process.kill();
 		},
 	};
+
+	async function requestPullDiagnostics(filePath: string): Promise<boolean> {
+		if (!isProcessAlive()) return false;
+		const uri = pathToFileURL(filePath).href;
+		try {
+			const report = await safeSendRequest<{
+				kind?: string;
+				items?: LSPDiagnostic[];
+				relatedDocuments?: Record<string, { items?: LSPDiagnostic[] }>;
+			}>(connection, "textDocument/diagnostic", {
+				textDocument: { uri },
+			});
+
+			if (!report) return false;
+
+			const normalizedPath = normalizeMapKey(filePath);
+			diagnostics.set(normalizedPath, report.items ?? []);
+
+			if (report.relatedDocuments) {
+				for (const [relatedUri, related] of Object.entries(
+					report.relatedDocuments,
+				)) {
+					const relatedPath = uriToPath(relatedUri);
+					diagnostics.set(normalizeMapKey(relatedPath), related?.items ?? []);
+				}
+			}
+
+			diagnosticEmitter.emit("diagnostics", normalizedPath);
+			return true;
+		} catch {
+			return false;
+		}
+	}
 }
 
 // Helper to safely send notifications - catches stream destruction

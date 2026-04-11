@@ -316,18 +316,21 @@ export class LSPService {
 		filePath: string,
 	): Promise<import("./client.js").LSPDiagnostic[]> {
 		const startedAt = Date.now();
+		const normalizedPath = normalizeMapKey(filePath);
 		const spawned = await this.getClientsForFile(filePath);
 		if (spawned.length === 0) {
 			logLatency({
 				type: "phase",
 				phase: "lsp_diagnostics_aggregate",
-				filePath,
+				filePath: normalizedPath,
 				durationMs: Date.now() - startedAt,
 				metadata: {
 					serverCountAttempted: 0,
 					serverCountReady: 0,
 					mergedCount: 0,
 					dedupDroppedCount: 0,
+					failureKind: "no_clients",
+					health: "no_clients",
 					servers: [],
 				},
 			});
@@ -355,9 +358,6 @@ export class LSPService {
 				const key = [
 					diagnostic.range.start.line,
 					diagnostic.range.start.character,
-					diagnostic.severity,
-					diagnostic.code ?? "",
-					diagnostic.source ?? "",
 					diagnostic.message,
 				].join(":");
 				if (seen.has(key)) continue;
@@ -366,19 +366,28 @@ export class LSPService {
 			}
 		}
 
+		const rawCount = perServer.reduce(
+			(sum, entry) => sum + entry.diagnosticCount,
+			0,
+		);
+		const serversWithDiagnostics = perServer.filter(
+			(entry) => entry.diagnosticCount > 0,
+		).length;
+		const failureKind = merged.length === 0 ? "empty_result" : "success";
+
 		logLatency({
 			type: "phase",
 			phase: "lsp_diagnostics_aggregate",
-			filePath,
+			filePath: normalizedPath,
 			durationMs: Date.now() - startedAt,
 			metadata: {
 				serverCountAttempted: getServersForFileWithConfig(filePath).length,
 				serverCountReady: perServer.length,
+				serverCountWithDiagnostics: serversWithDiagnostics,
 				mergedCount: merged.length,
-				dedupDroppedCount: perServer.reduce(
-					(sum, entry) => sum + entry.diagnosticCount,
-					0,
-				) - merged.length,
+				dedupDroppedCount: rawCount - merged.length,
+				failureKind,
+				health: failureKind === "success" ? "ok" : "empty_result",
 				servers: perServer.map((entry) => ({
 					id: entry.serverId,
 					waitMs: entry.waitMs,

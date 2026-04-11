@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { Type } from "@sinclair/typebox";
 import type { LSPCallHierarchyItem } from "../clients/lsp/client.js";
 import { getLSPService } from "../clients/lsp/index.js";
+import { logLatency } from "../clients/latency-logger.js";
 
 function operationSupportStatus(
 	operation: string,
@@ -204,11 +205,50 @@ export function createLspNavigationTool(
 			_onUpdate: unknown,
 			ctx: { cwd?: string },
 		) {
+			const startedAt = Date.now();
 			let supported: boolean | null = null;
 			let diagnosticsMode: "pull" | "push-only" | "unknown" = "unknown";
 
-			if (!getFlag("lens-lsp") || getFlag("no-lsp")) {
+			const finalize = (
+				payload: {
+					content: Array<{ type: "text"; text: string }>;
+					isError?: boolean;
+					details?: Record<string, unknown>;
+				},
+				meta: {
+					operation: string;
+					filePath: string;
+					failureKind: string;
+					resultCount: number;
+				},
+			) => {
+				const normalizedFilePath = meta.filePath.replace(/\\/g, "/");
+				logLatency({
+					type: "phase",
+					phase: "lsp_navigation_result",
+					filePath: normalizedFilePath,
+					durationMs: Date.now() - startedAt,
+					metadata: {
+						operation: meta.operation,
+						failureKind: meta.failureKind,
+						resultCount: meta.resultCount,
+						supported,
+						diagnosticsMode,
+					},
+				});
+
 				return {
+					...payload,
+					details: {
+						...(payload.details ?? {}),
+						failureKind: meta.failureKind,
+					},
+				};
+			};
+
+			if (!getFlag("lens-lsp") || getFlag("no-lsp")) {
+				return finalize(
+					{
 					content: [
 						{
 							type: "text" as const,
@@ -216,8 +256,14 @@ export function createLspNavigationTool(
 						},
 					],
 					isError: true,
-					details: {},
-				};
+					},
+					{
+						operation: "precheck",
+						filePath: "(workspace)",
+						failureKind: "lsp_disabled",
+						resultCount: 0,
+					},
+				);
 			}
 
 			const {
@@ -247,7 +293,8 @@ export function createLspNavigationTool(
 				operation !== "workspaceSymbol" &&
 				!isCallHierarchyTraversal;
 			if (needsFilePath && (!rawPath || rawPath.trim().length === 0)) {
-				return {
+				return finalize(
+					{
 					content: [
 						{
 							type: "text" as const,
@@ -255,8 +302,14 @@ export function createLspNavigationTool(
 						},
 					],
 					isError: true,
-					details: {},
-				};
+					},
+					{
+						operation,
+						filePath: "(workspace)",
+						failureKind: "missing_file_path",
+						resultCount: 0,
+					},
+				);
 			}
 
 			const filePath = rawPath
@@ -285,7 +338,8 @@ export function createLspNavigationTool(
 						: diagnosticsMode === "pull"
 							? "Note: server advertises workspace pull diagnostics support."
 							: "Note: workspace diagnostics mode unknown (no active capability snapshot).";
-				return {
+				return finalize(
+					{
 					content: [
 						{
 							type: "text" as const,
@@ -298,12 +352,23 @@ export function createLspNavigationTool(
 						diagnosticsMode,
 						coverage: "tracked-open-files",
 					},
-				};
+					},
+					{
+						operation,
+						filePath: rawPath ? filePath : "(workspace)",
+						failureKind:
+							diagnosticsMode === "push-only"
+								? "tracked_snapshot"
+								: "success",
+						resultCount: result.length,
+					},
+				);
 			}
 
 			const hasLSP = filePath ? await lspService.hasLSP(filePath) : false;
 			if (needsFilePath && !hasLSP) {
-				return {
+				return finalize(
+					{
 					content: [
 						{
 							type: "text" as const,
@@ -311,15 +376,22 @@ export function createLspNavigationTool(
 						},
 					],
 					isError: true,
-					details: {},
-				};
+					},
+					{
+						operation,
+						filePath,
+						failureKind: "no_server",
+						resultCount: 0,
+					},
+				);
 			}
 
 			if (needsFilePath) {
 				const support = await lspService.getOperationSupport(filePath);
 				supported = operationSupportStatus(operation, support);
 				if (supported === false) {
-					return {
+					return finalize(
+						{
 						content: [
 							{
 								type: "text" as const,
@@ -328,7 +400,9 @@ export function createLspNavigationTool(
 						],
 						isError: true,
 						details: { operation, supported: false, emptyReason: "unsupported" },
-					};
+						},
+						{ operation, filePath, failureKind: "unsupported", resultCount: 0 },
+					);
 				}
 
 				await openFileBestEffort(lspService, filePath);
@@ -452,20 +526,27 @@ export function createLspNavigationTool(
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				if (msg.startsWith("__UNSUPPORTED__ ")) {
-					return {
+					return finalize(
+						{
 						content: [{ type: "text" as const, text: msg.replace("__UNSUPPORTED__ ", "") }],
 						isError: true,
 						details: { operation, supported: false, emptyReason: "unsupported" },
-					};
+						},
+						{ operation, filePath, failureKind: "unsupported", resultCount: 0 },
+					);
 				}
 				if (msg.startsWith("__BADINPUT__ ")) {
-					return {
+					return finalize(
+						{
 						content: [{ type: "text" as const, text: msg.replace("__BADINPUT__ ", "") }],
 						isError: true,
 						details: {},
-					};
+						},
+						{ operation, filePath, failureKind: "bad_input", resultCount: 0 },
+					);
 				}
-				return {
+				return finalize(
+					{
 					content: [
 						{
 							type: "text" as const,
@@ -474,7 +555,9 @@ export function createLspNavigationTool(
 					],
 					isError: true,
 					details: {},
-				};
+					},
+					{ operation, filePath, failureKind: "lsp_error", resultCount: 0 },
+				);
 			}
 
 			const isEmpty = !result || (Array.isArray(result) && result.length === 0);
@@ -504,16 +587,25 @@ export function createLspNavigationTool(
 				}
 			}
 
-			return {
-				content: [{ type: "text" as const, text: output }],
-				details: {
-					operation,
-					supported,
-					emptyReason: isEmpty ? emptyReasonForOperation(operation) : undefined,
-					codeActionKinds: actionStats ?? undefined,
-					resultCount: Array.isArray(result) ? result.length : result ? 1 : 0,
+			const resultCount = Array.isArray(result) ? result.length : result ? 1 : 0;
+			return finalize(
+				{
+					content: [{ type: "text" as const, text: output }],
+					details: {
+						operation,
+						supported,
+						emptyReason: isEmpty ? emptyReasonForOperation(operation) : undefined,
+						codeActionKinds: actionStats ?? undefined,
+						resultCount,
+					},
 				},
-			};
+				{
+					operation,
+					filePath: rawPath ? filePath : "(workspace)",
+					failureKind: isEmpty ? "empty_result" : "success",
+					resultCount,
+				},
+			);
 		},
 	};
 }
