@@ -31,6 +31,8 @@ export interface LSPState {
 }
 
 const BROKEN_RETRY_COOLDOWN_MS = 15_000;
+const OPTIONAL_LSP_RETRY_COOLDOWN_MS = 5 * 60_000;
+const OPTIONAL_LSP_SERVER_IDS = new Set(["biome-lsp"]);
 const TOUCH_DEBOUNCE_MS = Math.max(
 	0,
 	Number.parseInt(process.env.PI_LENS_LSP_TOUCH_DEBOUNCE_MS ?? "1500", 10) ||
@@ -62,6 +64,8 @@ export class LSPService {
 	private workspaceProbeLogged = new Set<string>();
 	private warmStartLogged = new Set<string>();
 	private emitConsoleLspErrors = process.env.PI_LENS_CONSOLE_LSP === "1";
+	private optionalFailureLogged = new Set<string>();
+	private optionalDisabled = new Set<string>();
 	private recentTouches = new Map<
 		string,
 		{ fingerprint: string; touchedAt: number; clientScope: "primary" | "all" }
@@ -182,6 +186,11 @@ export class LSPService {
 
 		const normalizedRoot = normalizeMapKey(root);
 		const key = `${server.id}:${normalizedRoot}`;
+		const isOptionalServer = OPTIONAL_LSP_SERVER_IDS.has(server.id);
+
+		if (isOptionalServer && this.optionalDisabled.has(key)) {
+			return undefined;
+		}
 
 		const existing = this.state.clients.get(key);
 		if (existing) {
@@ -279,6 +288,7 @@ export class LSPService {
 		filePath: string,
 		allowInstall: boolean,
 	): Promise<SpawnedServer | undefined> {
+		const isOptionalServer = OPTIONAL_LSP_SERVER_IDS.has(server.id);
 		const startedAt = Date.now();
 		logSessionStart(
 			`lsp spawn ${server.id}: start root=${root} policy=${server.installPolicy ?? "unknown"} install=${allowInstall ? "enabled" : "disabled"} file=${filePath}`,
@@ -309,6 +319,10 @@ export class LSPService {
 					};
 
 			this.state.clients.set(key, client);
+			if (isOptionalServer) {
+				this.optionalDisabled.delete(key);
+				this.optionalFailureLogged.delete(key);
+			}
 			logSessionStart(
 				`lsp spawn ${server.id}: success source=${spawned.source ?? server.installPolicy ?? "unknown"} (${Date.now() - startedAt}ms)`,
 			);
@@ -320,11 +334,16 @@ export class LSPService {
 			}
 			return { client, info: server };
 		} catch (err) {
-			logSessionStart(
-				`lsp spawn ${server.id}: failed (${Date.now() - startedAt}ms) error=${err instanceof Error ? err.message : String(err)}`,
-			);
+			if (!isOptionalServer || !this.optionalFailureLogged.has(key)) {
+				logSessionStart(
+					`lsp spawn ${server.id}: failed (${Date.now() - startedAt}ms) error=${err instanceof Error ? err.message : String(err)}`,
+				);
+				if (isOptionalServer) {
+					this.optionalFailureLogged.add(key);
+				}
+			}
 			const errorMsg = err instanceof Error ? err.message : String(err);
-			if (this.emitConsoleLspErrors) {
+			if (this.emitConsoleLspErrors && !isOptionalServer) {
 				if (errorMsg.includes("Timeout")) {
 					console.error(
 						`[lsp] ${server.id} timed out during initialization (${errorMsg}). The server may be downloading or the project is large. Skipping.`,
@@ -341,7 +360,13 @@ export class LSPService {
 					console.error(`[lsp] Failed to spawn ${server.id}:`, err);
 				}
 			}
-			this.state.broken.set(key, Date.now() + BROKEN_RETRY_COOLDOWN_MS);
+			this.state.broken.set(
+				key,
+				Date.now() + (isOptionalServer ? OPTIONAL_LSP_RETRY_COOLDOWN_MS : BROKEN_RETRY_COOLDOWN_MS),
+			);
+			if (isOptionalServer) {
+				this.optionalDisabled.add(key);
+			}
 			return undefined;
 		}
 	}
