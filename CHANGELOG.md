@@ -4,6 +4,15 @@ All notable changes to pi-lens will be documented in this file.
 
 ## [Unreleased]
 
+## [3.8.25] - 2026-04-13
+
+### Changed
+- **Go LSP PATH augmentation on Windows** — LSP subprocess PATH now includes common Go install directories (`C:\Program Files\Go\bin`, `C:\Go\bin`) to prevent `gopls` startup/runtime failures when `go` is not in inherited shell PATH.
+- **Similarity runner cold-start behavior** — similarity now skips fast when no cached project index exists and for tiny/trivial files, reducing write/edit pipeline tail latency and eliminating frequent 30s timeout noise in scratch-file workflows.
+
+### Fixed
+- **Non-git workspace commit lookup noise** — metrics snapshot commit detection now pre-checks repository context before invoking Git, preventing `fatal: not a git repository` terminal noise in non-repo folders.
+
 ## [3.8.24] - 2026-04-12
 
 ### Changed
