@@ -33,6 +33,13 @@ export interface LSPState {
 const BROKEN_RETRY_COOLDOWN_MS = 15_000;
 const OPTIONAL_LSP_RETRY_COOLDOWN_MS = 5 * 60_000;
 const OPTIONAL_LSP_SERVER_IDS = new Set(["biome-lsp"]);
+const NAV_CLIENT_WAIT_TIMEOUT_MS = Math.max(
+	0,
+	Number.parseInt(
+		process.env.PI_LENS_LSP_NAV_CLIENT_WAIT_MS ?? "350",
+		10,
+	) || 350,
+);
 const TOUCH_DEBOUNCE_MS = Math.max(
 	0,
 	Number.parseInt(process.env.PI_LENS_LSP_TOUCH_DEBOUNCE_MS ?? "1500", 10) ||
@@ -126,7 +133,11 @@ export class LSPService {
 	 * Get or create LSP client for a file
 	 * Prevents duplicate client creation via in-flight promise tracking
 	 */
-	async getClientForFile(filePath: string): Promise<SpawnedServer | undefined> {
+	async getClientForFile(
+		filePath: string,
+		maxWaitMs?: number,
+	): Promise<SpawnedServer | undefined> {
+		const withBudget = async (): Promise<SpawnedServer | undefined> => {
 		const servers = getServersForFileWithConfig(filePath);
 		if (servers.length === 0) return undefined;
 
@@ -160,6 +171,32 @@ export class LSPService {
 		});
 
 		return undefined;
+		};
+
+		if (!maxWaitMs || maxWaitMs <= 0) {
+			return withBudget();
+		}
+
+		const timeoutResult = await Promise.race<SpawnedServer | undefined>([
+			withBudget(),
+			new Promise<undefined>((resolve) =>
+				setTimeout(() => resolve(undefined), maxWaitMs),
+			),
+		]);
+
+		if (!timeoutResult) {
+			logLatency({
+				type: "phase",
+				phase: "lsp_client_wait_timeout",
+				filePath,
+				durationMs: maxWaitMs,
+				metadata: {
+					maxWaitMs,
+				},
+			});
+		}
+
+		return timeoutResult;
 	}
 
 	/**
@@ -402,13 +439,14 @@ export class LSPService {
 		waitForDiagnostics = false,
 		source = "unknown",
 		useAllClients = false,
+		maxClientWaitMs?: number,
 	): Promise<void> {
 		const startedAt = Date.now();
 		const normalizedPath = normalizeMapKey(filePath);
 		const clientScope = useAllClients ? "all" : "primary";
 		const spawned = useAllClients
 			? await this.getClientsForFile(filePath)
-			: await this.getClientForFile(filePath).then((entry) =>
+			: await this.getClientForFile(filePath, maxClientWaitMs).then((entry) =>
 					entry ? [entry] : [],
 				);
 		if (spawned.length === 0) {
@@ -569,7 +607,10 @@ export class LSPService {
 	 * Navigation: go to definition
 	 */
 	async definition(filePath: string, line: number, character: number) {
-		const spawned = await this.getClientForFile(filePath);
+		const spawned = await this.getClientForFile(
+			filePath,
+			NAV_CLIENT_WAIT_TIMEOUT_MS,
+		);
 		if (!spawned) return [];
 		return spawned.client.definition(filePath, line, character);
 	}
@@ -583,7 +624,10 @@ export class LSPService {
 		character: number,
 		includeDeclaration = true,
 	) {
-		const spawned = await this.getClientForFile(filePath);
+		const spawned = await this.getClientForFile(
+			filePath,
+			NAV_CLIENT_WAIT_TIMEOUT_MS,
+		);
 		if (!spawned) return [];
 		return spawned.client.references(
 			filePath,
@@ -597,7 +641,10 @@ export class LSPService {
 	 * Navigation: hover info
 	 */
 	async hover(filePath: string, line: number, character: number) {
-		const spawned = await this.getClientForFile(filePath);
+		const spawned = await this.getClientForFile(
+			filePath,
+			NAV_CLIENT_WAIT_TIMEOUT_MS,
+		);
 		if (!spawned) return null;
 		return spawned.client.hover(filePath, line, character);
 	}
@@ -606,7 +653,10 @@ export class LSPService {
 	 * Navigation: signature help at cursor position
 	 */
 	async signatureHelp(filePath: string, line: number, character: number) {
-		const spawned = await this.getClientForFile(filePath);
+		const spawned = await this.getClientForFile(
+			filePath,
+			NAV_CLIENT_WAIT_TIMEOUT_MS,
+		);
 		if (!spawned) return null;
 		return spawned.client.signatureHelp(filePath, line, character);
 	}
@@ -615,7 +665,10 @@ export class LSPService {
 	 * Navigation: symbols in document
 	 */
 	async documentSymbol(filePath: string) {
-		const spawned = await this.getClientForFile(filePath);
+		const spawned = await this.getClientForFile(
+			filePath,
+			NAV_CLIENT_WAIT_TIMEOUT_MS,
+		);
 		if (!spawned) return [];
 		return spawned.client.documentSymbol(filePath);
 	}
@@ -625,7 +678,10 @@ export class LSPService {
 	 */
 	async workspaceSymbol(query: string, filePath?: string) {
 		if (filePath) {
-			const spawned = await this.getClientForFile(filePath);
+			const spawned = await this.getClientForFile(
+				filePath,
+				NAV_CLIENT_WAIT_TIMEOUT_MS,
+			);
 			if (!spawned) return [];
 			return spawned.client.workspaceSymbol(query);
 		}
@@ -690,7 +746,10 @@ export class LSPService {
 		endLine: number,
 		endCharacter: number,
 	) {
-		const spawned = await this.getClientForFile(filePath);
+		const spawned = await this.getClientForFile(
+			filePath,
+			NAV_CLIENT_WAIT_TIMEOUT_MS,
+		);
 		if (!spawned) return [];
 		return spawned.client.codeAction(
 			filePath,
@@ -710,7 +769,10 @@ export class LSPService {
 		character: number,
 		newName: string,
 	) {
-		const spawned = await this.getClientForFile(filePath);
+		const spawned = await this.getClientForFile(
+			filePath,
+			NAV_CLIENT_WAIT_TIMEOUT_MS,
+		);
 		if (!spawned) return null;
 		return spawned.client.rename(filePath, line, character, newName);
 	}
@@ -719,7 +781,10 @@ export class LSPService {
 	 * Navigation: go to implementation
 	 */
 	async implementation(filePath: string, line: number, character: number) {
-		const spawned = await this.getClientForFile(filePath);
+		const spawned = await this.getClientForFile(
+			filePath,
+			NAV_CLIENT_WAIT_TIMEOUT_MS,
+		);
 		if (!spawned) return [];
 		return spawned.client.implementation(filePath, line, character);
 	}
@@ -732,7 +797,10 @@ export class LSPService {
 		line: number,
 		character: number,
 	) {
-		const spawned = await this.getClientForFile(filePath);
+		const spawned = await this.getClientForFile(
+			filePath,
+			NAV_CLIENT_WAIT_TIMEOUT_MS,
+		);
 		if (!spawned) return [];
 		return spawned.client.prepareCallHierarchy(filePath, line, character);
 	}
@@ -741,7 +809,10 @@ export class LSPService {
 	 * Navigation: find incoming calls (callers)
 	 */
 	async incomingCalls(item: import("./client.js").LSPCallHierarchyItem) {
-		const spawned = await this.getClientForFile(uriToPath(item.uri));
+		const spawned = await this.getClientForFile(
+			uriToPath(item.uri),
+			NAV_CLIENT_WAIT_TIMEOUT_MS,
+		);
 		if (!spawned) return [];
 		return spawned.client.incomingCalls(item);
 	}
@@ -750,7 +821,10 @@ export class LSPService {
 	 * Navigation: find outgoing calls (callees)
 	 */
 	async outgoingCalls(item: import("./client.js").LSPCallHierarchyItem) {
-		const spawned = await this.getClientForFile(uriToPath(item.uri));
+		const spawned = await this.getClientForFile(
+			uriToPath(item.uri),
+			NAV_CLIENT_WAIT_TIMEOUT_MS,
+		);
 		if (!spawned) return [];
 		return spawned.client.outgoingCalls(item);
 	}

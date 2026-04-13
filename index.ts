@@ -59,6 +59,11 @@ function dbg(msg: string) {
 let _verbose = false;
 const runtime = new RuntimeCoordinator();
 const _lspConfigInitializedCwds = new Set<string>();
+const LSP_TOOLCALL_NAV_TOUCH_BUDGET_MS = Math.max(
+	0,
+	Number.parseInt(process.env.PI_LENS_TOOLCALL_NAV_TOUCH_MS ?? "350", 10) ||
+		350,
+);
 
 function log(msg: string) {
 	if (_verbose) console.error(`[pi-lens] ${msg}`);
@@ -576,8 +581,17 @@ pi.on("tool_call", async (event, ctx) => {
 	if (shouldAutoTouch) {
 		try {
 			const fileContent = nodeFs.readFileSync(filePath, "utf-8");
+			const maxClientWaitMs =
+				toolName === "lsp_navigation" ? LSP_TOOLCALL_NAV_TOUCH_BUDGET_MS : undefined;
 			void getLSPService()
-				.touchFile(filePath, fileContent, false, `tool_call:${toolName}`)
+				.touchFile(
+					filePath,
+					fileContent,
+					false,
+					`tool_call:${toolName}`,
+					false,
+					maxClientWaitMs,
+				)
 				.catch((err) => dbg(`lsp auto-touch failed for ${filePath}: ${err}`));
 		} catch {
 			// Best effort only; never block tool calls.
