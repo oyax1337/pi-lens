@@ -4,7 +4,7 @@
  * Minimal auto-install: Core tools that run frequently.
  * Other tools require manual installation with clear instructions.
  *
- * Auto-install (16 tools):
+ * Auto-install (20 tools):
  * - typescript-language-server (TypeScript LSP)
  * - pyright (Python LSP)
  * - bash-language-server (Bash LSP)
@@ -21,6 +21,10 @@
  * - markdownlint-cli2 (Markdown linting)
  * - mypy (Python type checking)
  * - stylelint (CSS/SCSS/Less linting)
+ * - shellcheck (shell script linting) [GitHub release]
+ * - shfmt (shell script formatting) [GitHub release]
+ * - rust-analyzer (Rust LSP) [GitHub release]
+ * - golangci-lint (Go linting) [GitHub release]
  *
  * Manual install required (25+ tools):
  * - yaml-language-server: npm install -g yaml-language-server
@@ -37,16 +41,21 @@
  * Strategies:
  * - npm packages via npx/bun
  * - pip packages
- * - GitHub releases (for platform-specific binaries - not yet implemented)
+ * - GitHub releases (platform-specific binaries → ~/.pi-lens/bin/)
  */
 
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
+import { createGunzip } from "node:zlib";
 
 // Global installation directory for pi-lens tools
 const TOOLS_DIR = path.join(os.homedir(), ".pi-lens", "tools");
+
+// Directory for GitHub-downloaded binaries
+const GITHUB_BIN_DIR = path.join(os.homedir(), ".pi-lens", "bin");
 
 // Debug flag - set via PI_LENS_DEBUG=1 or --debug
 const DEBUG =
@@ -75,6 +84,23 @@ function logSessionStart(msg: string): void {
 
 // --- Tool Definitions ---
 
+interface GitHubAssetSpec {
+	/** owner/repo on GitHub */
+	repo: string;
+	/**
+	 * Return the asset filename substring to match for this platform/arch,
+	 * or undefined if the platform is unsupported.
+	 * platform: "linux" | "darwin" | "win32"
+	 * arch:     "x64" | "arm64" | "ia32" | ...
+	 */
+	assetMatch: (platform: string, arch: string) => string | undefined;
+	/**
+	 * If the asset is an archive, the name of the binary inside it.
+	 * For bare .gz files (e.g. rust-analyzer) leave undefined — the asset IS the binary.
+	 */
+	binaryInArchive?: string;
+}
+
 interface ToolDefinition {
 	id: string;
 	name: string;
@@ -83,9 +109,7 @@ interface ToolDefinition {
 	installStrategy: "npm" | "pip" | "github";
 	packageName?: string;
 	binaryName?: string;
-	// GitHub release download fields
-	githubRepo?: string; // e.g., "clangd/clangd"
-	githubAssetMatch?: (platform: string, arch: string) => string | undefined;
+	github?: GitHubAssetSpec;
 }
 
 const TOOLS: ToolDefinition[] = [
@@ -255,6 +279,79 @@ const TOOLS: ToolDefinition[] = [
 		packageName: "stylelint",
 		binaryName: "stylelint",
 	},
+	// GitHub release binaries
+	{
+		id: "shellcheck",
+		name: "ShellCheck",
+		checkCommand: "shellcheck",
+		checkArgs: ["--version"],
+		installStrategy: "github",
+		binaryName: "shellcheck",
+		github: {
+			repo: "koalaman/shellcheck",
+			assetMatch: (platform, arch) => {
+				if (platform === "linux") return arch === "arm64" ? "linux.aarch64.tar.xz" : "linux.x86_64.tar.xz";
+				if (platform === "darwin") return arch === "arm64" ? "darwin.aarch64.tar.xz" : "darwin.x86_64.tar.xz";
+				if (platform === "win32") return "zip";
+				return undefined;
+			},
+			binaryInArchive: "shellcheck",
+		},
+	},
+	{
+		id: "shfmt",
+		name: "shfmt",
+		checkCommand: "shfmt",
+		checkArgs: ["--version"],
+		installStrategy: "github",
+		binaryName: "shfmt",
+		github: {
+			repo: "mvdan/sh",
+			assetMatch: (platform, arch) => {
+				if (platform === "linux") return arch === "arm64" ? "linux_arm64" : "linux_amd64";
+				if (platform === "darwin") return arch === "arm64" ? "darwin_arm64" : "darwin_amd64";
+				if (platform === "win32") return arch === "arm64" ? "windows_arm64.exe" : "windows_amd64.exe";
+				return undefined;
+			},
+			// bare binary, no archive
+		},
+	},
+	{
+		id: "rust-analyzer",
+		name: "rust-analyzer",
+		checkCommand: "rust-analyzer",
+		checkArgs: ["--version"],
+		installStrategy: "github",
+		binaryName: "rust-analyzer",
+		github: {
+			repo: "rust-lang/rust-analyzer",
+			assetMatch: (platform, arch) => {
+				if (platform === "linux") return arch === "arm64" ? "aarch64-unknown-linux-gnu.gz" : "x86_64-unknown-linux-gnu.gz";
+				if (platform === "darwin") return arch === "arm64" ? "aarch64-apple-darwin.gz" : "x86_64-apple-darwin.gz";
+				if (platform === "win32") return "x86_64-pc-windows-msvc.gz";
+				return undefined;
+			},
+			// bare .gz — decompressed file IS the binary
+		},
+	},
+	{
+		id: "golangci-lint",
+		name: "golangci-lint",
+		checkCommand: "golangci-lint",
+		checkArgs: ["--version"],
+		installStrategy: "github",
+		binaryName: "golangci-lint",
+		github: {
+			repo: "golangci/golangci-lint",
+			assetMatch: (platform, arch) => {
+				if (platform === "linux") return arch === "arm64" ? "linux-arm64.tar.gz" : "linux-amd64.tar.gz";
+				if (platform === "darwin") return arch === "arm64" ? "darwin-arm64.tar.gz" : "darwin-amd64.tar.gz";
+				if (platform === "win32") return arch === "arm64" ? "windows-arm64.zip" : "windows-amd64.zip";
+				return undefined;
+			},
+			binaryInArchive: "golangci-lint",
+		},
+	},
 ];
 
 const ensureInFlight = new Map<string, Promise<string | undefined>>();
@@ -319,7 +416,14 @@ export async function getToolPath(toolId: string): Promise<string | undefined> {
 		}
 	}
 
-	// Check local
+	// For github-strategy tools, probe ~/.pi-lens/bin/
+	if (tool.installStrategy === "github") {
+		const githubPath = await findGitHubToolPath(tool.binaryName || tool.id);
+		if (githubPath) return githubPath;
+		return undefined;
+	}
+
+	// Check local npm tools dir
 	const localPath = path.join(
 		TOOLS_DIR,
 		"node_modules",
@@ -332,6 +436,26 @@ export async function getToolPath(toolId: string): Promise<string | undefined> {
 	} catch {
 		return undefined;
 	}
+}
+
+async function findGitHubToolPath(binaryName: string): Promise<string | undefined> {
+	const isWindows = process.platform === "win32";
+	const candidates = isWindows
+		? [
+				path.join(GITHUB_BIN_DIR, `${binaryName}.exe`),
+				path.join(GITHUB_BIN_DIR, binaryName),
+			]
+		: [path.join(GITHUB_BIN_DIR, binaryName)];
+
+	for (const candidate of candidates) {
+		try {
+			await fs.access(candidate);
+			return candidate;
+		} catch {
+			// continue
+		}
+	}
+	return undefined;
 }
 
 async function findNpmGlobalToolPath(
@@ -545,6 +669,190 @@ async function verifyToolBinary(binPath: string): Promise<boolean> {
 }
 
 // --- Installation Functions
+
+/**
+ * Fetch a URL, following up to `maxRedirects` redirects.
+ * Returns the raw Buffer of the response body.
+ */
+function httpsGet(url: string, maxRedirects = 5): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		https.get(url, { headers: { "User-Agent": "pi-lens/1.0" } }, (res) => {
+			if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+				if (maxRedirects === 0) return reject(new Error("Too many redirects"));
+				return resolve(httpsGet(res.headers.location, maxRedirects - 1));
+			}
+			if (res.statusCode !== 200) {
+				res.resume();
+				return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+			}
+			const chunks: Buffer[] = [];
+			res.on("data", (chunk: Buffer) => chunks.push(chunk));
+			res.on("end", () => resolve(Buffer.concat(chunks)));
+			res.on("error", reject);
+		}).on("error", reject);
+	});
+}
+
+/**
+ * Run a shell command and return true on exit code 0.
+ */
+function runCommand(command: string, args: string[], cwd: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		const proc = spawn(command, args, { cwd, stdio: "ignore", shell: process.platform === "win32" });
+		proc.on("exit", (code) => resolve(code === 0));
+		proc.on("error", () => resolve(false));
+	});
+}
+
+/**
+ * Download and install a tool from a GitHub release.
+ * Returns the path to the installed binary, or undefined on failure.
+ */
+async function installGitHubTool(tool: ToolDefinition): Promise<string | undefined> {
+	const spec = tool.github;
+	if (!spec) return undefined;
+
+	const platform = process.platform; // "linux" | "darwin" | "win32"
+	const arch = process.arch;          // "x64" | "arm64" | ...
+	const assetSubstring = spec.assetMatch(platform, arch);
+	if (!assetSubstring) {
+		console.error(`[auto-install] ${tool.name}: no asset for ${platform}/${arch}`);
+		return undefined;
+	}
+
+	// Fetch latest release metadata from GitHub API
+	let releaseJson: { assets: Array<{ name: string; browser_download_url: string }> };
+	try {
+		const body = await httpsGet(`https://api.github.com/repos/${spec.repo}/releases/latest`);
+		releaseJson = JSON.parse(body.toString("utf8"));
+	} catch (err) {
+		console.error(`[auto-install] ${tool.name}: failed to fetch GitHub release: ${(err as Error).message}`);
+		return undefined;
+	}
+
+	const asset = releaseJson.assets.find((a) => a.name.includes(assetSubstring));
+	if (!asset) {
+		console.error(`[auto-install] ${tool.name}: no asset matching "${assetSubstring}" in release`);
+		return undefined;
+	}
+
+	debugLog(`[github] downloading ${asset.name} from ${asset.browser_download_url}`);
+
+	// Download the asset
+	let assetBuffer: Buffer;
+	try {
+		assetBuffer = await httpsGet(asset.browser_download_url);
+	} catch (err) {
+		console.error(`[auto-install] ${tool.name}: download failed: ${(err as Error).message}`);
+		return undefined;
+	}
+
+	await fs.mkdir(GITHUB_BIN_DIR, { recursive: true });
+
+	const binaryName = tool.binaryName ?? tool.id;
+	const isWindows = platform === "win32";
+	const finalBinaryName = isWindows && !binaryName.endsWith(".exe") ? `${binaryName}.exe` : binaryName;
+	const destPath = path.join(GITHUB_BIN_DIR, finalBinaryName);
+
+	const assetName = asset.name;
+
+	try {
+		if (assetName.endsWith(".gz") && !assetName.endsWith(".tar.gz")) {
+			// Bare gzip (e.g. rust-analyzer-x86_64-unknown-linux-gnu.gz) — decompress directly
+			const decompressed = await new Promise<Buffer>((resolve, reject) => {
+				const gunzip = createGunzip();
+				const chunks: Buffer[] = [];
+				gunzip.on("data", (chunk: Buffer) => chunks.push(chunk));
+				gunzip.on("end", () => resolve(Buffer.concat(chunks)));
+				gunzip.on("error", reject);
+				gunzip.end(assetBuffer);
+			});
+			await fs.writeFile(destPath, decompressed, { mode: 0o755 });
+
+		} else if (assetName.endsWith(".tar.gz") || assetName.endsWith(".tar.xz")) {
+			// Write archive to temp file, extract with system tar
+			const tmpArchive = path.join(GITHUB_BIN_DIR, `_tmp_${assetName}`);
+			await fs.writeFile(tmpArchive, assetBuffer);
+			const tmpDir = path.join(GITHUB_BIN_DIR, `_tmp_extract_${tool.id}`);
+			await fs.mkdir(tmpDir, { recursive: true });
+
+			const extracted = await runCommand("tar", ["xf", tmpArchive, "-C", tmpDir, "--strip-components=1"], GITHUB_BIN_DIR);
+			await fs.rm(tmpArchive, { force: true });
+
+			if (!extracted) {
+				await fs.rm(tmpDir, { recursive: true, force: true });
+				console.error(`[auto-install] ${tool.name}: tar extraction failed`);
+				return undefined;
+			}
+
+			// Find the binary inside extracted dir
+			const srcBinary = path.join(tmpDir, spec.binaryInArchive ?? binaryName);
+			await fs.rename(srcBinary, destPath);
+			await fs.rm(tmpDir, { recursive: true, force: true });
+			if (!isWindows) await fs.chmod(destPath, 0o755);
+
+		} else if (assetName.endsWith(".zip")) {
+			// Write zip to temp, extract with unzip (Linux/macOS) or Expand-Archive (Windows)
+			const tmpArchive = path.join(GITHUB_BIN_DIR, `_tmp_${assetName}`);
+			await fs.writeFile(tmpArchive, assetBuffer);
+			const tmpDir = path.join(GITHUB_BIN_DIR, `_tmp_extract_${tool.id}`);
+			await fs.mkdir(tmpDir, { recursive: true });
+
+			const extracted = isWindows
+				? await runCommand(
+						"powershell",
+						["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${tmpArchive}' -DestinationPath '${tmpDir}' -Force`],
+						GITHUB_BIN_DIR,
+					)
+				: await runCommand("unzip", ["-q", "-o", tmpArchive, "-d", tmpDir], GITHUB_BIN_DIR);
+
+			await fs.rm(tmpArchive, { force: true });
+
+			if (!extracted) {
+				await fs.rm(tmpDir, { recursive: true, force: true });
+				console.error(`[auto-install] ${tool.name}: zip extraction failed`);
+				return undefined;
+			}
+
+			// Find binary — may be at root or inside a subdir
+			const targetName = spec.binaryInArchive ?? finalBinaryName;
+			const srcBinary = await findFileRecursive(tmpDir, targetName);
+			if (!srcBinary) {
+				await fs.rm(tmpDir, { recursive: true, force: true });
+				console.error(`[auto-install] ${tool.name}: binary "${targetName}" not found in zip`);
+				return undefined;
+			}
+			await fs.rename(srcBinary, destPath);
+			await fs.rm(tmpDir, { recursive: true, force: true });
+			if (!isWindows) await fs.chmod(destPath, 0o755);
+
+		} else {
+			// Bare binary (e.g. shfmt_*_linux_amd64)
+			await fs.writeFile(destPath, assetBuffer, { mode: 0o755 });
+		}
+	} catch (err) {
+		console.error(`[auto-install] ${tool.name}: install failed: ${(err as Error).message}`);
+		return undefined;
+	}
+
+	debugLog(`[github] installed ${tool.name} → ${destPath}`);
+	return destPath;
+}
+
+/** Recursively find a file by name under a directory. */
+async function findFileRecursive(dir: string, name: string): Promise<string | undefined> {
+	const entries = await fs.readdir(dir, { withFileTypes: true });
+	for (const entry of entries) {
+		const full = path.join(dir, entry.name);
+		if (entry.isDirectory()) {
+			const found = await findFileRecursive(full, name);
+			if (found) return found;
+		} else if (entry.name === name) {
+			return full;
+		}
+	}
+	return undefined;
+}
 
 /**
  * Install an npm package tool
@@ -836,6 +1144,16 @@ export async function installTool(toolId: string): Promise<boolean> {
 				return ok;
 			}
 
+			case "github": {
+				if (!tool.github) return false;
+				const ghPath = await installGitHubTool(tool);
+				const ok = ghPath !== undefined;
+				logSessionStart(
+					`auto-install ${tool.id}: ${ok ? "success" : "failed"} (${Date.now() - startedAt}ms)`,
+				);
+				return ok;
+			}
+
 			default:
 				console.error(
 					`[auto-install] Unsupported strategy: ${tool.installStrategy}`,
@@ -921,7 +1239,7 @@ export async function getToolEnvironment(): Promise<NodeJS.ProcessEnv> {
 
 	return {
 		...process.env,
-		PATH: `${localBin}${separator}${currentPath}`,
+		PATH: `${GITHUB_BIN_DIR}${separator}${localBin}${separator}${currentPath}`,
 	};
 }
 

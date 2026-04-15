@@ -702,22 +702,21 @@ export const RustServer: LSPServerInfo = {
 	name: "rust-analyzer",
 	extensions: [".rs"],
 	root: createRootDetector(["Cargo.toml", "Cargo.lock"]),
-	async spawn(root) {
-		// rust-analyzer must be installed via rustup — no auto-install path
-		try {
-			const proc = await launchLSP("rust-analyzer", [], { cwd: root });
-			return {
-				process: proc,
-				source: "direct" as const,
-				initialization: {
-					cargo: { buildScripts: { enable: true } },
-					procMacro: { enable: true },
-					diagnostics: { enable: true },
-				},
-			};
-		} catch {
-			return undefined;
-		}
+	async spawn(root, options) {
+		// Prefer rustup-installed rust-analyzer; fall back to GitHub-downloaded managed copy
+		const result = await resolveAndLaunch(
+			{ candidates: ["rust-analyzer"], args: [], cwd: root, managedToolId: "rust-analyzer" },
+			options?.allowInstall,
+		);
+		if (!result) return undefined;
+		return {
+			...result,
+			initialization: {
+				cargo: { buildScripts: { enable: true } },
+				procMacro: { enable: true },
+				diagnostics: { enable: true },
+			},
+		};
 	},
 };
 
