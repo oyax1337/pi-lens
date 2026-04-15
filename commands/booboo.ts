@@ -1190,6 +1190,44 @@ export async function handleBooboo(
 			}
 		}
 
+		// Ruby: rubocop --format json
+		if (langs.has("ruby") && nodeFs.existsSync(path.join(targetPath, "Gemfile"))) {
+			const hasRubocop = safeSpawn("rubocop", ["--version"], { timeout: 5_000 }).status === 0;
+			if (hasRubocop) {
+				const result = safeSpawn(
+					"rubocop",
+					["--format", "json", "--no-color", "--display-only-fail-level-offenses"],
+					{ cwd: targetPath, timeout: 60_000 },
+				);
+				const output = result.stdout || "";
+				try {
+					const json = JSON.parse(output);
+					for (const fileResult of json?.files ?? []) {
+						const absFile = path.isAbsolute(fileResult.path)
+							? fileResult.path
+							: path.join(targetPath, fileResult.path);
+						if (!shouldIncludeFile(absFile)) continue;
+						for (const offense of fileResult.offenses ?? []) {
+							const sev = offense.severity === "error" || offense.severity === "fatal"
+								? "error"
+								: "warning";
+							issues.push({
+								file: path.relative(targetPath, absFile),
+								line: offense.location?.line ?? 1,
+								col: offense.location?.column ?? 1,
+								severity: sev,
+								code: offense.cop_name ?? "rubocop",
+								message: offense.message ?? "",
+								compiler: "rubocop",
+							});
+						}
+					}
+				} catch {
+					// rubocop didn't produce valid JSON
+				}
+			}
+		}
+
 		if (issues.length === 0) return { findings: 0, status: "done" };
 
 		// Group by compiler for reporting
