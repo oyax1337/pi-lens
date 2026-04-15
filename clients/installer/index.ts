@@ -1263,3 +1263,17 @@ export async function checkAllTools(): Promise<
 	}
 	return results;
 }
+
+/**
+ * Resolve the GitHub asset filename substring for a tool on a given platform/arch.
+ * Returns undefined if the tool has no GitHub spec or no asset for the platform.
+ * Exported for testing only.
+ */
+export function resolveGitHubAsset(
+	toolId: string,
+	platform: string,
+	arch: string,
+): string | undefined {
+	const tool = TOOLS.find((t) => t.id === toolId);
+	return tool?.github?.assetMatch(platform, arch);
+}
