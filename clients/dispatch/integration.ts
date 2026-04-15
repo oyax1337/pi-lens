@@ -64,6 +64,9 @@ import { passThroughWrappersRule } from "./rules/pass-through-wrappers.js";
 import { placeholderCommentsRule } from "./rules/placeholder-comments.js";
 import { highComplexityRule } from "./rules/high-complexity.js";
 import { unsafeBoundaryRule } from "./rules/unsafe-boundary.js";
+import { asyncUnnecessaryWrapperRule } from "./rules/async-unnecessary-wrapper.js";
+import { missingErrorPropagationRule } from "./rules/missing-error-propagation.js";
+import { highFanOutRule } from "./rules/high-fan-out.js";
 registerRule(errorObscuringRule);
 registerRule(errorSwallowingRule);
 registerRule(asyncNoiseRule);
@@ -71,6 +74,9 @@ registerRule(passThroughWrappersRule);
 registerRule(placeholderCommentsRule);
 registerRule(highComplexityRule);
 registerRule(unsafeBoundaryRule);
+registerRule(asyncUnnecessaryWrapperRule);
+registerRule(missingErrorPropagationRule);
+registerRule(highFanOutRule);
 
 const sessionFacts = new FactStore();
 const sessionRunnerRegistry = new RunnerRegistry();
@@ -84,6 +90,9 @@ const FACT_RULE_IDS = new Set([
 	"placeholder-comments",
 	"high-complexity",
 	"unsafe-boundary",
+	"async-unnecessary-wrapper",
+	"missing-error-propagation",
+	"high-fan-out",
 ]);
 const sessionSlopRuleCounts = new Map<string, number>();
 let sessionSlopDiagnosticCount = 0;
