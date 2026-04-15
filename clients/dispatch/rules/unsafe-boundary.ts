@@ -35,14 +35,24 @@ function callsToBoundary(outgoingCalls: string[]): string | undefined {
 }
 
 function hasCatchCoverage(fn: FunctionSummary, catches: TryCatchSummary[]): boolean {
-	// A try/catch is considered covering if it starts at or before the function
-	// and is non-empty and non-obscuring (has rethrow or logging or uses catch param).
-	return catches.some(
-		(c) =>
-			c.line >= fn.line &&
-			!c.isEmpty &&
-			(c.hasRethrow || c.hasLogging || c.catchParam === null),
-	);
+	// A catch block is considered covering if it is non-empty and does one of:
+	// - rethrows the error
+	// - logs it (console.error / logger.*)
+	// - has no binding (catch {} — intentional swallow)
+	// - returns a structured value (return { ... } / return false / return null)
+	//   This handles the common "return structured error" pattern in IO helpers.
+	// Also handles Promise-executor pattern: if the function body itself resolves/rejects
+	// via new Promise((resolve) => {...}) we treat it as covered at the call site.
+	if (fn.outgoingCalls.some((c) => c === "resolve" || c === "reject")) return true;
+
+	return catches.some((c) => {
+		if (c.line < fn.line) return false;
+		if (c.isEmpty) return false;
+		if (c.hasRethrow || c.hasLogging || c.catchParam === null) return true;
+		// Catch body contains a return statement → structured error result
+		if (/\breturn\b/.test(c.bodyText)) return true;
+		return false;
+	});
 }
 
 export const unsafeBoundaryRule: FactRule = {
