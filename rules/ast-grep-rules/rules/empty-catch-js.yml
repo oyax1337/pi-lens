@@ -40,6 +40,9 @@ rule:
         - kind: assignment_expression
         - kind: if_statement
         - kind: switch_statement
+        - kind: expression_statement
+        - kind: continue_statement
+        - kind: break_statement
         - pattern: console.error($$$)
         - pattern: this.log($$$)
         - pattern: logger.$METHOD($$$)

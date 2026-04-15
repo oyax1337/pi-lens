@@ -1,0 +1,8 @@
+id: no-array-sort-without-comparator
+language: TypeScript
+severity: warning
+message: ".sort() without comparator sorts lexicographically — add a comparator"
+note: |
+  [10, 9, 2].sort() gives [10, 2, 9]. Pass a comparator for numeric or custom sorts.
+rule:
+  pattern: "$ARR.sort()"

@@ -84,6 +84,7 @@
 		"web-tree-sitter": "^0.25.10"
 	},
 	"devDependencies": {
+		"@ast-grep/cli": "^0.42.1",
 		"@ast-grep/napi": "^0.42.0",
 		"@biomejs/biome": "^2.4.10",
 		"@types/cross-spawn": "^6.0.6",

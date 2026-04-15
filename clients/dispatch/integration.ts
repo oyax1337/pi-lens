@@ -77,6 +77,13 @@ import {
 	maxSwitchCasesRule,
 	commentedCredentialsRule,
 } from "./rules/sonar-rules.js";
+import {
+	noMagicNumbersRule,
+	noBooleanParamsRule,
+	highImportCouplingRule,
+	noComplexConditionalsRule,
+	highEntropyStringRule,
+} from "./rules/quality-rules.js";
 registerRule(errorObscuringRule);
 registerRule(errorSwallowingRule);
 registerRule(asyncNoiseRule);
@@ -95,6 +102,11 @@ registerRule(corsWildcardRule);
 registerRule(dynamicRegexpRule);
 registerRule(maxSwitchCasesRule);
 registerRule(commentedCredentialsRule);
+registerRule(noMagicNumbersRule);
+registerRule(noBooleanParamsRule);
+registerRule(highImportCouplingRule);
+registerRule(noComplexConditionalsRule);
+registerRule(highEntropyStringRule);
 
 const sessionFacts = new FactStore();
 const sessionRunnerRegistry = new RunnerRegistry();
@@ -119,6 +131,11 @@ const FACT_RULE_IDS = new Set([
 	"dynamic-regexp",
 	"max-switch-cases",
 	"no-commented-credentials",
+	"no-magic-numbers",
+	"no-boolean-params",
+	"high-import-coupling",
+	"no-complex-conditionals",
+	"high-entropy-string",
 ]);
 const sessionSlopRuleCounts = new Map<string, number>();
 let sessionSlopDiagnosticCount = 0;

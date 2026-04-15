@@ -117,9 +117,9 @@ export const commentedOutCodeRule: FactRule = {
 
 // ---------- SN-002: duplicate string literals ----------
 
-const MIN_DUPLICATES = 3;
-const MIN_STRING_LENGTH = 4;
-// Skip common non-signal strings
+const MIN_DUPLICATES = 4;
+const MIN_STRING_LENGTH = 5;
+// Skip common non-signal strings (string-enum values, HTTP verbs, primitives, etc.)
 const SKIP_STRINGS = new Set([
 	"",
 	" ",
@@ -133,17 +133,50 @@ const SKIP_STRINGS = new Set([
 	"put",
 	"delete",
 	"patch",
+	"head",
 	"id",
 	"name",
 	"type",
 	"value",
 	"error",
+	"warning",
+	"info",
+	"debug",
 	"message",
 	"data",
 	"true",
 	"false",
 	"null",
 	"undefined",
+	"none",
+	"unknown",
+	"blocking",
+	"succeeded",
+	"failed",
+	"skipped",
+	"success",
+	"pending",
+	"string",
+	"number",
+	"boolean",
+	"object",
+	"array",
+	"node_modules",
+	".bin",
+	// Platform / environment constants
+	"win32",
+	"linux",
+	"darwin",
+	// Common language/tool discriminators
+	"python",
+	"shell",
+	"typescript",
+	"javascript",
+	// Test directory conventions
+	"__tests__",
+	"tests",
+	"install",
+	"ignore",
 ]);
 
 export const duplicateStringLiteralRule: FactRule = {
@@ -158,11 +191,24 @@ export const duplicateStringLiteralRule: FactRule = {
 
 		const counts = new Map<string, { count: number; line: number }>();
 
+		function isSkipped(s: string): boolean {
+			if (SKIP_STRINGS.has(s.toLowerCase())) return true;
+			// Skip fact/config dot-notation keys (e.g. "file.content", "tool.mypy")
+			if (/^\w+\.\w+/.test(s)) return true;
+			// Skip strings containing path separators or variable markers
+			if (s.includes("/") || s.includes("\\") || s.includes("$")) return true;
+			// Skip CLI flags (start with --)
+			if (s.startsWith("--")) return true;
+			// Skip strings that look like test fixture paths or filenames with extensions
+			if (/\.\w{2,4}$/.test(s)) return true;
+			return false;
+		}
+
 		function visit(node: ts.Node) {
 			if (
 				ts.isStringLiteral(node) &&
 				node.text.length >= MIN_STRING_LENGTH &&
-				!SKIP_STRINGS.has(node.text.toLowerCase())
+				!isSkipped(node.text)
 			) {
 				const val = node.text;
 				const existing = counts.get(val);

@@ -6,7 +6,7 @@ rule:
   pattern: $NAME
   kind: identifier
   inside:
-    kind: required_parameter
+    kind: formal_parameters
     follows:
       stopBy: end
       has:

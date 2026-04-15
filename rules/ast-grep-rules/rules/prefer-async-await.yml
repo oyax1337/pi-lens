@@ -1,0 +1,13 @@
+id: prefer-async-await
+language: TypeScript
+severity: hint
+message: "Prefer async/await over .then()/.catch() — promise chains are harder to read"
+note: |
+  Use try/catch with await instead of chaining .then()/.catch().
+  Exception: top-level .catch() on main() entry points is acceptable.
+rule:
+  any:
+    - pattern: "$EXPR.then($$$ARGS)"
+    - pattern: "$EXPR.catch($$$ARGS)"
+  not:
+    pattern: "main().catch($$$ARGS)"
