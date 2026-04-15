@@ -137,7 +137,8 @@ export function createDiagnosticLogger(): DiagnosticLogger {
 		},
 
 		async flush() {
-			// Wait for any pending writes to complete
+			// Drain any buffered entries, then wait for the write to finish.
+			await writePending();
 			while (writing) {
 				await new Promise((resolve) => setTimeout(resolve, 10));
 			}
