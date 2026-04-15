@@ -2,7 +2,7 @@ import type { FactRule } from "../fact-provider-types.js";
 import type { Diagnostic } from "../types.js";
 import type { FunctionSummary } from "../facts/function-facts.js";
 
-const FAN_OUT_THRESHOLD = 10;
+const FAN_OUT_THRESHOLD = 20;
 
 export const highFanOutRule: FactRule = {
 	id: "high-fan-out",
