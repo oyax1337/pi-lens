@@ -894,8 +894,12 @@ export class TreeSitterClient {
 					captures.FN?.text === "createHash" &&
 					/^(md5|sha1)$/i.test(captures.ALG?.text ?? "")
 				);
-			case "ts_insecure_random_source":
-				return captures.OBJ?.text === "Math" && captures.FN?.text === "random";
+			case "ts_insecure_random_source": {
+				if (captures.OBJ?.text !== "Math" || captures.FN?.text !== "random") return false;
+				// Only flag when assigned to a security-sensitive variable name
+				const varName = captures.VAR?.text ?? "";
+				return /token|secret|password|key|nonce|salt|csrf|auth|session|credential|hash|otp|pin/i.test(varName);
+			}
 			case "ts_detached_async_call":
 				return /(Async$|fetch$|request$)/.test(captures.FN?.text ?? "");
 			case "py_command_injection_sink": {

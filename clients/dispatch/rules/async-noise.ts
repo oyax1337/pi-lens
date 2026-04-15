@@ -17,12 +17,19 @@ export const asyncNoiseRule: FactRule = {
     if (!summaries) return [];
 
     const diagnostics: Diagnostic[] = [];
+    // Function name patterns that legitimately declare async for interface compliance
+    // or future-proofing (lifecycle hooks, event handlers, middleware, abstract stubs)
+    const ASYNC_INTERFACE_PATTERN = /^(on[A-Z]|handle[A-Z]|before[A-Z]|after[A-Z]|setup|teardown|init|dispose|connect|disconnect|open|close|start|stop|run|execute|invoke|dispatch|middleware)/;
+
     for (const fn of summaries) {
       if (
         fn.isAsync &&
         !fn.hasAwait &&
         !fn.hasReturnAwaitCall &&
-        !fn.isPassThroughWrapper
+        !fn.isPassThroughWrapper &&
+        !ASYNC_INTERFACE_PATTERN.test(fn.name) &&
+        // Skip single-statement functions — likely interface stubs or thin wrappers
+        fn.statementCount > 1
       ) {
         diagnostics.push({
           id: `async-noise:${ctx.filePath}:${fn.line}:${fn.column}`,

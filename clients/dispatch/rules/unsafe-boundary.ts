@@ -24,7 +24,7 @@ const IO_PREFIXES = [
 	"readFile(", "writeFile(", "appendFile(", "readdir(", "mkdir(", "unlink(", "stat(",
 ];
 
-const CC_THRESHOLD = 4; // lower bar than high-complexity — IO makes it riskier
+const CC_THRESHOLD = 6; // raised from 4 — avoids flagging simple async wrappers with one IO call
 
 function callsToBoundary(outgoingCalls: string[]): string | undefined {
 	for (const callee of outgoingCalls) {

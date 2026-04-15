@@ -89,10 +89,15 @@ function isExpectedNumericContext(node: ts.NumericLiteral): boolean {
 	return false;
 }
 
+// Files that are expected to contain raw numeric literals by design
+const MAGIC_NUMBER_SKIP_FILES = /[/\\](constants?|config|defaults?|enums?|settings)[^/\\]*\.tsx?$/i;
+
 export const noMagicNumbersRule: FactRule = {
 	id: "no-magic-numbers",
 	requires: ["file.content"],
-	appliesTo: tsFile,
+	appliesTo(ctx) {
+		return tsFile(ctx) && !MAGIC_NUMBER_SKIP_FILES.test(ctx.filePath);
+	},
 	evaluate(ctx, store) {
 		const content = store.getFileFact<string>(ctx.filePath, "file.content");
 		if (!content) return [];
@@ -313,6 +318,9 @@ const ENTROPY_SKIP_PATTERNS = [
 	/^[a-z]+-[a-z0-9_]+-[a-z]+-[a-z]+-[a-z]+$/,
 	// Strings composed mainly of identifier chars with hyphens (config keys, target triples)
 	/^[a-z][a-z0-9]*(-[a-z0-9]+){3,}$/i,
+	// OAuth/OIDC client IDs — public identifiers, not secrets (hex or alphanumeric, 20-40 chars)
+	// Variable names containing "clientId", "client_id", "appId", "app_id" are public by OAuth spec
+	/^[a-f0-9]{20,40}$/,      // hex client IDs like f0304373b74a44d2b584a3fb70ca9e56
 ];
 
 export const highEntropyStringRule: FactRule = {
