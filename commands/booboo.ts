@@ -1072,6 +1072,179 @@ export async function handleBooboo(
 		};
 	});
 
+	// Runner 12: Compiler checks (language-aware)
+	// Runs the project's native type-checker/compiler for whole-workspace type errors.
+	// Each language uses its canonical batch tool — these catch cross-file breakage
+	// that per-file LSP checks miss (e.g. broken imports, declaration emit errors).
+	await tracker.run("compiler checks", async () => {
+		interface CompilerIssue {
+			file: string;
+			line: number;
+			col: number;
+			severity: string;
+			code: string;
+			message: string;
+			compiler: string;
+		}
+
+		const issues: CompilerIssue[] = [];
+		const langs = new Set(projectMeta.languages);
+
+		// TypeScript: tsc --noEmit
+		if (langs.has("typescript") && nodeFs.existsSync(path.join(targetPath, "tsconfig.json"))) {
+			const result = safeSpawn("npx", ["tsc", "--noEmit", "--pretty", "false"], {
+				cwd: targetPath,
+				timeout: 60_000,
+			});
+			const output = (result.stdout || "") + (result.stderr || "");
+			// tsc --pretty false format: "file(line,col): error TS####: message"
+			const tscRe = /^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+(TS\d+):\s+(.+)$/gm;
+			for (const m of output.matchAll(tscRe)) {
+				const [, file, line, col, sev, code, msg] = m;
+				const absFile = path.isAbsolute(file) ? file : path.join(targetPath, file);
+				if (shouldIncludeFile(absFile)) {
+					issues.push({
+						file: path.relative(targetPath, absFile),
+						line: parseInt(line, 10),
+						col: parseInt(col, 10),
+						severity: sev,
+						code,
+						message: msg.trim(),
+						compiler: "tsc",
+					});
+				}
+			}
+		}
+
+		// Go: go vet ./...
+		if (langs.has("go") && nodeFs.existsSync(path.join(targetPath, "go.mod"))) {
+			const result = safeSpawn("go", ["vet", "./..."], {
+				cwd: targetPath,
+				timeout: 60_000,
+			});
+			const output = (result.stderr || "") + (result.stdout || "");
+			// go vet format: "file.go:line:col: message" or "file.go:line: message"
+			const goRe = /^(.+\.go):(\d+)(?::(\d+))?:\s+(.+)$/gm;
+			for (const m of output.matchAll(goRe)) {
+				const [, file, line, col, msg] = m;
+				const absFile = path.isAbsolute(file) ? file : path.join(targetPath, file);
+				issues.push({
+					file: path.relative(targetPath, absFile),
+					line: parseInt(line, 10),
+					col: col ? parseInt(col, 10) : 1,
+					severity: "error",
+					code: "go-vet",
+					message: msg.trim(),
+					compiler: "go vet",
+				});
+			}
+		}
+
+		// Rust: cargo check --message-format=json
+		if (langs.has("rust") && nodeFs.existsSync(path.join(targetPath, "Cargo.toml"))) {
+			const result = safeSpawn("cargo", ["check", "--message-format=json", "--quiet"], {
+				cwd: targetPath,
+				timeout: 120_000,
+			});
+			const output = result.stdout || "";
+			for (const line of output.split("\n")) {
+				if (!line.trim()) continue;
+				try {
+					const msg = JSON.parse(line);
+					if (msg.reason !== "compiler-message") continue;
+					const inner = msg.message;
+					if (!inner || !["error", "warning"].includes(inner.level)) continue;
+					const span = inner.spans?.find((s: { is_primary: boolean }) => s.is_primary) ?? inner.spans?.[0];
+					if (!span) continue;
+					const absFile = span.file_name
+						? path.isAbsolute(span.file_name)
+							? span.file_name
+							: path.join(targetPath, span.file_name)
+						: targetPath;
+					issues.push({
+						file: path.relative(targetPath, absFile),
+						line: span.line_start ?? 1,
+						col: span.column_start ?? 1,
+						severity: inner.level,
+						code: inner.code?.code ?? "cargo",
+						message: inner.message,
+						compiler: "cargo check",
+					});
+				} catch {
+					// non-JSON line
+				}
+			}
+		}
+
+		// Python: pyright --outputjson (preferred) or mypy
+		if (langs.has("python")) {
+			const hasPyright = safeSpawn("pyright", ["--version"], { timeout: 5_000 }).status === 0;
+			if (hasPyright) {
+				const result = safeSpawn("pyright", ["--outputjson", "."], {
+					cwd: targetPath,
+					timeout: 60_000,
+				});
+				const output = result.stdout || "";
+				try {
+					const json = JSON.parse(output);
+					for (const diag of json?.generalDiagnostics ?? []) {
+						if (!["error", "warning"].includes(diag.severity)) continue;
+						const absFile = diag.file
+							? path.isAbsolute(diag.file) ? diag.file : path.join(targetPath, diag.file)
+							: targetPath;
+						if (shouldIncludeFile(absFile)) {
+							issues.push({
+								file: path.relative(targetPath, absFile),
+								line: (diag.range?.start?.line ?? 0) + 1,
+								col: (diag.range?.start?.character ?? 0) + 1,
+								severity: diag.severity,
+								code: diag.rule ?? "pyright",
+								message: diag.message,
+								compiler: "pyright",
+							});
+						}
+					}
+				} catch {
+					// pyright didn't produce valid JSON
+				}
+			}
+		}
+
+		if (issues.length === 0) return { findings: 0, status: "done" };
+
+		// Group by compiler for reporting
+		const byCompiler: Record<string, CompilerIssue[]> = {};
+		for (const issue of issues) {
+			if (!byCompiler[issue.compiler]) byCompiler[issue.compiler] = [];
+			byCompiler[issue.compiler].push(issue);
+		}
+
+		const errorCount = issues.filter((i) => i.severity === "error").length;
+		summaryItems.push({
+			category: "Compiler Errors",
+			count: issues.length,
+			severity: errorCount > 0 ? "🔴" : "🟡",
+			fixable: true,
+		});
+
+		let fullSection = `## Compiler Checks\n\n**${issues.length} issue(s) found** (${errorCount} errors)\n\n`;
+		for (const [compiler, compIssues] of Object.entries(byCompiler)) {
+			fullSection += `### ${compiler} (${compIssues.length})\n\n`;
+			fullSection += "| File | Line | Code | Message |\n|------|------|------|---------|\n";
+			for (const issue of compIssues.slice(0, 30)) {
+				const sev = issue.severity === "error" ? "🔴" : "🟡";
+				fullSection += `| ${issue.file} | ${issue.line} | ${sev} ${issue.code} | ${issue.message} |\n`;
+			}
+			if (compIssues.length > 30) {
+				fullSection += `| ... | | | +${compIssues.length - 30} more |\n`;
+			}
+			fullSection += "\n";
+		}
+		fullReport.push(fullSection);
+
+		return { findings: issues.length, status: "done" };
+	});
+
 	// --- Create structured JSON report ---
 	nodeFs.mkdirSync(reviewDir, { recursive: true });
 	const projectName = path.basename(reviewRoot);
