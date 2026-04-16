@@ -35,6 +35,7 @@ const typeSafetyRunner: RunnerDefinition = {
 
 		// Skip very large files (generated code, data files) — regex scanning on 10k+ lines is wasteful
 		if (content.length > 256 * 1024) {
+			console.error(`[runner:type-safety] skipped ${ctx.filePath} — file exceeds 256KB (${Math.round(content.length / 1024)}KB)`);
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 

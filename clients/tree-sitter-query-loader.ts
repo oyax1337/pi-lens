@@ -216,9 +216,10 @@ export class TreeSitterQueryLoader {
 						.map((s) => s.trim().replace(/^["']|["']$/g, ""));
 				}
 				// Handle multi-line arrays: metavars:\n  - A\n  - B
+				// and nested objects: post_filter_params:\n  KEY: "value"
 				else if (value === "") {
-					// Check if next lines are array items (  - item)
 					const arrayItems: string[] = [];
+					const nestedObj: Record<string, string> = {};
 					const baseIndent = line.match(/^(\s*)/)?.[0].length || 0;
 
 					for (let j = i + 1; j < lines.length; j++) {
@@ -226,21 +227,34 @@ export class TreeSitterQueryLoader {
 						const nextIndent = nextLine.match(/^(\s*)/)?.[0].length || 0;
 
 						// Stop if we hit a line with same or less indent (new key)
-						if (nextIndent <= baseIndent && nextLine.match(/^[a-z_]+:/)) {
+						if (nextIndent <= baseIndent && nextLine.trim() !== "" && nextLine.match(/^\S/)) {
 							break;
 						}
 
 						// Check if it's an array item
 						const itemMatch = nextLine.match(/^\s+-\s*(.+)$/);
 						if (itemMatch) {
-							// Strip inline comments and trim
 							const item = itemMatch[1].trim().replace(/\s*#.*$/, "");
 							if (item) arrayItems.push(item);
+							continue;
+						}
+
+						// Check if it's a nested key: value pair
+						const nestedMatch = nextLine.match(/^\s+(\w+):\s*(.+)$/);
+						if (nestedMatch) {
+							let nv = nestedMatch[2].trim();
+							if (nv.startsWith('"') && nv.endsWith('"')) nv = nv.slice(1, -1);
+							else if (nv.startsWith("'") && nv.endsWith("'")) nv = nv.slice(1, -1);
+							nestedObj[nestedMatch[1]] = nv;
 						}
 					}
 
 					if (arrayItems.length > 0) {
 						value = arrayItems;
+					} else if (Object.keys(nestedObj).length > 0) {
+						// biome-ignore lint/suspicious/noExplicitAny: nested object from YAML
+						(result as any)[key] = nestedObj;
+						continue;
 					}
 				}
 				// Handle booleans

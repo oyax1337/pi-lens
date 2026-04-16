@@ -118,10 +118,13 @@ const similarityRunner: RunnerDefinition = {
 		}
 
 		const lineCount = content.split(/\r?\n/).length;
+		if (lineCount > CONFIG.MAX_FILE_LINES) {
+			console.error(`[runner:similarity] skipped ${filePath} — file exceeds ${CONFIG.MAX_FILE_LINES} lines (${lineCount} lines)`);
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
 		if (
 			content.trim().length < CONFIG.MIN_FILE_CHARS ||
 			lineCount < CONFIG.MIN_FUNCTION_LINES + 2 ||
-			lineCount > CONFIG.MAX_FILE_LINES ||
 			!/(\bfunction\b|=>)/.test(content)
 		) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };

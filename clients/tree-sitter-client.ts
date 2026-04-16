@@ -966,6 +966,18 @@ export class TreeSitterClient {
 					/^(Marshal|YAML|Psych)$/.test(captures.MOD?.text ?? "") &&
 					/^(load|unsafe_load)$/.test(captures.FN?.text ?? "")
 				);
+			case "match_captures": {
+				// Generic filter: each key in postFilterParams is a capture name,
+				// value is a regex string. All must match.
+				for (const [captureName, pattern] of Object.entries(
+					postFilterParams ?? {},
+				)) {
+					const node = captures[captureName];
+					if (!node) return false;
+					if (!new RegExp(pattern as string).test(node.text)) return false;
+				}
+				return true;
+			}
 			default:
 				return true;
 		}

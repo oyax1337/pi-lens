@@ -99,7 +99,7 @@ const pyrightRunner: RunnerDefinition = {
 						: "none",
 			};
 		} catch {
-			// JSON parse error
+			console.error(`[runner:pyright] JSON parse failed for ${ctx.filePath} — raw output: ${output.slice(0, 200)}`);
 			return {
 				status: "failed",
 				diagnostics: [],
