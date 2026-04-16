@@ -1,7 +1,9 @@
 /**
  * Ruff runner for dispatch system
  *
- * Ruff handles both formatting and linting for Python files.
+ * Dispatch mode is diagnostics-only.
+ * Autofix is handled earlier by the post-write pipeline to avoid
+ * mutating files mid-dispatch after LSP sync has already happened.
  * Supports venv-local installations.
  */
 
@@ -112,13 +114,6 @@ const ruffRunner: RunnerDefinition = {
 		const diagnostics = parseRuffJson(checkResult.stdout || "", ctx.filePath);
 		const parsedDiagnostics =
 			diagnostics.length > 0 ? diagnostics : parseRuffOutput(raw, ctx.filePath);
-
-		// Step 2: Auto-fix safe issues silently (unused imports, import order, etc.)
-		await safeSpawnAsync(
-			cmd,
-			["check", "--fix", "--no-unsafe-fixes", ...configArgs, ctx.filePath],
-			{ timeout: 15000 },
-		);
 
 		if (checkResult.status === 0 && parsedDiagnostics.length === 0) {
 			return { status: "succeeded", diagnostics: [], semantic: "none" };

@@ -1,11 +1,9 @@
 /**
  * Biome check runner for dispatch system
  *
- * Runs `biome check --output-format=json` to capture diagnostics,
- * then runs `biome check --write` to auto-fix.
- *
- * Diagnostics are shown to the agent BEFORE fixing — teaching signal.
- * Auto-fix happens silently after.
+ * Dispatch mode is diagnostics-only.
+ * Autofix is handled earlier by the post-write pipeline to avoid
+ * mutating files mid-dispatch after LSP sync has already happened.
  */
 
 import * as fs from "node:fs";
@@ -197,19 +195,6 @@ const biomeCheckJsonRunner: RunnerDefinition = {
 		}
 
 		const diagnostics = parsed.diagnostics;
-
-		// Step 2: Auto-fix (silently)
-		await safeSpawnAsync(
-			biomeCmd,
-			[
-				"check",
-				"--write",
-				"--no-errors-on-unmatched",
-				...configArg,
-				ctx.filePath,
-			],
-			{ timeout: 30000, cwd },
-		);
 
 		if (diagnostics.length === 0) {
 			return { status: "succeeded", diagnostics: [], semantic: "none" };
