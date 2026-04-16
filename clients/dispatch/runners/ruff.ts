@@ -5,7 +5,10 @@
  * Supports venv-local installations.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { ensureTool } from "../../installer/index.js";
+import { resolvePackagePath } from "../../package-root.js";
 import { safeSpawnAsync } from "../../safe-spawn.js";
 import { stripAnsi } from "../../sanitize.js";
 import type {
@@ -17,6 +20,22 @@ import type {
 import { PRIORITY } from "../priorities.js";
 import { parseRuffOutput } from "./utils/diagnostic-parsers.js";
 import { createAvailabilityChecker } from "./utils/runner-helpers.js";
+
+const RUFF_PROJECT_CONFIGS = ["ruff.toml", ".ruff.toml"];
+
+function hasProjectRuffConfig(cwd: string): boolean {
+	for (const cfg of RUFF_PROJECT_CONFIGS) {
+		if (fs.existsSync(path.join(cwd, cfg))) return true;
+	}
+	// Check pyproject.toml for [tool.ruff]
+	const pyproject = path.join(cwd, "pyproject.toml");
+	if (fs.existsSync(pyproject)) {
+		try {
+			return fs.readFileSync(pyproject, "utf-8").includes("[tool.ruff]");
+		} catch {}
+	}
+	return false;
+}
 
 const ruff = createAvailabilityChecker("ruff", ".exe");
 
@@ -82,7 +101,11 @@ const ruffRunner: RunnerDefinition = {
 		// not silent correction. Auto-fix (ruff --fix) already runs in the
 		// format phase before dispatch, handling all safe style transforms.
 		// Silently rewriting here would leave the agent's context window stale.
-		const args = ["check", "--output-format", "json", ctx.filePath];
+		const configArgs: string[] = hasProjectRuffConfig(cwd)
+			? []
+			: ["--config", resolvePackagePath(import.meta.url, "config/ruff/core.toml")];
+
+		const args = ["check", "--output-format", "json", ...configArgs, ctx.filePath];
 
 		const result = await safeSpawnAsync(cmd, args, {
 			timeout: 30000,
