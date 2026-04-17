@@ -10,7 +10,7 @@ import { basename, extname } from "node:path";
 // --- Types ---
 
 export type FileKind =
-	| "jsts" // JavaScript/TypeScript (js, jsx, ts, tsx, mjs, cjs)
+	| "jsts" // JavaScript/TypeScript/frameworks (js, jsx, ts, tsx, mjs, cjs, vue, svelte)
 	| "python" // Python (.py)
 	| "go" // Go (.go)
 	| "rust" // Rust (.rs)
@@ -27,12 +27,28 @@ export type FileKind =
 	| "docker" // Dockerfile
 	| "php" // PHP (.php)
 	| "powershell" // PowerShell (.ps1, .psm1, .psd1)
-	| "prisma"; // Prisma schema (.prisma)
+	| "prisma" // Prisma schema (.prisma)
+	| "csharp" // C# (.cs)
+	| "fsharp" // F# (.fs, .fsi, .fsx)
+	| "java" // Java (.java)
+	| "kotlin" // Kotlin (.kt, .kts)
+	| "swift" // Swift (.swift)
+	| "dart" // Dart (.dart)
+	| "lua" // Lua (.lua)
+	| "zig" // Zig (.zig, .zon)
+	| "haskell" // Haskell (.hs, .lhs)
+	| "elixir" // Elixir (.ex, .exs)
+	| "gleam" // Gleam (.gleam)
+	| "ocaml" // OCaml (.ml, .mli)
+	| "clojure" // Clojure (.clj, .cljs, .cljc, .edn)
+	| "terraform" // Terraform (.tf, .tfvars)
+	| "nix" // Nix (.nix)
+	| "toml"; // TOML (.toml)
 
 // --- Extension Maps ---
 
 const KIND_EXTENSIONS: Record<FileKind, readonly string[]> = {
-	jsts: [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".svelte"],
+	jsts: [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".svelte", ".vue"],
 	python: [".py"],
 	go: [".go"],
 	rust: [".rs"],
@@ -64,6 +80,22 @@ const KIND_EXTENSIONS: Record<FileKind, readonly string[]> = {
 	php: [".php"],
 	powershell: [".ps1", ".psm1", ".psd1"],
 	prisma: [".prisma"],
+	csharp: [".cs"],
+	fsharp: [".fs", ".fsi", ".fsx"],
+	java: [".java"],
+	kotlin: [".kt", ".kts"],
+	swift: [".swift"],
+	dart: [".dart"],
+	lua: [".lua"],
+	zig: [".zig", ".zon"],
+	haskell: [".hs", ".lhs"],
+	elixir: [".ex", ".exs"],
+	gleam: [".gleam"],
+	ocaml: [".ml", ".mli"],
+	clojure: [".clj", ".cljs", ".cljc", ".edn"],
+	terraform: [".tf", ".tfvars"],
+	nix: [".nix"],
+	toml: [".toml"],
 };
 
 // Reverse map: extension → file kind (for fast lookup)
@@ -149,14 +181,43 @@ export function getFileKindsForExtension(ext: string): FileKind[] {
  * Check if a file kind represents a code file (not config/markdown).
  */
 export function isCodeKind(kind: FileKind): boolean {
-	return ["jsts", "python", "go", "rust", "cxx", "shell"].includes(kind);
+	return [
+		"jsts",
+		"python",
+		"go",
+		"rust",
+		"cxx",
+		"shell",
+		"ruby",
+		"html",
+		"php",
+		"powershell",
+		"prisma",
+		"csharp",
+		"fsharp",
+		"java",
+		"kotlin",
+		"swift",
+		"dart",
+		"lua",
+		"zig",
+		"haskell",
+		"elixir",
+		"gleam",
+		"ocaml",
+		"clojure",
+		"terraform",
+		"nix",
+	].includes(kind);
 }
 
 /**
  * Check if a file kind represents a text/config file.
  */
 export function isConfigKind(kind: FileKind): boolean {
-	return ["json", "yaml", "markdown", "css", "sql"].includes(kind);
+	return ["json", "yaml", "markdown", "css", "sql", "docker", "cmake", "toml"].includes(
+		kind,
+	);
 }
 
 /**
@@ -182,6 +243,22 @@ export function getFileKindLabel(kind: FileKind): string {
 		php: "PHP",
 		powershell: "PowerShell",
 		prisma: "Prisma",
+		csharp: "C#",
+		fsharp: "F#",
+		java: "Java",
+		kotlin: "Kotlin",
+		swift: "Swift",
+		dart: "Dart",
+		lua: "Lua",
+		zig: "Zig",
+		haskell: "Haskell",
+		elixir: "Elixir",
+		gleam: "Gleam",
+		ocaml: "OCaml",
+		clojure: "Clojure",
+		terraform: "Terraform",
+		nix: "Nix",
+		toml: "TOML",
 	};
 	return labels[kind] ?? kind;
 }
@@ -239,6 +316,22 @@ export function getLanguageId(kind: FileKind): string {
 		php: "php",
 		powershell: "powershell",
 		prisma: "prisma",
+		csharp: "csharp",
+		fsharp: "fsharp",
+		java: "java",
+		kotlin: "kotlin",
+		swift: "swift",
+		dart: "dart",
+		lua: "lua",
+		zig: "zig",
+		haskell: "haskell",
+		elixir: "elixir",
+		gleam: "gleam",
+		ocaml: "ocaml",
+		clojure: "clojure",
+		terraform: "terraform",
+		nix: "nix",
+		toml: "toml",
 	};
 	return languageIds[kind] ?? "plaintext";
 }

@@ -85,4 +85,22 @@ describe("dispatch plan exposure", () => {
 			expect.arrayContaining(["format", "lint"]),
 		);
 	});
+
+	it("promotes additional LSP-backed languages into the capability matrix", () => {
+		expect(LANGUAGE_CAPABILITY_MATRIX.java.capabilities).toEqual(
+			expect.arrayContaining(["types", "lint"]),
+		);
+		expect(LANGUAGE_CAPABILITY_MATRIX.kotlin.capabilities).toEqual(
+			expect.arrayContaining(["types", "lint"]),
+		);
+		expect(LANGUAGE_CAPABILITY_MATRIX.elixir.capabilities).toEqual(
+			expect.arrayContaining(["types", "lint"]),
+		);
+		expect(LANGUAGE_CAPABILITY_MATRIX.swift.capabilities).toEqual(
+			expect.arrayContaining(["types", "lint"]),
+		);
+		expect(LANGUAGE_CAPABILITY_MATRIX.zig.capabilities).toEqual(
+			expect.arrayContaining(["types", "lint"]),
+		);
+	});
 });

@@ -32,7 +32,7 @@ export const LANGUAGE_POLICY: Record<FileKind, LanguagePolicy> = {
 	cmake: { lspCapable: true },
 	shell: { lspCapable: true },
 	json: { lspCapable: true },
-	markdown: { lspCapable: true },
+	markdown: { lspCapable: false },
 	css: { lspCapable: true },
 	yaml: {
 		lspCapable: true,
@@ -54,6 +54,22 @@ export const LANGUAGE_POLICY: Record<FileKind, LanguagePolicy> = {
 	php: { lspCapable: true },
 	powershell: { lspCapable: true },
 	prisma: { lspCapable: true },
+	csharp: { lspCapable: true },
+	fsharp: { lspCapable: true },
+	java: { lspCapable: true },
+	kotlin: { lspCapable: true },
+	swift: { lspCapable: true },
+	dart: { lspCapable: true },
+	lua: { lspCapable: true },
+	zig: { lspCapable: true },
+	haskell: { lspCapable: true },
+	elixir: { lspCapable: true },
+	gleam: { lspCapable: true },
+	ocaml: { lspCapable: true },
+	clojure: { lspCapable: true },
+	terraform: { lspCapable: true },
+	nix: { lspCapable: true },
+	toml: { lspCapable: true },
 };
 
 const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
@@ -84,7 +100,7 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 	json: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["json"] },
 	markdown: {
 		mode: "fallback",
-		runnerIds: ["lsp", "spellcheck"],
+		runnerIds: ["spellcheck"],
 		filterKinds: ["markdown"],
 	},
 	css: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["css"] },
@@ -123,6 +139,22 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 		runnerIds: ["lsp", "prisma-validate"],
 		filterKinds: ["prisma"],
 	},
+	csharp: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["csharp"] },
+	fsharp: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["fsharp"] },
+	java: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["java"] },
+	kotlin: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["kotlin"] },
+	swift: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["swift"] },
+	dart: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["dart"] },
+	lua: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["lua"] },
+	zig: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["zig"] },
+	haskell: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["haskell"] },
+	elixir: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["elixir"] },
+	gleam: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["gleam"] },
+	ocaml: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["ocaml"] },
+	clojure: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["clojure"] },
+	terraform: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["terraform"] },
+	nix: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["nix"] },
+	toml: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["toml"] },
 };
 
 export function getLspCapableKinds(): FileKind[] {

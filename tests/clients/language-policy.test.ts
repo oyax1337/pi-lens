@@ -11,6 +11,12 @@ describe("language-policy", () => {
 		const kinds = getLspCapableKinds();
 		expect(kinds).toContain("python");
 		expect(kinds).toContain("yaml");
+		expect(kinds).toContain("java");
+		expect(kinds).toContain("kotlin");
+		expect(kinds).toContain("elixir");
+		expect(kinds).toContain("swift");
+		expect(kinds).toContain("zig");
+		expect(kinds).not.toContain("markdown");
 		expect(kinds).not.toContain("sql");
 	});
 
@@ -91,5 +97,8 @@ describe("language-policy", () => {
 
 		const powershell = getPrimaryDispatchGroup("powershell", false);
 		expect(powershell?.runnerIds).toEqual(["psscriptanalyzer"]);
+
+		const java = getPrimaryDispatchGroup("java", true);
+		expect(java?.runnerIds).toEqual(["lsp"]);
 	});
 });

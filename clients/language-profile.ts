@@ -18,6 +18,27 @@ export const SUPPORTED_FILE_KINDS: readonly FileKind[] = [
 	"yaml",
 	"sql",
 	"ruby",
+	"html",
+	"docker",
+	"php",
+	"powershell",
+	"prisma",
+	"csharp",
+	"fsharp",
+	"java",
+	"kotlin",
+	"swift",
+	"dart",
+	"lua",
+	"zig",
+	"haskell",
+	"elixir",
+	"gleam",
+	"ocaml",
+	"clojure",
+	"terraform",
+	"nix",
+	"toml",
 ];
 
 const PROJECT_MARKERS_BY_KIND: Partial<Record<FileKind, readonly string[]>> = {
@@ -28,6 +49,17 @@ const PROJECT_MARKERS_BY_KIND: Partial<Record<FileKind, readonly string[]>> = {
 	ruby: ["Gemfile", "Rakefile"],
 	yaml: [".yamllint", "yamllint.yaml", "yamllint.yml", "pyproject.toml"],
 	sql: [".sqlfluff", "pyproject.toml"],
+	php: ["composer.json", "composer.lock"],
+	prisma: ["schema.prisma", "prisma/schema.prisma"],
+	java: ["pom.xml", "build.gradle", ".classpath"],
+	kotlin: ["build.gradle.kts", "build.gradle", "pom.xml"],
+	swift: ["Package.swift"],
+	dart: ["pubspec.yaml"],
+	elixir: ["mix.exs"],
+	gleam: ["gleam.toml"],
+	terraform: [".terraform.lock.hcl"],
+	nix: ["flake.nix"],
+	toml: ["pyproject.toml", "Cargo.toml", "taplo.toml"],
 };
 
 const ROOT_MARKERS_BY_KIND: Partial<Record<FileKind, readonly string[]>> = {
@@ -38,6 +70,17 @@ const ROOT_MARKERS_BY_KIND: Partial<Record<FileKind, readonly string[]>> = {
 	ruby: ["Gemfile", "Rakefile"],
 	yaml: [".yamllint", ".yamllint.yml", ".yamllint.yaml"],
 	sql: [".sqlfluff", "pyproject.toml", "setup.cfg", "tox.ini"],
+	php: ["composer.json", "composer.lock"],
+	prisma: ["prisma/schema.prisma", "schema.prisma"],
+	java: ["pom.xml", "build.gradle", ".classpath"],
+	kotlin: ["build.gradle.kts", "build.gradle", "pom.xml"],
+	swift: ["Package.swift"],
+	dart: ["pubspec.yaml"],
+	elixir: ["mix.exs"],
+	gleam: ["gleam.toml"],
+	terraform: [".terraform.lock.hcl"],
+	nix: ["flake.nix"],
+	toml: ["pyproject.toml", "Cargo.toml", "taplo.toml"],
 };
 
 export interface ProjectLanguageProfile {

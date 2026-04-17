@@ -106,7 +106,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 	},
 	markdown: {
 		name: "Markdown Processing",
-		capabilities: ["docs"],
+		capabilities: ["docs", "format", "lint"],
 		writeGroups: [primary("markdown")],
 	},
 	css: {
@@ -148,6 +148,86 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 		name: "Prisma Schema Linting",
 		capabilities: ["types", "lint"],
 		writeGroups: [primary("prisma")],
+	},
+	csharp: {
+		name: "C# Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("csharp")],
+	},
+	fsharp: {
+		name: "F# Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("fsharp")],
+	},
+	java: {
+		name: "Java Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("java")],
+	},
+	kotlin: {
+		name: "Kotlin Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("kotlin")],
+	},
+	swift: {
+		name: "Swift Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("swift")],
+	},
+	dart: {
+		name: "Dart Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("dart")],
+	},
+	lua: {
+		name: "Lua Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("lua")],
+	},
+	zig: {
+		name: "Zig Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("zig")],
+	},
+	haskell: {
+		name: "Haskell Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("haskell")],
+	},
+	elixir: {
+		name: "Elixir Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("elixir")],
+	},
+	gleam: {
+		name: "Gleam Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("gleam")],
+	},
+	ocaml: {
+		name: "OCaml Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("ocaml")],
+	},
+	clojure: {
+		name: "Clojure Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("clojure")],
+	},
+	terraform: {
+		name: "Terraform Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("terraform")],
+	},
+	nix: {
+		name: "Nix Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("nix")],
+	},
+	toml: {
+		name: "TOML Linting",
+		capabilities: ["lint"],
+		writeGroups: [primary("toml")],
 	},
 };
 
