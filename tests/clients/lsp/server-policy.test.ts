@@ -57,6 +57,32 @@ describe("lsp server policy", () => {
 		expect(root).toBe(workspace);
 	});
 
+	it("falls back to file directory when go root markers are missing", async () => {
+		const { GoServer } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-go-fallback-root-"));
+		dirs.push(tmp);
+
+		const file = path.join(tmp, "src", "main.go");
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, "package main\n");
+
+		const root = await GoServer.root(file);
+		expect(root).toBe(path.dirname(file));
+	});
+
+	it("falls back to file directory when json root markers are missing", async () => {
+		const { JsonServer } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-json-fallback-root-"));
+		dirs.push(tmp);
+
+		const file = path.join(tmp, "cases", "config.json");
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, "{}\n");
+
+		const root = await JsonServer.root(file);
+		expect(root).toBe(path.dirname(file));
+	});
+
 	it("resolves relative file roots without hanging", async () => {
 		const { NearestRoot } = await import("../../../clients/lsp/server.js");
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-relative-root-"));
@@ -72,6 +98,31 @@ describe("lsp server policy", () => {
 					setTimeout(() => reject(new Error("root resolution timed out")), 500),
 				),
 			]);
+			expect(result).toBeUndefined();
+		} finally {
+			process.chdir(prev);
+		}
+	});
+
+	it("does not resolve markers above explicit stop directory", async () => {
+		const { NearestRoot } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-root-boundary-"));
+		dirs.push(tmp);
+
+		const parent = path.join(tmp, "workspace");
+		const child = path.join(parent, "project", "src");
+		const file = path.join(child, "main.ts");
+
+		fs.mkdirSync(parent, { recursive: true });
+		fs.mkdirSync(child, { recursive: true });
+		fs.mkdirSync(path.join(parent, ".git"), { recursive: true });
+		fs.writeFileSync(file, "export const ok = true;\n");
+
+		const prev = process.cwd();
+		process.chdir(path.join(parent, "project"));
+		try {
+			const resolver = NearestRoot([".git"], undefined, process.cwd());
+			const result = await resolver(file);
 			expect(result).toBeUndefined();
 		} finally {
 			process.chdir(prev);

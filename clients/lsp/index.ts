@@ -17,8 +17,6 @@ import { getServersForFileWithConfig } from "./config.js";
 import { getLanguageId } from "./language.js";
 import type { LSPServerInfo } from "./server.js";
 import { normalizeMapKey, uriToPath } from "../path-utils.js";
-import { detectFileKind } from "../file-kinds.js";
-import { detectProjectLanguageProfile } from "../language-profile.js";
 import { logLatency } from "../latency-logger.js";
 
 // --- Types ---
@@ -67,7 +65,6 @@ export interface SpawnedServer {
 
 export class LSPService {
 	private state: LSPState;
-	private languagePolicyCache = new Map<string, { allowInstall: boolean; expiresAt: number }>();
 	private workspaceProbeLogged = new Set<string>();
 	private warmStartLogged = new Set<string>();
 	private emitConsoleLspErrors = process.env.PI_LENS_CONSOLE_LSP === "1";
@@ -284,35 +281,9 @@ export class LSPService {
 	}
 
 	private shouldAllowInstall(filePath: string, root: string): boolean {
-		if (process.env.PI_LENS_AUTO_INSTALL === "1") return true;
-
-		const kind = detectFileKind(filePath);
-		if (!kind) return true;
-
-		const cacheKey = `${normalizeMapKey(root)}:${kind}`;
-		const now = Date.now();
-		const cached = this.languagePolicyCache.get(cacheKey);
-		if (cached && cached.expiresAt > now) {
-			return cached.allowInstall;
-		}
-
-		let allowInstall = true;
-		try {
-			const profile = detectProjectLanguageProfile(root);
-			const count = profile.counts[kind] ?? 0;
-			const configured = !!profile.configured[kind];
-			const singleLanguageProject = profile.detectedKinds.length <= 1;
-			allowInstall = configured || count > 1 || singleLanguageProject;
-		} catch {
-			allowInstall = true;
-		}
-
-		this.languagePolicyCache.set(cacheKey, {
-			allowInstall,
-			expiresAt: now + 10_000,
-		});
-
-		return allowInstall;
+		void filePath;
+		void root;
+		return process.env.PI_LENS_DISABLE_LSP_INSTALL !== "1";
 	}
 
 	/**

@@ -247,6 +247,28 @@ export function PriorityRoot(
 	};
 }
 
+export const FileDirRoot: RootFunction = async (file: string) =>
+	path.resolve(path.dirname(file));
+
+export function RootWithFallback(
+	primary: RootFunction,
+	fallback: RootFunction = FileDirRoot,
+): RootFunction {
+	return async (file: string): Promise<string | undefined> => {
+		const primaryRoot = await primary(file);
+		if (primaryRoot) return primaryRoot;
+		return fallback(file);
+	};
+}
+
+export function WorkspacePriorityRoot(
+	markerGroups: string[][],
+	excludePatterns?: string[],
+): RootFunction {
+	return async (file: string) =>
+		PriorityRoot(markerGroups, excludePatterns, process.cwd())(file);
+}
+
 // --- Root Detection Helpers ---
 
 import { dirname } from "node:path";
@@ -279,12 +301,11 @@ export function NearestRoot(
 		const fsRoot = path.parse(currentDir).root;
 		const stop = stopDir ? path.resolve(stopDir) : fsRoot;
 
-		while (currentDir !== fsRoot) {
-			// Bail out if we've reached the stop boundary
+		while (true) {
 			if (
-				currentDir === stop ||
-				(currentDir.startsWith(stop + path.sep) === false &&
-					currentDir === stop)
+				stop !== fsRoot &&
+				currentDir.startsWith(stop + path.sep) === false &&
+				currentDir !== stop
 			) {
 				break;
 			}
@@ -315,6 +336,10 @@ export function NearestRoot(
 				} catch {
 					/* not found */
 				}
+			}
+
+			if (currentDir === stop || currentDir === fsRoot) {
+				break;
 			}
 
 			currentDir = path.dirname(currentDir);
@@ -678,7 +703,9 @@ export const GoServer: LSPServerInfo = {
 	id: "go",
 	name: "gopls",
 	extensions: [".go"],
-	root: PriorityRoot([["go.work"], ["go.mod", "go.sum"]]),
+	root: RootWithFallback(
+		WorkspacePriorityRoot([["go.work"], ["go.mod", "go.sum"], [".git"]]),
+	),
 	async spawn(root, options) {
 		const result = await resolveAndLaunch(
 			{
@@ -959,10 +986,10 @@ export const BashServer: LSPServerInfo = {
 	id: "bash",
 	name: "Bash Language Server",
 	extensions: [".sh", ".bash", ".zsh"],
-	root: () => Promise.resolve(process.cwd()),
-	spawn(_root, options) {
+	root: FileDirRoot,
+	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: ["bash-language-server"], args: ["start"], cwd: process.cwd(), managedToolId: "bash-language-server" },
+			{ candidates: ["bash-language-server"], args: ["start"], cwd: root, managedToolId: "bash-language-server" },
 			options?.allowInstall,
 		);
 	},
@@ -973,9 +1000,9 @@ export const DockerServer: LSPServerInfo = {
 	name: "Dockerfile Language Server",
 	extensions: [".dockerfile", "Dockerfile"],
 	root: PriorityRoot([["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"], [".git"]]),
-	spawn(_root, options) {
+	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: nodeBinCandidates(process.cwd(), "docker-langserver"), args: ["--stdio"], cwd: process.cwd(), managedToolId: "dockerfile-language-server-nodejs" },
+			{ candidates: nodeBinCandidates(root, "docker-langserver"), args: ["--stdio"], cwd: root, managedToolId: "dockerfile-language-server-nodejs" },
 			options?.allowInstall,
 		);
 	},
@@ -986,9 +1013,9 @@ export const YamlServer: LSPServerInfo = {
 	name: "YAML Language Server",
 	extensions: [".yaml", ".yml"],
 	root: PriorityRoot([[".yamllint", "yamllint.yml", "yamllint.yaml", "pyproject.toml"], [".git"]]),
-	spawn(_root, options) {
+	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: ["yaml-language-server"], args: ["--stdio"], cwd: process.cwd(), managedToolId: "yaml-language-server" },
+			{ candidates: ["yaml-language-server"], args: ["--stdio"], cwd: root, managedToolId: "yaml-language-server" },
 			options?.allowInstall,
 		);
 	},
@@ -998,10 +1025,12 @@ export const JsonServer: LSPServerInfo = {
 	id: "json",
 	name: "VSCode JSON Language Server",
 	extensions: [".json", ".jsonc"],
-	root: PriorityRoot([["package.json", "tsconfig.json", "jsconfig.json"], [".git"]]),
-	spawn(_root, options) {
+	root: RootWithFallback(
+		WorkspacePriorityRoot([["package.json", "tsconfig.json", "jsconfig.json"], [".git"]]),
+	),
+	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: ["vscode-json-language-server"], args: ["--stdio"], cwd: process.cwd(), managedToolId: "vscode-json-language-server" },
+			{ candidates: ["vscode-json-language-server"], args: ["--stdio"], cwd: root, managedToolId: "vscode-json-language-server" },
 			options?.allowInstall,
 		);
 	},
@@ -1012,9 +1041,9 @@ export const HtmlServer: LSPServerInfo = {
 	name: "VSCode HTML Language Server",
 	extensions: [".html", ".htm"],
 	root: PriorityRoot([["package.json", "index.html", "vite.config.ts"], [".git"]]),
-	spawn(_root, options) {
+	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: nodeBinCandidates(process.cwd(), "vscode-html-language-server"), args: ["--stdio"], cwd: process.cwd(), managedToolId: "vscode-html-languageserver-bin" },
+			{ candidates: nodeBinCandidates(root, "vscode-html-language-server"), args: ["--stdio"], cwd: root, managedToolId: "vscode-html-languageserver-bin" },
 			options?.allowInstall,
 		);
 	},
@@ -1108,9 +1137,9 @@ export const CssServer: LSPServerInfo = {
 	name: "CSS Language Server",
 	extensions: [".css", ".scss", ".sass", ".less"],
 	root: PriorityRoot([["package.json", "postcss.config.js", "tailwind.config.js", "vite.config.ts"], [".git"]]),
-	spawn(_root, options) {
+	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: nodeBinCandidates(process.cwd(), "vscode-css-language-server"), args: ["--stdio"], cwd: process.cwd(), managedToolId: "vscode-css-languageserver" },
+			{ candidates: nodeBinCandidates(root, "vscode-css-language-server"), args: ["--stdio"], cwd: root, managedToolId: "vscode-css-languageserver" },
 			options?.allowInstall,
 		);
 	},
