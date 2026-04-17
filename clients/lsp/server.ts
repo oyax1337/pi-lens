@@ -708,73 +708,66 @@ export const PythonServer: LSPServerInfo = {
 		const env = await getToolEnvironment();
 		let source: "direct" | "managed" | "package-manager" = "direct";
 
-		// Strategy 1: Find pyright - prefer local project version
-		let pyrightPath: string | undefined;
-		const localPyright = path.join(root, "node_modules", ".bin", "pyright");
-		const localPyrightCmd = path.join(
-			root,
-			"node_modules",
-			".bin",
-			"pyright.cmd",
+		const localCandidates = nodeBinCandidates(root, "pyright-langserver");
+		const direct = await resolveAndLaunch(
+			{ candidates: localCandidates, args: ["--stdio"], cwd: root, env },
+			false,
 		);
+		if (direct) {
+			const proc = direct.process;
+			source = direct.source;
+			const initialization: Record<string, unknown> = {};
 
-		// Check for local version first (Windows .cmd first, then Unix)
-		for (const checkPath of [localPyrightCmd, localPyright]) {
-			try {
-				await fs.access(checkPath);
-				pyrightPath = checkPath;
-				break;
-			} catch {
-				/* not found */
-			}
-		}
+			const venvPaths = [
+				path.join(root, ".venv"),
+				path.join(root, "venv"),
+				process.env.VIRTUAL_ENV,
+			].filter(Boolean);
 
-		// Strategy 2: Fall back to auto-installed version
-		if (!pyrightPath) {
-			if (canInstall(options?.allowInstall)) {
-				pyrightPath = await ensureTool("pyright");
-				source = "managed";
-			}
-		}
-
-		// Strategy 3: Use found pyright to derive pyright-langserver path
-		let langserverPath: string | undefined;
-		if (pyrightPath) {
-			// Derive langserver from pyright binary location
-			// Both are in the same .bin directory
-			const binDir = path.dirname(pyrightPath);
-			const isWindows = process.platform === "win32";
-
-			const candidates = isWindows
-				? [
-						path.join(binDir, "pyright-langserver.cmd"),
-						path.join(binDir, "pyright-langserver.ps1"),
-						path.join(binDir, "pyright-langserver"),
-					]
-				: [path.join(binDir, "pyright-langserver")];
-
-			for (const candidate of candidates) {
+			for (const venv of venvPaths) {
+				if (!venv) continue;
 				try {
-					await fs.access(candidate);
-					langserverPath = candidate;
+					const pythonPath =
+						process.platform === "win32"
+							? path.join(venv, "Scripts", "python.exe")
+							: path.join(venv, "bin", "python");
+
+					await fs.access(pythonPath);
+					initialization.pythonPath = pythonPath;
 					break;
 				} catch {
 					/* not found */
 				}
 			}
+
+			return { process: proc, initialization, source };
 		}
 
-		// Spawn the LSP server
-		const candidates = langserverPath
-			? [langserverPath, "pyright-langserver"]
-			: ["pyright-langserver"];
+		if (!canInstall(options?.allowInstall)) {
+			return undefined;
+		}
+
+		const pyrightPath = await ensureTool("pyright");
+		if (!pyrightPath) return undefined;
+		source = "managed";
+
+		const binDir = path.dirname(pyrightPath);
+		const isWindows = process.platform === "win32";
+		const managedCandidates = isWindows
+			? [
+					path.join(binDir, "pyright-langserver.cmd"),
+					path.join(binDir, "pyright-langserver.ps1"),
+					path.join(binDir, "pyright-langserver"),
+					"pyright-langserver",
+				]
+			: [path.join(binDir, "pyright-langserver"), "pyright-langserver"];
+
 		const resolved = await resolveAndLaunch(
-			{ candidates, args: ["--stdio"], cwd: root, env, managedToolId: "pyright" },
-			options?.allowInstall,
+			{ candidates: managedCandidates, args: ["--stdio"], cwd: root, env },
+			false,
 		);
 		if (!resolved) return undefined;
 		const proc = resolved.process;
-		source = resolved.source;
 
 		// Detect virtual environment
 		const initialization: Record<string, unknown> = {};

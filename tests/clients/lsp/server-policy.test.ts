@@ -289,4 +289,42 @@ describe("lsp server policy", () => {
 		expect(serversB).not.toContain("workspaceAOnly");
 		expect(tsServersA).not.toContain("typescript");
 	});
+
+	it("launches pyright-langserver from managed pyright install", async () => {
+		const { PythonServer } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-pyright-lsp-"));
+		dirs.push(tmp);
+
+		ensureTool.mockResolvedValue(path.join(tmp, "tools", "pyright.cmd"));
+		launchLSP.mockImplementation(async (command: string) => {
+			if (command.includes(path.join("tools", "pyright-langserver"))) {
+				return {
+					process: { killed: false } as never,
+					stdin: {} as never,
+					stdout: {} as never,
+					stderr: {} as never,
+					pid: 1234,
+				};
+			}
+			throw new Error(`unexpected command: ${command}`);
+		});
+
+		const spawned = await PythonServer.spawn(tmp, { allowInstall: true });
+
+		expect(spawned).toBeDefined();
+		expect(ensureTool).toHaveBeenCalledWith("pyright");
+		expect(
+			launchLSP.mock.calls.some(
+				([command]) =>
+					typeof command === "string" && command.includes("pyright-langserver"),
+			),
+		).toBe(true);
+		expect(
+			launchLSP.mock.calls.some(
+				([command]) =>
+					typeof command === "string" &&
+					(command.endsWith("pyright.cmd") || command === "pyright"),
+			),
+		).toBe(false);
+	});
 });
