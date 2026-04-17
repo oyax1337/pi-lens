@@ -80,7 +80,23 @@
       "Bash(/c/Users/apman/.pi-lens/tools/node_modules/.bin/ruff check *)",
       "Bash(where ruff *)",
       "Bash(npx htmlhint *)",
-      "Bash(npx htmlhint@latest --help)"
+      "Bash(npx htmlhint@latest --help)",
+      "Bash(python3 -c \" import sys, json for line in sys.stdin: try: e = json.loads\\(line\\) print\\(e.get\\('timestamp',''\\)[:19], e.get\\('level',''\\), str\\(e\\)[:200]\\) except: pass \")",
+      "Bash(curl -s \"https://api.github.com/repos/hadolint/hadolint/releases/latest\")",
+      "Bash(curl -s \"https://api.github.com/repos/koalaman/shellcheck/releases/latest\")",
+      "Bash(sed -n '742,760p' /c/Users/apman/OneDrive/Desktop/pi-lens/clients/lsp/server.ts)",
+      "Bash(sed -n '1000,1015p' /c/Users/apman/OneDrive/Desktop/pi-lens/clients/lsp/server.ts)",
+      "Bash(curl -s \"https://api.github.com/repos/rust-lang/rust-analyzer/releases/latest\")",
+      "Bash(/c/Users/apman/.pi-lens/tools/node_modules/.bin/bash-language-server.cmd start *)",
+      "Bash(kill %1)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(curl -s \"https://api.github.com/repos/PowerShell/PowerShellEditorServices/releases/latest\")",
+      "Bash(where pwsh *)",
+      "Bash(pwsh --version)",
+      "Bash(where powershell *)",
+      "Bash(powershell -Command '$PSVersionTable.PSVersion')",
+      "Bash(powershell *)",
+      "Bash(/c/Users/apman/.pi-lens/tools/node_modules/.bin/htmlhint.cmd *)"
     ]
   }
 }
