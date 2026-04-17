@@ -22,6 +22,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { ensureTool } from "../../installer/index.js";
 import { safeSpawn } from "../../safe-spawn.js";
 import { createAvailabilityChecker } from "./utils/runner-helpers.js";
 import type {
@@ -135,15 +136,20 @@ const shellcheckRunner: RunnerDefinition = {
 	skipTestFiles: false, // Shell scripts in test directories should still be checked
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
-		// Skip if shellcheck is not installed
-		if (!shellcheck.isAvailable(ctx.cwd || process.cwd())) {
-			return { status: "skipped", diagnostics: [], semantic: "none" };
-		}
-
 		// Check if user explicitly disabled shellcheck
 		if (ctx.pi.getFlag("no-shellcheck")) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
+
+		const cwd = ctx.cwd || process.cwd();
+		let cmd: string | null = null;
+		if (shellcheck.isAvailable(cwd)) {
+			cmd = shellcheck.getCommand(cwd);
+		} else {
+			const managed = await ensureTool("shellcheck");
+			if (managed) cmd = managed;
+		}
+		if (!cmd) return { status: "skipped", diagnostics: [], semantic: "none" };
 
 		// Determine shell dialect from file extension
 		const shellDialect = ctx.filePath.endsWith(".zsh")
@@ -175,9 +181,7 @@ const shellcheckRunner: RunnerDefinition = {
 
 		args.push(ctx.filePath);
 
-		const result = safeSpawn(shellcheck.getCommand(ctx.cwd || process.cwd())!, args, {
-			timeout: 15000,
-		});
+		const result = safeSpawn(cmd, args, { timeout: 15000 });
 
 		// shellcheck exits with code 1 if issues found, 0 if clean
 		if (result.status === 0 && !result.stdout?.trim()) {

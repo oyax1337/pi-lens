@@ -458,11 +458,13 @@ const TOOLS: ToolDefinition[] = [
 		installStrategy: "github",
 		binaryName: "ktlint",
 		github: {
+			// ktlint ships one universal binary "ktlint" for Linux/macOS (GraalVM native)
+			// and "ktlint.bat" for Windows (requires Java). No arm64-specific asset.
 			repo: "pinterest/ktlint",
-			assetMatch: (platform, arch) => {
-				if (platform === "linux") return arch === "arm64" ? "ktlint-aarch64" : "ktlint";
-				if (platform === "darwin") return arch === "arm64" ? "ktlint-aarch64" : "ktlint";
-				if (platform === "win32") return "ktlint.exe";
+			assetMatch: (platform, _arch) => {
+				if (platform === "linux") return "ktlint";
+				if (platform === "darwin") return "ktlint";
+				if (platform === "win32") return "ktlint.bat";
 				return undefined;
 			},
 		},

@@ -349,15 +349,29 @@ function buildCoverageNotice(
 	);
 	if (relevant.length === 0) return undefined;
 
-	const hasCoverage = relevant.some(
+	// Check primary runners first
+	const primaryHasCoverage = relevant.some(
 		(r) => r.status === "succeeded" || r.status === "failed",
 	);
-	if (hasCoverage) return undefined;
+	if (primaryHasCoverage) return undefined;
 
-	const allSkipped = relevant.every(
+	const allPrimarySkipped = relevant.every(
 		(r) => r.status === "skipped" || r.status === "when_skipped",
 	);
-	if (!allSkipped) return undefined;
+	if (!allPrimarySkipped) return undefined;
+
+	// Structural-only runners (tree-sitter, ast-grep, similarity) are not
+	// substitutes for real linters — don't suppress the notice if only they ran.
+	const STRUCTURAL_RUNNERS = new Set([
+		"tree-sitter", "ast-grep-napi", "similarity", "spellcheck", "architect", "fact-rules",
+	]);
+	const anyLinterHasCoverage = runnerLatencies.some(
+		(r) =>
+			!STRUCTURAL_RUNNERS.has(r.runnerId) &&
+			!primary.runnerIds.includes(r.runnerId) &&
+			(r.status === "succeeded" || r.status === "failed"),
+	);
+	if (anyLinterHasCoverage) return undefined;
 
 	const onceKey = `${ctx.kind}:${normalizeMapKey(ctx.filePath)}`;
 	if (coverageNoticeSeen.has(onceKey)) return undefined;
