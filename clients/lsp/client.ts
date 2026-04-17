@@ -575,6 +575,37 @@ export async function createLSPClient(options: {
 
 	const { serverId, process: lspProcess, root, initialization } = options;
 
+	const startupState: {
+		exitCode: number | null;
+		exitSignal: NodeJS.Signals | null;
+		closeCode: number | null;
+		closeSignal: NodeJS.Signals | null;
+		stderr: string;
+	} = {
+		exitCode: null,
+		exitSignal: null,
+		closeCode: null,
+		closeSignal: null,
+		stderr: "",
+	};
+
+	const onStartupStderr = (chunk: Buffer | string): void => {
+		if (startupState.stderr.length >= 4096) return;
+		startupState.stderr += chunk.toString();
+	};
+	const onProcessExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+		startupState.exitCode = code;
+		startupState.exitSignal = signal;
+	};
+	const onProcessClose = (code: number | null, signal: NodeJS.Signals | null): void => {
+		startupState.closeCode = code;
+		startupState.closeSignal = signal;
+	};
+
+	(lspProcess.stderr as NodeJS.ReadableStream).on("data", onStartupStderr);
+	lspProcess.process.on("exit", onProcessExit);
+	lspProcess.process.on("close", onProcessClose);
+
 	// Attach persistent 'error' listeners to all three stdio streams.
 	//
 	// Why: when the LSP process exits, Node.js destroys its stdio streams and
@@ -641,32 +672,51 @@ export async function createLSPClient(options: {
 	connection.listen();
 	setupConnectionLifecycle(state);
 
-	const initResult = await withTimeout(
-		safeSendRequest(connection, "initialize", {
-			processId: process.pid,
-			rootUri: pathToFileURL(root).href,
-			workspaceFolders: [{ name: "workspace", uri: pathToFileURL(root).href }],
-			capabilities: {
-				window: { workDoneProgress: true },
-				workspace: {
-					workspaceFolders: true,
-					configuration: true,
-					didChangeWatchedFiles: { dynamicRegistration: true },
+	let initResult: Awaited<ReturnType<typeof safeSendRequest>>;
+	try {
+		initResult = await withTimeout(
+			safeSendRequest(connection, "initialize", {
+				processId: process.pid,
+				rootUri: pathToFileURL(root).href,
+				workspaceFolders: [{ name: "workspace", uri: pathToFileURL(root).href }],
+				capabilities: {
+					window: { workDoneProgress: true },
+					workspace: {
+						workspaceFolders: true,
+						configuration: true,
+						didChangeWatchedFiles: { dynamicRegistration: true },
+					},
+					textDocument: {
+						synchronization: { didOpen: true, didChange: true },
+						publishDiagnostics: { versionSupport: true },
+					},
 				},
-				textDocument: {
-					synchronization: { didOpen: true, didChange: true },
-					publishDiagnostics: { versionSupport: true },
-				},
-			},
-			initializationOptions: initialization,
-		}),
-		INITIALIZE_TIMEOUT_MS,
-	);
+				initializationOptions: initialization,
+			}),
+			INITIALIZE_TIMEOUT_MS,
+		);
+	} finally {
+		(lspProcess.stderr as NodeJS.ReadableStream).off("data", onStartupStderr);
+	}
 
 	if (initResult === undefined) {
+		const compactStderr = startupState.stderr
+			.replace(/\s+/g, " ")
+			.trim()
+			.slice(0, 320);
+		const telemetry = [
+			`pid=${lspProcess.pid}`,
+			`exitCode=${startupState.exitCode ?? "none"}`,
+			`exitSignal=${startupState.exitSignal ?? "none"}`,
+			`closeCode=${startupState.closeCode ?? "none"}`,
+			`closeSignal=${startupState.closeSignal ?? "none"}`,
+			`root=${root}`,
+			compactStderr ? `stderr=${compactStderr}` : "stderr=<empty>",
+		].join(" ");
 		throw new Error(
 			`[lsp] ${serverId} failed to initialize - stream may have been destroyed. ` +
-				`The server binary may be missing or crashed immediately. Try reinstalling: npm install -g ${serverId}-language-server`,
+				`The server binary may be missing or crashed immediately. Try reinstalling: npm install -g ${serverId}-language-server. ` +
+				`telemetry: ${telemetry}`,
 		);
 	}
 
