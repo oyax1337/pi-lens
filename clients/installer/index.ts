@@ -985,72 +985,84 @@ async function installNpmTool(
 		const needsScripts = NEEDS_POSTINSTALL.has(
 			packageName.split("@")[0] ?? packageName,
 		);
-		const installArgs = needsScripts
+		const baseInstallArgs = needsScripts
 			? ["install", packageName]
 			: ["install", "--ignore-scripts", packageName];
-		const proc = spawn(pm, installArgs, {
-			cwd: TOOLS_DIR,
-			stdio: ["ignore", "pipe", "pipe"],
-			shell: isWindows, // Required for .cmd files on Windows
-		});
 
-		return new Promise((resolve, reject) => {
-			let stderr = "";
-			proc.stderr?.on("data", (data) => (stderr += data));
+		const runInstallAttempt = async (
+			args: string[],
+		): Promise<{ ok: boolean; stderr: string }> =>
+			new Promise((resolve) => {
+				const proc = spawn(pm, args, {
+					cwd: TOOLS_DIR,
+					stdio: ["ignore", "pipe", "pipe"],
+					shell: isWindows, // Required for .cmd files on Windows
+				});
 
-			proc.on("exit", async (code) => {
-				if (code === 0) {
-					const binPath = path.join(
-						TOOLS_DIR,
-						"node_modules",
-						".bin",
-						binaryName,
-					);
+				let stderr = "";
+				proc.stderr?.on("data", (data) => (stderr += data));
 
-					// Make executable on Unix
-					if (process.platform !== "win32") {
-						try {
-							await fs.chmod(binPath, 0o755);
-						} catch {
-							/* ignore */
-						}
-					}
-
-					// NEW: Verify the binary actually works before returning
-					debugLog(`Verifying ${binaryName}...`);
-					const isValid = await verifyToolBinary(binPath);
-					if (!isValid) {
-						console.error(
-							`[auto-install] ${packageName} installed but verification failed (binary may be corrupted)`,
-						);
-						// Clean up the broken installation
-						try {
-							const packagePath = path.join(
-								TOOLS_DIR,
-								"node_modules",
-								packageName,
-							);
-							await fs.rm(packagePath, { recursive: true, force: true });
-							await fs.rm(binPath, { force: true });
-							if (isWindows) {
-								await fs.rm(`${binPath}.cmd`, { force: true });
-								await fs.rm(`${binPath}.ps1`, { force: true });
-							}
-						} catch {
-							/* ignore cleanup errors */
-						}
-						resolve(undefined);
-						return;
-					}
-
-					resolve(binPath);
-				} else {
-					reject(new Error(`Failed to install ${packageName}: ${stderr}`));
-				}
+				proc.on("exit", (code) => resolve({ ok: code === 0, stderr }));
+				proc.on("error", (err) => resolve({ ok: false, stderr: err.message }));
 			});
 
-			proc.on("error", (err) => reject(err));
-		});
+		let outcome = await runInstallAttempt(baseInstallArgs);
+
+		const isNpm = pm === "npm" || pm === "npm.cmd";
+		const erResolve =
+			outcome.ok === false &&
+			/npm\s+error\s+ERESOLVE|\bERESOLVE\b|could not resolve/i.test(
+				outcome.stderr,
+			);
+
+		if (isNpm && erResolve) {
+			const retryArgs = needsScripts
+				? ["install", "--legacy-peer-deps", packageName]
+				: ["install", "--ignore-scripts", "--legacy-peer-deps", packageName];
+			logSessionStart(
+				`auto-install npm ${packageName}: retry with --legacy-peer-deps after ERESOLVE`,
+			);
+			outcome = await runInstallAttempt(retryArgs);
+		}
+
+		if (!outcome.ok) {
+			throw new Error(`Failed to install ${packageName}: ${outcome.stderr}`);
+		}
+
+		const binPath = path.join(TOOLS_DIR, "node_modules", ".bin", binaryName);
+
+		// Make executable on Unix
+		if (process.platform !== "win32") {
+			try {
+				await fs.chmod(binPath, 0o755);
+			} catch {
+				/* ignore */
+			}
+		}
+
+		// Verify the binary actually works before returning
+		debugLog(`Verifying ${binaryName}...`);
+		const isValid = await verifyToolBinary(binPath);
+		if (!isValid) {
+			console.error(
+				`[auto-install] ${packageName} installed but verification failed (binary may be corrupted)`,
+			);
+			// Clean up the broken installation
+			try {
+				const packagePath = path.join(TOOLS_DIR, "node_modules", packageName);
+				await fs.rm(packagePath, { recursive: true, force: true });
+				await fs.rm(binPath, { force: true });
+				if (isWindows) {
+					await fs.rm(`${binPath}.cmd`, { force: true });
+					await fs.rm(`${binPath}.ps1`, { force: true });
+				}
+			} catch {
+				/* ignore cleanup errors */
+			}
+			return undefined;
+		}
+
+		return binPath;
 	} catch (err) {
 		console.error(
 			`[auto-install] Failed to install ${packageName}: ${(err as Error).message}`,
