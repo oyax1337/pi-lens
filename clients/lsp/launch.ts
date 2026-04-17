@@ -26,6 +26,8 @@ export interface LSPProcess {
 }
 
 const isWindows = process.platform === "win32";
+const DEFAULT_STARTUP_FAILURE_WINDOW_MS = 50;
+const WINDOWS_SHELL_STARTUP_FAILURE_WINDOW_MS = 250;
 const SESSIONSTART_LOG_DIR = path.join(os.homedir(), ".pi-lens");
 const SESSIONSTART_LOG = path.join(SESSIONSTART_LOG_DIR, "sessionstart.log");
 
@@ -378,6 +380,10 @@ export async function launchLSP(
 	logSessionStart(
 		`lsp launch: command=${command} resolved=${spawnCommand} args=${JSON.stringify(args)} cwd=${cwd} shell=${needsShell ? "true" : "false"} pid=${proc.pid ?? 0}`,
 	);
+	const startupFailureWindowMs =
+		isWindows && needsShell
+			? WINDOWS_SHELL_STARTUP_FAILURE_WINDOW_MS
+			: DEFAULT_STARTUP_FAILURE_WINDOW_MS;
 
 	const formatStartupStderr = (stderr: string): string => {
 		const normalized = compactLogValue(stderr);
@@ -424,13 +430,14 @@ export async function launchLSP(
 			}
 		});
 
-		// Give it a small window to fail immediately (ENOENT on Windows is fast)
+		// Give shell-backed Windows launches a slightly longer window because
+		// npm/cmd shims can fail asynchronously after the initial spawn succeeds.
 		setTimeout(() => {
 			if (!settled) {
 				settled = true;
 				resolve();
 			}
-		}, 50);
+		}, startupFailureWindowMs);
 		});
 	} finally {
 		proc.stderr?.off("data", onStartupStderr);
