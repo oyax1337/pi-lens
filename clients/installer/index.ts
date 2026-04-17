@@ -253,6 +253,78 @@ const TOOLS: ToolDefinition[] = [
 		binaryName: "vscode-json-language-server",
 	},
 	{
+		id: "vscode-langservers-extracted",
+		name: "VSCode ESLint Language Server",
+		checkCommand: "vscode-eslint-language-server",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "vscode-langservers-extracted",
+		binaryName: "vscode-eslint-language-server",
+	},
+	{
+		id: "vscode-html-languageserver-bin",
+		name: "VSCode HTML Language Server",
+		checkCommand: "vscode-html-language-server",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "vscode-html-languageserver-bin",
+		binaryName: "vscode-html-language-server",
+	},
+	{
+		id: "vscode-css-languageserver",
+		name: "VSCode CSS Language Server",
+		checkCommand: "vscode-css-language-server",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "vscode-css-languageserver",
+		binaryName: "vscode-css-language-server",
+	},
+	{
+		id: "dockerfile-language-server-nodejs",
+		name: "Dockerfile Language Server",
+		checkCommand: "docker-langserver",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "dockerfile-language-server-nodejs",
+		binaryName: "docker-langserver",
+	},
+	{
+		id: "intelephense",
+		name: "Intelephense",
+		checkCommand: "intelephense",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "intelephense",
+		binaryName: "intelephense",
+	},
+	{
+		id: "@prisma/language-server",
+		name: "Prisma Language Server",
+		checkCommand: "prisma-language-server",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "@prisma/language-server",
+		binaryName: "prisma-language-server",
+	},
+	{
+		id: "@vue/language-server",
+		name: "Vue Language Server",
+		checkCommand: "vue-language-server",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "@vue/language-server",
+		binaryName: "vue-language-server",
+	},
+	{
+		id: "svelte-language-server",
+		name: "Svelte Language Server",
+		checkCommand: "svelteserver",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "svelte-language-server",
+		binaryName: "svelteserver",
+	},
+	{
 		id: "markdownlint",
 		name: "markdownlint-cli2",
 		checkCommand: "markdownlint-cli2",
@@ -1275,6 +1347,10 @@ export async function checkAllTools(): Promise<
 		});
 	}
 	return results;
+}
+
+export function isKnownToolId(toolId: string): boolean {
+	return TOOLS.some((tool) => tool.id === toolId);
 }
 
 /**
