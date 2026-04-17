@@ -41,6 +41,8 @@ import ktlintRunner from "./ktlint.js";
 import tflintRunner from "./tflint.js";
 import taploRunner from "./taplo.js";
 import dartAnalyzeRunner from "./dart-analyze.js";
+import javacRunner from "./javac.js";
+import dotnetBuildRunner from "./dotnet-build.js";
 
 export function registerDefaultRunners(registry: RunnerRegistry): void {
 	// Register all runners (ordered by priority)
@@ -83,4 +85,6 @@ export function registerDefaultRunners(registry: RunnerRegistry): void {
 	registry.register(tflintRunner); // Terraform linting via tflint (priority 20)
 	registry.register(taploRunner); // TOML linting/validation via taplo (priority 10)
 	registry.register(dartAnalyzeRunner); // Dart analysis via dart analyze (priority 20)
+	registry.register(javacRunner); // Java compile diagnostics via javac (priority 20)
+	registry.register(dotnetBuildRunner); // C# compile diagnostics via dotnet build (priority 20)
 }

@@ -517,6 +517,27 @@ function tryGoInstallGopls(): Promise<boolean> {
 	});
 }
 
+function tryDotnetToolInstall(tool: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		const proc = spawnSync(
+			"dotnet",
+			["tool", "install", "-g", tool],
+			{ stdio: "ignore", shell: false },
+		);
+		if (proc.status === 0) {
+			resolve(true);
+			return;
+		}
+
+		const updateProc = spawnSync(
+			"dotnet",
+			["tool", "update", "-g", tool],
+			{ stdio: "ignore", shell: false },
+		);
+		resolve(updateProc.status === 0);
+	});
+}
+
 /**
  * Try to install a gem to the pi-lens bin dir. Resolves true if the install succeeded.
  */
@@ -940,14 +961,34 @@ export const PHPServer: LSPServerInfo = {
 	},
 };
 
-export const CSharpServer = createInteractiveServer({
+export const CSharpServer: LSPServerInfo = {
 	id: "csharp",
 	name: "csharp-ls",
 	extensions: [".cs"],
 	root: createRootDetector([".sln", ".csproj", ".slnx"]),
-	language: "csharp",
-	command: "csharp-ls",
-});
+	async spawn(root, options) {
+		const userProfile = process.env.USERPROFILE;
+		const candidates = [
+			userProfile ? path.join(userProfile, ".dotnet", "tools", "csharp-ls.exe") : "",
+			userProfile ? path.join(userProfile, ".dotnet", "tools", "csharp-ls") : "",
+			"csharp-ls",
+		].filter(Boolean);
+
+		return resolveAndLaunch(
+			{
+				candidates,
+				args: [],
+				cwd: root,
+				runtimeInstall: {
+					runtimeCommand: "dotnet",
+					install: () => tryDotnetToolInstall("csharp-ls"),
+					retryCandidates: candidates,
+				},
+			},
+			options?.allowInstall,
+		);
+	},
+};
 
 export const OmniSharpServer = createInteractiveServer({
 	id: "omnisharp",

@@ -103,4 +103,12 @@ describe("dispatch plan exposure", () => {
 			expect.arrayContaining(["types", "lint"]),
 		);
 	});
+
+	it("routes java and csharp through fallback compiler coverage", () => {
+		expect(flattenRunnerIds(TOOL_PLANS.java)).toEqual(["lsp", "javac"]);
+		expect(flattenRunnerIds(TOOL_PLANS.csharp)).toEqual([
+			"lsp",
+			"dotnet-build",
+		]);
+	});
 });

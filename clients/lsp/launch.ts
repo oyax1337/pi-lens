@@ -100,6 +100,7 @@ function buildAugmentedPath(basePath?: string): string {
 		if (userProfile) {
 			candidates.push(path.join(userProfile, ".cargo", "bin"));
 			candidates.push(path.join(userProfile, "go", "bin"));
+			candidates.push(path.join(userProfile, ".dotnet", "tools"));
 		}
 		candidates.push(path.join("C:\\", "Program Files", "Go", "bin"));
 		candidates.push(path.join("C:\\", "Go", "bin"));

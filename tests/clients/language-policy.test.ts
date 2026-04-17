@@ -99,6 +99,9 @@ describe("language-policy", () => {
 		expect(powershell?.runnerIds).toEqual(["psscriptanalyzer"]);
 
 		const java = getPrimaryDispatchGroup("java", true);
-		expect(java?.runnerIds).toEqual(["lsp"]);
+		expect(java?.runnerIds).toEqual(["lsp", "javac"]);
+
+		const csharp = getPrimaryDispatchGroup("csharp", false);
+		expect(csharp?.runnerIds).toEqual(["dotnet-build"]);
 	});
 });
