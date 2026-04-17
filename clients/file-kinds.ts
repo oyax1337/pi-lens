@@ -22,7 +22,8 @@ export type FileKind =
 	| "css" // CSS (.css, .scss, .less)
 	| "yaml" // YAML (.yaml, .yml)
 	| "sql" // SQL (.sql)
-	| "ruby"; // Ruby (.rb, .rake, .gemspec, .ru)
+	| "ruby" // Ruby (.rb, .rake, .gemspec, .ru)
+	| "html"; // HTML (.html, .htm)
 
 // --- Extension Maps ---
 
@@ -54,6 +55,7 @@ const KIND_EXTENSIONS: Record<FileKind, readonly string[]> = {
 	yaml: [".yaml", ".yml"],
 	sql: [".sql"],
 	ruby: [".rb", ".rake", ".gemspec", ".ru"],
+	html: [".html", ".htm"],
 };
 
 // Reverse map: extension → file kind (for fast lookup)
@@ -167,6 +169,7 @@ export function getFileKindLabel(kind: FileKind): string {
 		yaml: "YAML",
 		sql: "SQL",
 		ruby: "Ruby",
+		html: "HTML",
 	};
 	return labels[kind] ?? kind;
 }
@@ -219,6 +222,7 @@ export function getLanguageId(kind: FileKind): string {
 		yaml: "yaml",
 		sql: "sql",
 		ruby: "ruby",
+		html: "html",
 	};
 	return languageIds[kind] ?? "plaintext";
 }

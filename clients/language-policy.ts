@@ -49,6 +49,7 @@ export const LANGUAGE_POLICY: Record<FileKind, LanguagePolicy> = {
 		},
 	},
 	ruby: { lspCapable: true },
+	html: { lspCapable: true },
 };
 
 const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
@@ -92,6 +93,11 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 		mode: "fallback",
 		runnerIds: ["sqlfluff"],
 		filterKinds: ["sql"],
+	},
+	html: {
+		mode: "fallback",
+		runnerIds: ["lsp", "htmlhint"],
+		filterKinds: ["html"],
 	},
 };
 

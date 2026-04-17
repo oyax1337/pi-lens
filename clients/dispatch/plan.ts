@@ -124,6 +124,11 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 		capabilities: ["format", "lint"],
 		writeGroups: [primary("sql")],
 	},
+	html: {
+		name: "HTML Linting",
+		capabilities: ["lint"],
+		writeGroups: [primary("html")],
+	},
 };
 
 function toWritePlan(entry: CapabilityMatrixEntry): ToolPlan {

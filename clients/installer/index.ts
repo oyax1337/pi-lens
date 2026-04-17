@@ -271,6 +271,15 @@ const TOOLS: ToolDefinition[] = [
 		binaryName: "vscode-html-language-server",
 	},
 	{
+		id: "htmlhint",
+		name: "HTMLHint",
+		checkCommand: "htmlhint",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "htmlhint",
+		binaryName: "htmlhint",
+	},
+	{
 		id: "vscode-css-languageserver",
 		name: "VSCode CSS Language Server",
 		checkCommand: "vscode-css-language-server",

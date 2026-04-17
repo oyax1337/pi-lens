@@ -53,7 +53,7 @@ function canInstall(allowInstall?: boolean): boolean {
 
 function isCommandNotFoundError(error: unknown): boolean {
 	const msg = String(error);
-	return msg.includes("not found") || msg.includes("ENOENT");
+	return msg.includes("not found") || msg.includes("ENOENT") || msg.includes("not recognized");
 }
 
 
