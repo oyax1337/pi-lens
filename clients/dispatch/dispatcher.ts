@@ -26,6 +26,7 @@ import { RUNTIME_CONFIG } from "../runtime-config.js";
 import { safeSpawnAsync } from "../safe-spawn.js";
 import { classifyDiagnostic } from "./diagnostic-taxonomy.js";
 import { FactStore } from "./fact-store.js";
+import { getToolPlan } from "./plan.js";
 import { resolveRunnerPath } from "./runner-context.js";
 import { getToolProfile } from "./tool-profile.js";
 import type {
@@ -360,6 +361,17 @@ function buildCoverageNotice(
 	);
 	if (!allPrimarySkipped) return undefined;
 
+	const plan = getToolPlan(ctx.kind);
+	const fallbackRunnerIds = new Set(
+		(plan?.groups ?? [])
+			.filter(
+				(group) =>
+					!group.runnerIds.every((runnerId) => primary.runnerIds.includes(runnerId)),
+			)
+			.flatMap((group) => group.runnerIds)
+			.filter((runnerId) => !primary.runnerIds.includes(runnerId)),
+	);
+
 	// Structural-only runners (tree-sitter, ast-grep, similarity) are not
 	// substitutes for real linters — don't suppress the notice if only they ran.
 	const STRUCTURAL_RUNNERS = new Set([
@@ -367,8 +379,8 @@ function buildCoverageNotice(
 	]);
 	const anyLinterHasCoverage = runnerLatencies.some(
 		(r) =>
+			fallbackRunnerIds.has(r.runnerId) &&
 			!STRUCTURAL_RUNNERS.has(r.runnerId) &&
-			!primary.runnerIds.includes(r.runnerId) &&
 			(r.status === "succeeded" || r.status === "failed"),
 	);
 	if (anyLinterHasCoverage) return undefined;

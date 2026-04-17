@@ -11,6 +11,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+	clearCoverageNoticeState,
 	createDispatchContext,
 	dispatchForFile as runDispatchForFile,
 	RunnerRegistry,
@@ -40,6 +41,7 @@ describe("Dispatch Flow", () => {
 
 	beforeEach(() => {
 		registry = new RunnerRegistry();
+		clearCoverageNoticeState();
 	});
 
 	describe("Runner Registration", () => {
@@ -217,6 +219,47 @@ describe("Dispatch Flow", () => {
 
 			const secondResult = await dispatchForFile(ctx, groups);
 			expect(secondResult.output).not.toContain(
+				"Pi-lens analysis unavailable. Tools for go not installed.",
+			);
+		});
+
+		it("does not let unrelated runner coverage suppress missing-tool notices", async () => {
+			registerRunner({
+				id: "lsp",
+				appliesTo: ["go"],
+				priority: 4,
+				enabledByDefault: true,
+				async run() {
+					return { status: "skipped", diagnostics: [], semantic: "none" };
+				},
+			});
+			registerRunner({
+				id: "go-vet",
+				appliesTo: ["go"],
+				priority: 12,
+				enabledByDefault: true,
+				async run() {
+					return { status: "skipped", diagnostics: [], semantic: "none" };
+				},
+			});
+			registerRunner({
+				id: "eslint",
+				appliesTo: ["jsts"],
+				priority: 15,
+				enabledByDefault: true,
+				async run() {
+					return { status: "succeeded", diagnostics: [], semantic: "none" };
+				},
+			});
+
+			const ctx = createMockContext("main.go");
+			const groups: RunnerGroup[] = [
+				{ mode: "all", runnerIds: ["lsp", "go-vet", "eslint"] },
+			];
+
+			const result = await dispatchForFile(ctx, groups);
+
+			expect(result.output).toContain(
 				"Pi-lens analysis unavailable. Tools for go not installed.",
 			);
 		});

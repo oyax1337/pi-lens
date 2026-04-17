@@ -72,10 +72,11 @@ const tflintRunner: RunnerDefinition = {
 		if (!cmd) return { status: "skipped", diagnostics: [], semantic: "none" };
 
 		const absPath = path.resolve(cwd, ctx.filePath);
+		const fileDir = path.dirname(absPath);
 		const result = await safeSpawnAsync(
 			cmd,
 			["--format=json", "--no-color", `--filter=${path.basename(absPath)}`],
-			{ cwd, timeout: 30000 },
+			{ cwd: fileDir, timeout: 30000 },
 		);
 
 		if (result.error && !result.stdout) {

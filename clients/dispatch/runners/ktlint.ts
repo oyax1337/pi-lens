@@ -20,14 +20,28 @@ interface KtlintError {
 }
 
 interface KtlintResult {
-	file: string;
+	file?: string;
 	errors: KtlintError[];
 }
 
-function parseKtlintOutput(raw: string, filePath: string): Diagnostic[] {
+function normalizeKtlintResults(parsed: unknown): KtlintResult[] | null {
+	if (Array.isArray(parsed)) {
+		return parsed as KtlintResult[];
+	}
+	if (
+		parsed &&
+		typeof parsed === "object" &&
+		Array.isArray((parsed as KtlintResult).errors)
+	) {
+		return [parsed as KtlintResult];
+	}
+	return null;
+}
+
+function parseKtlintOutput(raw: string, filePath: string): Diagnostic[] | null {
 	try {
-		const parsed = JSON.parse(raw) as KtlintResult[];
-		if (!Array.isArray(parsed)) return [];
+		const parsed = normalizeKtlintResults(JSON.parse(raw));
+		if (!parsed) return null;
 
 		const diagnostics: Diagnostic[] = [];
 		for (const result of parsed) {
@@ -48,8 +62,15 @@ function parseKtlintOutput(raw: string, filePath: string): Diagnostic[] {
 		}
 		return diagnostics;
 	} catch {
-		return [];
+		return null;
 	}
+}
+
+function firstOutputLine(result: { stdout?: string; stderr?: string }): string {
+	return (result.stderr || result.stdout || "")
+		.trim()
+		.split(/\r?\n/, 1)[0]
+		.slice(0, 200);
 }
 
 const ktlintRunner: RunnerDefinition = {
@@ -73,23 +94,65 @@ const ktlintRunner: RunnerDefinition = {
 		if (!cmd) return { status: "skipped", diagnostics: [], semantic: "none" };
 
 		const absPath = path.resolve(cwd, ctx.filePath);
-		const result = await safeSpawnAsync(
-			cmd,
-			["--reporter=json", absPath],
-			{ cwd, timeout: 30000 },
-		);
+		const result = await safeSpawnAsync(cmd, ["--reporter=json", absPath], {
+			cwd,
+			timeout: 30000,
+		});
 
-		// ktlint exits non-zero when issues found — that's expected
+		// Ktlint exits non-zero when issues are found, so only treat a total lack
+		// of output as a hard skip. Any non-empty but unparseable output should
+		// surface as runner failure instead of a false clean result.
 		if (result.error && !result.stdout) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
 		const diagnostics = parseKtlintOutput(result.stdout || "", ctx.filePath);
+		if (diagnostics === null) {
+			const detail = firstOutputLine(result) || "Unknown ktlint output";
+			return {
+				status: "failed",
+				diagnostics: [
+					{
+						id: "ktlint-output-unparseable",
+						message: `Unable to parse ktlint output: ${detail}`,
+						filePath: ctx.filePath,
+						severity: "warning",
+						semantic: "warning",
+						tool: "ktlint",
+						fixable: false,
+					},
+				],
+				semantic: "warning",
+			};
+		}
 		if (diagnostics.length === 0) {
+			if (result.status && result.status !== 0) {
+				return {
+					status: "failed",
+					diagnostics: [
+						{
+							id: "ktlint-nonzero-no-diagnostics",
+							message:
+								firstOutputLine(result) ||
+								"ktlint exited non-zero without JSON diagnostics",
+							filePath: ctx.filePath,
+							severity: "warning",
+							semantic: "warning",
+							tool: "ktlint",
+							fixable: false,
+						},
+					],
+					semantic: "warning",
+				};
+			}
 			return { status: "succeeded", diagnostics: [], semantic: "none" };
 		}
 
-		return { status: "succeeded", diagnostics, semantic: "warning" };
+		return {
+			status: result.status && result.status !== 0 ? "failed" : "succeeded",
+			diagnostics,
+			semantic: "warning",
+		};
 	},
 };
 
