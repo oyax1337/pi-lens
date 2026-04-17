@@ -76,7 +76,7 @@ describe("GitHub release asset selection", () => {
 			["linux", "arm64", "aarch64-unknown-linux-gnu.gz"],
 			["darwin", "x64", "x86_64-apple-darwin.gz"],
 			["darwin", "arm64", "aarch64-apple-darwin.gz"],
-			["win32", "x64", "x86_64-pc-windows-msvc.gz"],
+			["win32", "x64", "x86_64-pc-windows-msvc.zip"],
 		] as const)("%s/%s → %s", async (platform, arch, expected) => {
 			const { resolveGitHubAsset } = await import("../../../clients/installer/index.ts");
 			expect(resolveGitHubAsset("rust-analyzer", platform, arch)).toBe(expected);
