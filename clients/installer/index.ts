@@ -280,6 +280,32 @@ const TOOLS: ToolDefinition[] = [
 		binaryName: "htmlhint",
 	},
 	{
+		id: "intelephense",
+		name: "Intelephense (PHP Language Server)",
+		checkCommand: "intelephense",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "intelephense",
+		binaryName: "intelephense",
+	},
+	{
+		id: "hadolint",
+		name: "Hadolint",
+		checkCommand: "hadolint",
+		checkArgs: ["--version"],
+		installStrategy: "github",
+		binaryName: "hadolint",
+		github: {
+			repo: "hadolint/hadolint",
+			assetMatch: (platform, arch) => {
+				if (platform === "linux") return arch === "arm64" ? "Linux-arm64" : "Linux-x86_64";
+				if (platform === "darwin") return arch === "arm64" ? "Darwin-arm64" : "Darwin-x86_64";
+				if (platform === "win32") return "Windows-x86_64.exe";
+				return undefined;
+			},
+		},
+	},
+	{
 		id: "vscode-css-languageserver",
 		name: "VSCode CSS Language Server",
 		checkCommand: "vscode-css-language-server",

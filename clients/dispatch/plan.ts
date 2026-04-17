@@ -129,6 +129,26 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<FileKind, CapabilityMatrixEntry>
 		capabilities: ["lint"],
 		writeGroups: [primary("html")],
 	},
+	docker: {
+		name: "Dockerfile Linting",
+		capabilities: ["lint"],
+		writeGroups: [primary("docker")],
+	},
+	php: {
+		name: "PHP Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("php")],
+	},
+	powershell: {
+		name: "PowerShell Linting",
+		capabilities: ["lint"],
+		writeGroups: [primary("powershell")],
+	},
+	prisma: {
+		name: "Prisma Schema Linting",
+		capabilities: ["types", "lint"],
+		writeGroups: [primary("prisma")],
+	},
 };
 
 function toWritePlan(entry: CapabilityMatrixEntry): ToolPlan {

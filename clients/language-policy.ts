@@ -50,6 +50,10 @@ export const LANGUAGE_POLICY: Record<FileKind, LanguagePolicy> = {
 	},
 	ruby: { lspCapable: true },
 	html: { lspCapable: true },
+	docker: { lspCapable: true },
+	php: { lspCapable: true },
+	powershell: { lspCapable: true },
+	prisma: { lspCapable: true },
 };
 
 const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
@@ -98,6 +102,26 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 		mode: "fallback",
 		runnerIds: ["lsp", "htmlhint"],
 		filterKinds: ["html"],
+	},
+	docker: {
+		mode: "fallback",
+		runnerIds: ["lsp", "hadolint"],
+		filterKinds: ["docker"],
+	},
+	php: {
+		mode: "fallback",
+		runnerIds: ["lsp"],
+		filterKinds: ["php"],
+	},
+	powershell: {
+		mode: "fallback",
+		runnerIds: ["lsp"],
+		filterKinds: ["powershell"],
+	},
+	prisma: {
+		mode: "fallback",
+		runnerIds: ["lsp"],
+		filterKinds: ["prisma"],
 	},
 };
 

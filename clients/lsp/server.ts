@@ -822,7 +822,7 @@ export const PHPServer: LSPServerInfo = {
 	id: "php",
 	name: "Intelephense",
 	extensions: [".php"],
-	root: createRootDetector(["composer.json", "composer.lock"]),
+	root: RootWithFallback(createRootDetector(["composer.json", "composer.lock"])),
 	async spawn(root, options) {
 		const result = await resolveAndLaunch(
 			{ candidates: nodeBinCandidates(root, "intelephense"), args: ["--stdio"], cwd: root, managedToolId: "intelephense" },
@@ -1078,7 +1078,7 @@ export const PrismaServer: LSPServerInfo = {
 	id: "prisma",
 	name: "Prisma Language Server",
 	extensions: [".prisma"],
-	root: createRootDetector(["prisma/schema.prisma"]),
+	root: RootWithFallback(createRootDetector(["prisma/schema.prisma", "schema.prisma"])),
 	spawn(root, options) {
 		return resolveAndLaunch(
 			{ candidates: nodeBinCandidates(root, "prisma-language-server"), args: ["--stdio"], cwd: root, managedToolId: "@prisma/language-server" },
@@ -1172,6 +1172,7 @@ export const LSP_SERVERS: LSPServerInfo[] = [
 	RubyServer,
 	RubySolargraphServer,
 	PHPServer,
+	// PowerShellServer — not included; no viable LSP binary, coverage notice fires instead
 	CSharpServer,
 	OmniSharpServer,
 	FSharpServer,

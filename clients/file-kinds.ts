@@ -23,7 +23,11 @@ export type FileKind =
 	| "yaml" // YAML (.yaml, .yml)
 	| "sql" // SQL (.sql)
 	| "ruby" // Ruby (.rb, .rake, .gemspec, .ru)
-	| "html"; // HTML (.html, .htm)
+	| "html" // HTML (.html, .htm)
+	| "docker" // Dockerfile
+	| "php" // PHP (.php)
+	| "powershell" // PowerShell (.ps1, .psm1, .psd1)
+	| "prisma"; // Prisma schema (.prisma)
 
 // --- Extension Maps ---
 
@@ -56,6 +60,10 @@ const KIND_EXTENSIONS: Record<FileKind, readonly string[]> = {
 	sql: [".sql"],
 	ruby: [".rb", ".rake", ".gemspec", ".ru"],
 	html: [".html", ".htm"],
+	docker: [".dockerfile"],
+	php: [".php"],
+	powershell: [".ps1", ".psm1", ".psd1"],
+	prisma: [".prisma"],
 };
 
 // Reverse map: extension → file kind (for fast lookup)
@@ -76,7 +84,7 @@ for (const [kind, exts] of Object.entries(KIND_EXTENSIONS)) {
 const SPECIAL_FILENAMES: Array<{ pattern: RegExp; kind: FileKind }> = [
 	{ pattern: /^CMakeLists\.txt$/i, kind: "cmake" },
 	{ pattern: /^Makefile$/i, kind: "shell" },
-	{ pattern: /^ Dockerfile(\.\w+)?$/i, kind: "shell" },
+	{ pattern: /^Dockerfile(\.\w+)?$/i, kind: "docker" },
 ];
 
 // --- Detection Functions ---
@@ -170,6 +178,10 @@ export function getFileKindLabel(kind: FileKind): string {
 		sql: "SQL",
 		ruby: "Ruby",
 		html: "HTML",
+		docker: "Dockerfile",
+		php: "PHP",
+		powershell: "PowerShell",
+		prisma: "Prisma",
 	};
 	return labels[kind] ?? kind;
 }
@@ -223,6 +235,10 @@ export function getLanguageId(kind: FileKind): string {
 		sql: "sql",
 		ruby: "ruby",
 		html: "html",
+		docker: "dockerfile",
+		php: "php",
+		powershell: "powershell",
+		prisma: "prisma",
 	};
 	return languageIds[kind] ?? "plaintext";
 }
