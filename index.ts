@@ -61,8 +61,12 @@ const runtime = new RuntimeCoordinator();
 const _lspConfigInitializedCwds = new Set<string>();
 const LSP_TOOLCALL_NAV_TOUCH_BUDGET_MS = Math.max(
 	0,
-	Number.parseInt(process.env.PI_LENS_TOOLCALL_NAV_TOUCH_MS ?? "700", 10) ||
-		700,
+	Number.parseInt(
+		process.env.PI_LENS_TOOLCALL_NAV_TOUCH_MS ??
+			process.env.PI_LENS_LSP_NAV_CLIENT_WAIT_MS ??
+			"1500",
+		10,
+	) || 1500,
 );
 
 function log(msg: string) {

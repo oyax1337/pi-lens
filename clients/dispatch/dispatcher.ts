@@ -727,7 +727,7 @@ export async function dispatchForFile(
 		totalDurationMs: overallEnd - _overallStart,
 		runners: runnerLatencies,
 		stoppedEarly: stopped,
-		totalDiagnostics: allDiagnostics.length,
+		totalDiagnostics: visibleDiagnostics.length,
 		blockers: blockers.length,
 		warnings: warnings.length,
 	};
@@ -762,7 +762,7 @@ export async function dispatchForFile(
 				duration: r.durationMs,
 				status: r.status,
 			})),
-			totalDiagnostics: allDiagnostics.length,
+			totalDiagnostics: visibleDiagnostics.length,
 			blockers: blockers.length,
 		},
 	});

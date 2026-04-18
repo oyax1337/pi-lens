@@ -1,4 +1,5 @@
 import * as nodeFs from "node:fs";
+import * as path from "node:path";
 import { createFileTime } from "./file-time.js";
 import { getFormatService } from "./format-service.js";
 import { resolveLanguageRootForFile } from "./language-profile.js";
@@ -85,7 +86,13 @@ export async function handleToolResult(
 		formatBehaviorWarnings,
 	} = deps;
 
-	const filePath = (event.input as { path?: string }).path;
+	const rawFilePath = (event.input as { path?: string }).path;
+	const workspaceRoot = runtime.projectRoot || process.cwd();
+	const filePath = rawFilePath
+		? path.isAbsolute(rawFilePath)
+			? rawFilePath
+			: path.resolve(workspaceRoot, rawFilePath)
+		: rawFilePath;
 	const behaviorWarnings = agentBehaviorRecord(event.toolName, filePath);
 
 	if (event.toolName !== "write" && event.toolName !== "edit") {
@@ -109,7 +116,6 @@ export async function handleToolResult(
 	const toolResultStart = Date.now();
 	dbg(`tool_result: tracking turn state for ${event.toolName} on ${filePath}`);
 
-	const workspaceRoot = runtime.projectRoot;
 	const cwd = resolveLanguageRootForFile(filePath, workspaceRoot);
 	dbg(`tool_result: resolved dispatch cwd ${cwd} for ${filePath}`);
 	if (event.model || event.provider || event.sessionId || event.session?.id) {

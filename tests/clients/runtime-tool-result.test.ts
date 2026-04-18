@@ -218,4 +218,65 @@ describe("runtime-tool-result inline behavior warnings", () => {
 			env.cleanup();
 		}
 	});
+
+	it("resolves relative tool_result paths against the workspace root", async () => {
+		const { runPipeline } = await import("../../clients/pipeline.js");
+		vi.mocked(runPipeline).mockResolvedValue({
+			output: "✓ no blockers",
+			hasBlockers: false,
+			isError: false,
+			fileModified: false,
+		});
+
+		const env = setupTestEnvironment("pi-lens-runtime-tool-path-");
+		try {
+			const projectRoot = path.join(env.tmpDir, "workspace");
+			const filePath = path.join(projectRoot, "python-utils", "app", "main.py");
+			fs.mkdirSync(path.dirname(filePath), { recursive: true });
+			fs.writeFileSync(filePath, "VALUE = 1\n");
+
+			await handleToolResult({
+				event: {
+					toolName: "edit",
+					input: { path: "python-utils/app/main.py" },
+					details: { diff: "+  1 VALUE = 2" },
+					content: [{ type: "text", text: "base" }],
+				},
+				getFlag: () => false,
+				dbg: () => {},
+				runtime: {
+					projectRoot,
+					setTelemetryIdentity: () => {},
+					updateGitGuardStatus: () => {},
+					nextWriteIndex: () => 1,
+					turnIndex: 1,
+					telemetryModel: "test-model",
+					telemetrySessionId: "test-session",
+					fixedThisTurn: new Set<string>(),
+					formatPipelineCrashNotice: () => "",
+					lastCascadeOutput: "",
+				},
+				cacheManager: {
+					addModifiedRange: () => {},
+					readTurnState: () => ({}),
+				},
+				biomeClient: {},
+				ruffClient: {},
+				testRunnerClient: {},
+				metricsClient: {},
+				resetLSPService: () => {},
+				agentBehaviorRecord: () => [],
+				formatBehaviorWarnings: () => "",
+			} as any);
+
+			expect(vi.mocked(runPipeline)).toHaveBeenCalledWith(
+				expect.objectContaining({
+					filePath,
+				}),
+				expect.anything(),
+			);
+		} finally {
+			env.cleanup();
+		}
+	});
 });

@@ -9,40 +9,32 @@ import type {
 } from "../types.js";
 import { PRIORITY } from "../priorities.js";
 
-const dart = createAvailabilityChecker("dart", ".exe");
+const zig = createAvailabilityChecker("zig", ".exe");
 
-// dart analyze --format=machine output:
-// severity|type|code|file|line|col|length|message
-function parseDartMachineOutput(raw: string, filePath: string): Diagnostic[] {
+function parseZigOutput(raw: string, filePath: string): Diagnostic[] {
 	const diagnostics: Diagnostic[] = [];
 	for (const line of raw.split(/\r?\n/)) {
-		if (!line.trim()) continue;
-		const parts = line.split("|");
-		if (parts.length < 8) continue;
+		const match = line.match(
+			/^(.*?):(\d+):(\d+):\s*(error|warning|note):\s*(.+)$/,
+		);
+		if (!match) continue;
 
-		const [severityStr, , code, file, lineStr, colStr, , ...messageParts] = parts;
-		const message = messageParts.join("|").trim();
-		const lineNum = parseInt(lineStr, 10);
-		const colNum = parseInt(colStr, 10);
+		const [, rawFile, lineStr, colStr, level, message] = match;
+		const resolvedSource = path.resolve(rawFile.trim());
+		const resolvedTarget = path.resolve(filePath);
+		if (resolvedSource !== resolvedTarget) continue;
 
-		// Only include diagnostics for the target file
-		if (file && !path.resolve(file).endsWith(path.resolve(filePath).replace(/\\/g, "/"))) {
-			const resolvedFile = path.resolve(file.trim());
-			const resolvedTarget = path.resolve(filePath);
-			if (resolvedFile !== resolvedTarget) continue;
-		}
-
-		const severity = severityStr?.trim().toLowerCase() === "error" ? "error" : "warning";
+		const severity = level === "error" ? "error" : "warning";
 		diagnostics.push({
-			id: `dart-${code?.trim()}-${lineNum}-${colNum}`,
-			message: `[${code?.trim()}] ${message}`,
+			id: `zig-${level}-${lineStr}-${colStr}`,
+			message,
 			filePath,
-			line: lineNum || 1,
-			column: colNum || 1,
+			line: Number.parseInt(lineStr, 10) || 1,
+			column: Number.parseInt(colStr, 10) || 1,
 			severity,
 			semantic: severity === "error" ? "blocking" : "warning",
-			tool: "dart",
-			rule: code?.trim() ?? "dart",
+			tool: "zig",
+			rule: `zig-${level}`,
 			fixable: false,
 		});
 	}
@@ -56,26 +48,24 @@ function firstOutputLine(result: { stdout?: string; stderr?: string }): string {
 		.slice(0, 200);
 }
 
-const dartAnalyzeRunner: RunnerDefinition = {
-	id: "dart-analyze",
-	appliesTo: ["dart"],
+const zigCheckRunner: RunnerDefinition = {
+	id: "zig-check",
+	appliesTo: ["zig"],
 	priority: PRIORITY.GENERAL_ANALYSIS,
 	enabledByDefault: true,
 	skipTestFiles: false,
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
-
-		if (!dart.isAvailable(cwd)) {
+		if (!zig.isAvailable(cwd)) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
-		const cmd = dart.getCommand(cwd)!;
+		const cmd = zig.getCommand(cwd)!;
 		const absPath = path.resolve(cwd, ctx.filePath);
-
 		const result = await safeSpawnAsync(
 			cmd,
-			["analyze", "--format=machine", absPath],
+			["build-exe", absPath, "-fno-emit-bin"],
 			{ cwd, timeout: 30000 },
 		);
 
@@ -83,25 +73,25 @@ const dartAnalyzeRunner: RunnerDefinition = {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
-		// dart analyze writes diagnostics to stderr in machine format
-		const raw = (result.stderr || "") + (result.stdout || "");
-		const diagnostics = parseDartMachineOutput(raw, ctx.filePath);
-
+		const diagnostics = parseZigOutput(
+			`${result.stderr || ""}\n${result.stdout || ""}`,
+			ctx.filePath,
+		);
 		if (diagnostics.length === 0) {
 			if (result.status && result.status !== 0) {
 				return {
 					status: "failed",
 					diagnostics: [
 						{
-							id: "dart-analyze-nonzero-no-diagnostics",
+							id: "zig-check-nonzero-no-diagnostics",
 							message:
 								firstOutputLine(result) ||
-								"dart analyze exited non-zero without machine diagnostics",
+								"zig build-exe exited non-zero without structured diagnostics",
 							filePath: ctx.filePath,
 							severity: "warning",
 							semantic: "warning",
-							tool: "dart",
-							rule: "dart-analyze",
+							tool: "zig",
+							rule: "zig-check",
 							fixable: false,
 						},
 					],
@@ -120,4 +110,4 @@ const dartAnalyzeRunner: RunnerDefinition = {
 	},
 };
 
-export default dartAnalyzeRunner;
+export default zigCheckRunner;

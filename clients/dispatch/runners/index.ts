@@ -43,6 +43,8 @@ import taploRunner from "./taplo.js";
 import dartAnalyzeRunner from "./dart-analyze.js";
 import javacRunner from "./javac.js";
 import dotnetBuildRunner from "./dotnet-build.js";
+import zigCheckRunner from "./zig-check.js";
+import gleamCheckRunner from "./gleam-check.js";
 
 export function registerDefaultRunners(registry: RunnerRegistry): void {
 	// Register all runners (ordered by priority)
@@ -87,4 +89,6 @@ export function registerDefaultRunners(registry: RunnerRegistry): void {
 	registry.register(dartAnalyzeRunner); // Dart analysis via dart analyze (priority 20)
 	registry.register(javacRunner); // Java compile diagnostics via javac (priority 20)
 	registry.register(dotnetBuildRunner); // C# compile diagnostics via dotnet build (priority 20)
+	registry.register(zigCheckRunner); // Zig compile diagnostics via zig build-exe (priority 20)
+	registry.register(gleamCheckRunner); // Gleam project diagnostics via gleam check (priority 20)
 }

@@ -103,5 +103,20 @@ describe("language-policy", () => {
 
 		const csharp = getPrimaryDispatchGroup("csharp", false);
 		expect(csharp?.runnerIds).toEqual(["dotnet-build"]);
+
+		const terraform = getPrimaryDispatchGroup("terraform", true);
+		expect(terraform?.runnerIds).toEqual(["lsp", "tflint"]);
+
+		const kotlin = getPrimaryDispatchGroup("kotlin", false);
+		expect(kotlin?.runnerIds).toEqual(["ktlint"]);
+
+		const dart = getPrimaryDispatchGroup("dart", false);
+		expect(dart?.runnerIds).toEqual(["dart-analyze"]);
+
+		const zig = getPrimaryDispatchGroup("zig", false);
+		expect(zig?.runnerIds).toEqual(["zig-check"]);
+
+		const gleam = getPrimaryDispatchGroup("gleam", false);
+		expect(gleam?.runnerIds).toEqual(["gleam-check"]);
 	});
 });
