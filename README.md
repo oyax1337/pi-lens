@@ -10,7 +10,7 @@ On every `write` and `edit`, pi-lens runs a fast, language-aware pipeline (check
 
 1. **Secrets scan** — blocking; aborts the write if credentials are detected
 2. **Auto-format** — language-specific formatters (Biome, Prettier, Ruff, gofmt, rustfmt, and 25+ others)
-3. **Auto-fix** — safe autofixes (Biome `--write`, Ruff `--fix`, ESLint `--fix`) applied before analysis
+3. **Auto-fix** — safe autofixes from 6 tools (Biome `--write`, Ruff `--fix`, ESLint `--fix`, stylelint `--fix`, sqlfluff `fix`, RuboCop `-a`) applied before analysis
 4. **LSP file sync** — opens/updates the file in active language servers
 5. **Dispatch lint** — parallel runner groups: LSP diagnostics, tree-sitter structural rules, ast-grep security/correctness rules, fact rules, language-specific linters, similarity detection, and architect checks
 6. **Test runner** — runs the corresponding test file; reruns known failures first
