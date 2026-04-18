@@ -504,6 +504,24 @@ const TOOLS: ToolDefinition[] = [
 			},
 		},
 	},
+	{
+		id: "terraform-ls",
+		name: "terraform-ls",
+		checkCommand: "terraform-ls",
+		checkArgs: ["version"],
+		installStrategy: "github",
+		binaryName: "terraform-ls",
+		github: {
+			repo: "hashicorp/terraform-ls",
+			assetMatch: (platform, arch) => {
+				if (platform === "linux") return arch === "arm64" ? "linux_arm64.zip" : "linux_amd64.zip";
+				if (platform === "darwin") return arch === "arm64" ? "darwin_arm64.zip" : "darwin_amd64.zip";
+				if (platform === "win32") return arch === "arm64" ? "windows_arm64.zip" : "windows_amd64.zip";
+				return undefined;
+			},
+			binaryInArchive: "terraform-ls",
+		},
+	},
 ];
 
 const ensureInFlight = new Map<string, Promise<string | undefined>>();

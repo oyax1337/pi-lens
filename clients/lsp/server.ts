@@ -965,7 +965,7 @@ export const CSharpServer: LSPServerInfo = {
 	id: "csharp",
 	name: "csharp-ls",
 	extensions: [".cs"],
-	root: createRootDetector([".sln", ".csproj", ".slnx"]),
+	root: RootWithFallback(createRootDetector([".sln", ".csproj", ".slnx"])),
 	async spawn(root, options) {
 		const userProfile = process.env.USERPROFILE;
 		const candidates = [
@@ -1013,7 +1013,7 @@ export const JavaServer = createInteractiveServer({
 	id: "java",
 	name: "JDT Language Server",
 	extensions: [".java"],
-	root: createRootDetector(["pom.xml", "build.gradle", ".classpath"]),
+	root: RootWithFallback(createRootDetector(["pom.xml", "build.gradle", ".classpath"])),
 	language: "java",
 	command: () => process.env.JDTLS_PATH || "jdtls",
 });
@@ -1022,7 +1022,7 @@ export const KotlinServer = createInteractiveServer({
 	id: "kotlin",
 	name: "Kotlin Language Server",
 	extensions: [".kt", ".kts"],
-	root: createRootDetector(["build.gradle.kts", "build.gradle", "pom.xml"]),
+	root: RootWithFallback(createRootDetector(["build.gradle.kts", "build.gradle", "pom.xml"])),
 	language: "kotlin",
 	command: "kotlin-language-server",
 });
@@ -1126,15 +1126,23 @@ export const ClojureServer = createInteractiveServer({
 	command: "clojure-lsp",
 });
 
-export const TerraformServer = createInteractiveServer({
+export const TerraformServer: LSPServerInfo = {
 	id: "terraform",
 	name: "Terraform LSP",
 	extensions: [".tf", ".tfvars"],
 	root: RootWithFallback(createRootDetector([".terraform.lock.hcl", ".terraform"])),
-	language: "terraform",
-	command: "terraform-ls",
-	args: ["serve"],
-});
+	spawn(root, options) {
+		return resolveAndLaunch(
+			{
+				candidates: ["terraform-ls"],
+				args: ["serve"],
+				cwd: root,
+				managedToolId: "terraform-ls",
+			},
+			options?.allowInstall,
+		);
+	},
+};
 
 export const NixServer = createInteractiveServer({
 	id: "nix",
@@ -1219,15 +1227,23 @@ export const HtmlServer: LSPServerInfo = {
 	},
 };
 
-export const TomlServer = createInteractiveServer({
+export const TomlServer: LSPServerInfo = {
 	id: "toml",
 	name: "Taplo",
 	extensions: [".toml"],
 	root: RootWithFallback(PriorityRoot([["pyproject.toml", "Cargo.toml", "taplo.toml"], [".git"]])),
-	language: "toml",
-	command: "taplo",
-	args: ["lsp", "stdio"],
-});
+	spawn(root, options) {
+		return resolveAndLaunch(
+			{
+				candidates: ["taplo"],
+				args: ["lsp", "stdio"],
+				cwd: root,
+				managedToolId: "taplo",
+			},
+			options?.allowInstall,
+		);
+	},
+};
 
 export const PrismaServer: LSPServerInfo = {
 	id: "prisma",

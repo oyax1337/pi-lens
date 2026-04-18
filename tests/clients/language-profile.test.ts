@@ -69,4 +69,28 @@ describe("language-profile roots", () => {
 		expect(normalizeMapKey(ctx.filePath)).toBe(normalizeMapKey(file));
 		expect(ctx.filePath.includes("cases/kotlin/cases/kotlin")).toBe(false);
 	});
+
+	it("resolves workspace-relative files correctly even when dispatch cwd is already nested", () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-lang-root-"));
+		dirs.push(tmp);
+
+		const workspace = path.join(tmp, "repo");
+		const projectRoot = path.join(workspace, "ts-service");
+		const file = path.join(projectRoot, "src", "index.ts");
+
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(path.join(projectRoot, "package.json"), "{}\n");
+		fs.writeFileSync(file, "export const ok = true;\n");
+
+		const ctx = createDispatchContext(
+			"ts-service/src/index.ts",
+			projectRoot,
+			{ getFlag: () => false },
+			new FactStore(),
+		);
+
+		expect(normalizeMapKey(ctx.cwd)).toBe(normalizeMapKey(projectRoot));
+		expect(normalizeMapKey(ctx.filePath)).toBe(normalizeMapKey(file));
+		expect(ctx.filePath.includes("ts-service/ts-service")).toBe(false);
+	});
 });

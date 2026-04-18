@@ -28,8 +28,17 @@ export interface LSPProcess {
 const isWindows = process.platform === "win32";
 const DEFAULT_STARTUP_FAILURE_WINDOW_MS = 50;
 const WINDOWS_SHELL_STARTUP_FAILURE_WINDOW_MS = 250;
+const WINDOWS_NAV_STARTUP_FAILURE_WINDOW_MS = 500;
 const SESSIONSTART_LOG_DIR = path.join(os.homedir(), ".pi-lens");
 const SESSIONSTART_LOG = path.join(SESSIONSTART_LOG_DIR, "sessionstart.log");
+const PI_LENS_BIN_DIR = path.join(os.homedir(), ".pi-lens", "bin");
+const PI_LENS_TOOLS_BIN_DIR = path.join(
+	os.homedir(),
+	".pi-lens",
+	"tools",
+	"node_modules",
+	".bin",
+);
 
 function logSessionStart(msg: string): void {
 	const line = `[${new Date().toISOString()}] ${msg}\n`;
@@ -102,6 +111,8 @@ function buildAugmentedPath(basePath?: string): string {
 			candidates.push(path.join(userProfile, "go", "bin"));
 			candidates.push(path.join(userProfile, ".dotnet", "tools"));
 		}
+		candidates.push(PI_LENS_BIN_DIR);
+		candidates.push(PI_LENS_TOOLS_BIN_DIR);
 		candidates.push(path.join("C:\\", "Program Files", "Go", "bin"));
 		candidates.push(path.join("C:\\", "Go", "bin"));
 		candidates.push(path.join("C:\\", "Ruby34-x64", "bin"));
@@ -150,15 +161,39 @@ function _findBinaryInNpmGlobal(command: string): string | undefined {
 				]
 			: [path.join(binDir, command)];
 
-		for (const candidate of candidates) {
+	for (const candidate of candidates) {
+		if (fs.existsSync(candidate)) {
+			return candidate;
+		}
+	}
+	return undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function findBinaryOnPath(
+	command: string,
+	env: NodeJS.ProcessEnv,
+): string | undefined {
+	try {
+		const result = execSync(isWindows ? `where ${command}` : `which ${command}`, {
+			encoding: "utf-8",
+			stdio: ["ignore", "pipe", "ignore"],
+			env,
+		})
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.filter(Boolean);
+		for (const candidate of result) {
 			if (fs.existsSync(candidate)) {
 				return candidate;
 			}
 		}
-		return undefined;
 	} catch {
-		return undefined;
+		// ignore lookup failures
 	}
+	return undefined;
 }
 
 /**
@@ -300,11 +335,17 @@ export async function launchLSP(
 	// - If already absolute, use as-is
 	// - If it's a simple command (no path separators), let system find it via PATH
 	// - Otherwise, resolve relative to cwd
-	const resolvedCommand = path.isAbsolute(command)
+	const explicitCommand = path.isAbsolute(command)
 		? command
 		: command.includes(path.sep) || command.includes("/")
 			? path.resolve(cwd, command)
-			: command; // Let system find it via PATH
+			: command;
+	const resolvedCommand =
+		!path.isAbsolute(command) &&
+		!command.includes(path.sep) &&
+		!command.includes("/")
+			? (findBinaryOnPath(command, env) ?? explicitCommand)
+			: explicitCommand;
 
 	// Compute needsShell based on command
 	// On Windows, shell: true is needed for .cmd/.bat files and extensionless binaries
@@ -383,7 +424,7 @@ export async function launchLSP(
 	);
 	const startupFailureWindowMs =
 		isWindows && needsShell
-			? WINDOWS_SHELL_STARTUP_FAILURE_WINDOW_MS
+			? WINDOWS_NAV_STARTUP_FAILURE_WINDOW_MS
 			: DEFAULT_STARTUP_FAILURE_WINDOW_MS;
 
 	const formatStartupStderr = (stderr: string): string => {

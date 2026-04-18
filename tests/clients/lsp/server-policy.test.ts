@@ -96,6 +96,18 @@ describe("lsp server policy", () => {
 		expect(root).toBe(path.dirname(file));
 	});
 
+	it("falls back to file directory for standalone csharp files", async () => {
+		const { CSharpServer } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-csharp-fallback-root-"));
+		dirs.push(tmp);
+
+		const file = path.join(tmp, "Program.cs");
+		fs.writeFileSync(file, "Console.WriteLine(\"ok\");\n");
+
+		const root = await CSharpServer.root(file);
+		expect(root).toBe(path.dirname(file));
+	});
+
 	it("resolves relative file roots without hanging", async () => {
 		const { NearestRoot } = await import("../../../clients/lsp/server.js");
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-relative-root-"));
@@ -339,5 +351,35 @@ describe("lsp server policy", () => {
 					(command.endsWith("pyright.cmd") || command === "pyright"),
 			),
 		).toBe(false);
+	});
+
+	it("launches taplo LSP from managed taplo install", async () => {
+		const { TomlServer } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-taplo-lsp-"));
+		dirs.push(tmp);
+
+		ensureTool.mockResolvedValue(path.join(tmp, "bin", "taplo.exe"));
+		launchLSP.mockImplementation(async (command: string) => {
+			if (command.endsWith(path.join("bin", "taplo.exe"))) {
+				return {
+					process: { killed: false } as never,
+					stdin: {} as never,
+					stdout: {} as never,
+					stderr: {} as never,
+					pid: 4321,
+				};
+			}
+			throw new Error(`unexpected command: ${command}`);
+		});
+
+		const spawned = await TomlServer.spawn(tmp, { allowInstall: true });
+
+		expect(spawned).toBeDefined();
+		expect(ensureTool).toHaveBeenCalledWith("taplo");
+		expect(launchLSP).toHaveBeenCalledWith(
+			path.join(tmp, "bin", "taplo.exe"),
+			["lsp", "stdio"],
+			expect.objectContaining({ cwd: tmp }),
+		);
 	});
 });

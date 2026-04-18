@@ -34,9 +34,9 @@ const OPTIONAL_LSP_SERVER_IDS = new Set<string>();
 const NAV_CLIENT_WAIT_TIMEOUT_MS = Math.max(
 	0,
 	Number.parseInt(
-		process.env.PI_LENS_LSP_NAV_CLIENT_WAIT_MS ?? "700",
+		process.env.PI_LENS_LSP_NAV_CLIENT_WAIT_MS ?? "1500",
 		10,
-	) || 700,
+	) || 1500,
 );
 const TOUCH_DEBOUNCE_MS = Math.max(
 	0,

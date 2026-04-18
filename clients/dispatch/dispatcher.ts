@@ -123,7 +123,7 @@ export function createDispatchContext(
 	blockingOnly?: boolean,
 	modifiedRanges?: import("./types.js").ModifiedRange[],
 ): DispatchContext {
-	const absoluteFilePath = path.resolve(cwd, filePath);
+	const absoluteFilePath = resolveRunnerPath(cwd, filePath);
 	const normalizedCwd = normalizeMapKey(
 		resolveLanguageRootForFile(absoluteFilePath, cwd),
 	);

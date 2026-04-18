@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("lsp launch", () => {
@@ -49,6 +52,43 @@ describe("lsp launch", () => {
 			await vi.advanceTimersByTimeAsync(150);
 
 			await rejection;
+		},
+	);
+
+	it.runIf(process.platform === "win32")(
+		"resolves bare commands through where before spawning",
+		async () => {
+			const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-launch-"));
+			const resolvedBinary = path.join(tempDir, "taplo.exe");
+			fs.writeFileSync(resolvedBinary, "");
+			vi.doMock("node:child_process", () => {
+				class MockStream extends EventEmitter {}
+				class MockChildProcess extends EventEmitter {
+					stdin = new MockStream();
+					stdout = new MockStream();
+					stderr = new MockStream();
+					pid = 9876;
+					exitCode: number | null = null;
+					killed = false;
+				}
+
+				return {
+					execSync: vi.fn((command: string) => {
+						if (command === "where taplo") {
+							return `${resolvedBinary}\r\n`;
+						}
+						return "";
+					}),
+					spawn: vi.fn(() => new MockChildProcess()),
+				};
+			});
+
+			const { launchLSP } = await import("../../../clients/lsp/launch.js");
+			const launched = await launchLSP("taplo", ["lsp", "stdio"], {
+				cwd: "C:\\fake",
+			});
+
+			expect(launched.pid).toBe(9876);
 		},
 	);
 });
