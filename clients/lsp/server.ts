@@ -1170,7 +1170,9 @@ export const DockerServer: LSPServerInfo = {
 	id: "docker",
 	name: "Dockerfile Language Server",
 	extensions: [".dockerfile", "Dockerfile"],
-	root: PriorityRoot([["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"], [".git"]]),
+	root: RootWithFallback(
+		PriorityRoot([["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"], [".git"]]),
+	),
 	spawn(root, options) {
 		return resolveAndLaunch(
 			{ candidates: nodeBinCandidates(root, "docker-langserver"), args: ["--stdio"], cwd: root, managedToolId: "dockerfile-language-server-nodejs" },

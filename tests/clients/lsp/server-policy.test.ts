@@ -96,6 +96,18 @@ describe("lsp server policy", () => {
 		expect(root).toBe(path.dirname(file));
 	});
 
+	it("falls back to file directory when docker root markers are missing", async () => {
+		const { DockerServer } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-docker-fallback-root-"));
+		dirs.push(tmp);
+
+		const file = path.join(tmp, "Dockerfile");
+		fs.writeFileSync(file, "FROM alpine:3.20\n");
+
+		const root = await DockerServer.root(file);
+		expect(root).toBe(path.dirname(file));
+	});
+
 	it("falls back to file directory for standalone csharp files", async () => {
 		const { CSharpServer } = await import("../../../clients/lsp/server.js");
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-csharp-fallback-root-"));
