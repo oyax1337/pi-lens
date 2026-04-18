@@ -1353,7 +1353,6 @@ export const LSP_SERVERS: LSPServerInfo[] = [
 	GoServer,
 	RustServer,
 	RubyServer,
-	RubySolargraphServer,
 	PHPServer,
 	// PowerShellServer — not included; no viable LSP binary, coverage notice fires instead
 	CSharpServer,
