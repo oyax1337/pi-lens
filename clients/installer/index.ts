@@ -856,16 +856,31 @@ async function getPythonUserBaseCandidates(): Promise<string[]> {
  */
 async function verifyToolBinary(binPath: string): Promise<boolean> {
 	return new Promise((resolve) => {
-		// Add .cmd extension on Windows for the actual binary
 		const isWindows = process.platform === "win32";
 		const hasKnownWindowsExt = /\.(cmd|exe|ps1)$/i.test(binPath);
-		const execPath =
-			isWindows && !hasKnownWindowsExt ? `${binPath}.cmd` : binPath;
+
+		// On Windows, resolve the best executable path:
+		// - extensionless → prefer .cmd (cmd.exe-safe)
+		// - .ps1 → prefer .cmd sibling to avoid PowerShell execution-policy hangs
+		// - .cmd / .exe → use as-is
+		let execPath = isWindows && !hasKnownWindowsExt ? `${binPath}.cmd` : binPath;
+		let useShell = isWindows && /\.(cmd|bat)$/i.test(execPath);
+
+		if (isWindows && /\.ps1$/i.test(execPath)) {
+			const cmdSibling = `${execPath.slice(0, -4)}.cmd`;
+			if (require("node:fs").existsSync(cmdSibling)) {
+				execPath = cmdSibling;
+				useShell = true;
+			} else {
+				// Fall back to running without shell — cmd.exe can't run .ps1
+				useShell = false;
+			}
+		}
 
 		const proc = spawn(execPath, ["--version"], {
-			timeout: 10000, // 10 second timeout for verification
+			timeout: 10000,
 			stdio: ["ignore", "pipe", "pipe"],
-			shell: isWindows, // Required for .cmd wrappers on Windows
+			shell: useShell,
 		});
 
 		let stdout = "";
@@ -1220,9 +1235,24 @@ async function installNpmTool(
 			}
 		}
 
-		// Verify the binary actually works before returning
+		// Brief delay — lets npm postinstall scripts finish writing bin wrappers
+		// before we stat/exec them (eliminates a race on slow Windows I/O).
+		await new Promise((r) => setTimeout(r, 500));
+
+		// Verify the binary actually works, retrying with backoff to handle
+		// postinstall scripts that complete asynchronously after npm exits 0.
 		debugLog(`Verifying ${binaryName}...`);
-		const isValid = await verifyToolBinary(binPath);
+		let isValid = false;
+		for (let attempt = 1; attempt <= 3; attempt++) {
+			isValid = await verifyToolBinary(binPath);
+			if (isValid) break;
+			if (attempt < 3) {
+				logSessionStart(
+					`auto-install verify ${binaryName}: attempt ${attempt} failed, retrying in ${attempt}s`,
+				);
+				await new Promise((r) => setTimeout(r, 1000 * attempt));
+			}
+		}
 		if (!isValid) {
 			console.error(
 				`[auto-install] ${packageName} installed but verification failed (binary may be corrupted)`,
