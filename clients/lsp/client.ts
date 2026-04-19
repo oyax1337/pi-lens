@@ -221,6 +221,10 @@ const INITIALIZE_TIMEOUT_MS = positiveIntFromEnv(
 	"PI_LENS_LSP_INIT_TIMEOUT_MS",
 	15_000,
 ); // 15s — npx downloads are handled by ensureTool, not here
+const NAV_REQUEST_TIMEOUT_MS = positiveIntFromEnv(
+	"PI_LENS_LSP_NAV_REQUEST_TIMEOUT_MS",
+	10_000,
+); // 10s — per-request ceiling; prevents heavy servers (vue, svelte) from hanging
 const DIAGNOSTICS_WAIT_TIMEOUT_MS = positiveIntFromEnv(
 	"PI_LENS_LSP_DIAGNOSTICS_WAIT_MS",
 	10_000,
@@ -551,7 +555,15 @@ async function navRequest<T>(
 	params: Record<string, unknown>,
 ): Promise<T | null | undefined> {
 	if (!isClientAlive(state)) return null;
-	return safeSendRequest<T>(state.connection, method, params);
+	return withTimeout(
+		safeSendRequest<T>(state.connection, method, params),
+		NAV_REQUEST_TIMEOUT_MS,
+	).catch((err: unknown) => {
+		if (err instanceof Error && err.message.startsWith("Timeout after")) {
+			return undefined;
+		}
+		throw err;
+	}) as Promise<T | undefined>;
 }
 
 // --- Client Factory ---

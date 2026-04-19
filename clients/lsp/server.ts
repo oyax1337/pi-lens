@@ -1330,6 +1330,7 @@ export const VueServer: LSPServerInfo = {
 	name: "Vue Language Server",
 	extensions: [".vue"],
 	root: createRootDetector([
+		"package.json",
 		"package-lock.json",
 		"bun.lockb",
 		"bun.lock",
@@ -1349,6 +1350,7 @@ export const SvelteServer: LSPServerInfo = {
 	name: "Svelte Language Server",
 	extensions: [".svelte"],
 	root: createRootDetector([
+		"package.json",
 		"package-lock.json",
 		"bun.lockb",
 		"bun.lock",
