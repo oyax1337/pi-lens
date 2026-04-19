@@ -341,7 +341,7 @@ function getCandidatesForAll(
 		if (sub.pattern) {
 			try {
 				return rootNode.findAll(sub.pattern);
-			} catch {}
+			} catch { /* invalid pattern — fall through to scan all */ }
 		}
 	}
 	// No narrowing possible, scan all

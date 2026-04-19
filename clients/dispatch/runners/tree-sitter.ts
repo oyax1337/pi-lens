@@ -511,7 +511,7 @@ const treeSitterRunner: RunnerDefinition = {
 						});
 					}
 				}
-			} catch {}
+			} catch { /* entity snapshot / blast-radius enrichment is best-effort */ }
 
 			logTreeSitter({
 				phase: "runner_complete",

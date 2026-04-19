@@ -393,7 +393,7 @@ async function tryEslintFix(filePath: string, cwd: string): Promise<number> {
 				sum + (r.fixableErrorCount ?? 0) + (r.fixableWarningCount ?? 0),
 			0,
 		);
-	} catch {}
+	} catch { /* treat as zero fixable on error */ }
 	if (fixableCount === 0) return 0;
 	// Apply the fixes
 	const fix = await safeSpawnAsync(
