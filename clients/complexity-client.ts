@@ -482,8 +482,9 @@ export class ComplexityClient {
 			);
 		}
 
-		// Entropy > 5.5 is high (was > 3.5 → 5.0, still too sensitive for tooling codebases)
-		if (metrics.codeEntropy > 5.5) {
+		// Entropy > 7.0 is genuinely high (was 3.5 → 5.0 → 5.5, all too sensitive;
+		// typical TypeScript/React code naturally sits at 5.5–6.5 bits)
+		if (metrics.codeEntropy > 7.0) {
 			warnings.push(
 				`High entropy (${metrics.codeEntropy.toFixed(1)} bits) — follow project conventions`,
 			);
