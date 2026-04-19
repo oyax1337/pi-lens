@@ -9,6 +9,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import { spawn as nodeSpawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import type { MessageConnection } from "vscode-jsonrpc";
 import {
@@ -353,7 +354,7 @@ function setupIncomingHandlers(
 }
 
 function setupConnectionLifecycle(state: LSPClientState): void {
-	state.connection.onError((error) => {
+	state.connection.onError(([error]: [Error, ...unknown[]]) => {
 		state.lastError =
 			error instanceof Error ? error : new Error(String(error));
 		state.isConnected = false;
@@ -709,6 +710,23 @@ export async function createLSPClient(options: {
 			}),
 			initializeTimeoutMs,
 		);
+	} catch (err) {
+		// Hard-kill the hung process so it doesn't become a zombie.
+		// SIGTERM alone is unreliable on Windows for cmd.exe/PowerShell trees.
+		const pid = lspProcess.pid;
+		lspProcess.process.kill("SIGTERM");
+		if (process.platform === "win32" && pid > 0) {
+			try {
+				nodeSpawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
+					shell: false,
+					windowsHide: true,
+				});
+			} catch {}
+		}
+		setTimeout(() => {
+			if (!lspProcess.process.killed) lspProcess.process.kill("SIGKILL");
+		}, 2000);
+		throw err;
 	} finally {
 		(lspProcess.stderr as NodeJS.ReadableStream).off("data", onStartupStderr);
 	}

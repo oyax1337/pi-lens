@@ -207,6 +207,48 @@ function _findBinaryInNpmGlobal(command: string): string | undefined {
 	}
 }
 
+/**
+ * On Windows, npm creates .ps1 wrappers that hang indefinitely when PowerShell
+ * execution policy is Restricted or AllSigned. Bypass by preferring the .cmd
+ * sibling (runs under cmd.exe, no execution policy) or falling back to direct
+ * Node.js execution of the JS entry point extracted from the PS1 script.
+ * Returns undefined if no safe bypass is found.
+ */
+function bypassPs1OnWindows(
+	ps1Path: string,
+	args: string[],
+): { command: string; args: string[]; needsShell: boolean } | undefined {
+	// 1. Prefer the .cmd sibling — cmd.exe handles it without execution policy issues
+	const cmdPath = `${ps1Path.slice(0, -4)}.cmd`;
+	if (fs.existsSync(cmdPath)) {
+		return { command: cmdPath, args, needsShell: true };
+	}
+
+	// 2. Parse the .ps1 to find the JS entry point and invoke via node directly.
+	// npm-generated PS1 pattern: "$basedir/../<package>/bin/cli.js"
+	try {
+		const content = fs.readFileSync(ps1Path, "utf-8");
+		const match = content.match(
+			/"\$basedir[/\\]\.\.[/\\]([\w./@-]+\.(?:mjs|cjs|js))"/i,
+		);
+		if (match) {
+			const relPath = match[1].replace(/[/\\]/g, path.sep);
+			const jsPath = path.resolve(path.dirname(ps1Path), "..", relPath);
+			if (fs.existsSync(jsPath)) {
+				return {
+					command: process.execPath,
+					args: [jsPath, ...args],
+					needsShell: false,
+				};
+			}
+		}
+	} catch {
+		// Can't read PS1 — no bypass available
+	}
+
+	return undefined;
+}
+
 function findBinaryOnPath(
 	command: string,
 	env: NodeJS.ProcessEnv,
@@ -417,6 +459,24 @@ export async function launchLSP(
 				(spawnCommand.includes(" ") ||
 					/\.(cmd|bat)$/i.test(spawnCommand) ||
 					!/\.(exe|cmd|bat)$/i.test(spawnCommand));
+		}
+	}
+
+	// P0 FIX: Never spawn .ps1 wrappers on Windows — they hang when PowerShell
+	// execution policy is Restricted/AllSigned. Prefer .cmd or direct node.
+	if (isWindows && /\.ps1$/i.test(spawnCommand)) {
+		const bypass = bypassPs1OnWindows(spawnCommand, args);
+		if (bypass) {
+			logSessionStart(
+				`lsp ps1-bypass: ${spawnCommand} → ${bypass.command} shell=${bypass.needsShell}`,
+			);
+			spawnCommand = bypass.command;
+			args = bypass.args;
+			needsShell = bypass.needsShell;
+		} else {
+			logSessionStart(
+				`lsp ps1-bypass: no .cmd or JS entry found for ${spawnCommand}, spawn may hang`,
+			);
 		}
 	}
 
@@ -677,7 +737,20 @@ export async function stopLSP(handle: LSPProcess): Promise<void> {
 		// Force kill after timeout
 		const timeout = setTimeout(() => {
 			if (!handle.process.killed) {
-				handle.process.kill("SIGKILL");
+				if (isWindows && handle.pid > 0) {
+					// SIGKILL is unreliable for cmd.exe/PowerShell child trees on Windows.
+					// taskkill /F /T kills the process and all its children.
+					try {
+						nodeSpawn("taskkill", ["/F", "/T", "/PID", String(handle.pid)], {
+							shell: false,
+							windowsHide: true,
+						});
+					} catch {
+						handle.process.kill("SIGKILL");
+					}
+				} else {
+					handle.process.kill("SIGKILL");
+				}
 			}
 		}, 5000);
 
