@@ -43,6 +43,8 @@ export const EXCLUDED_DIRS = [
 	".tox",
 	".pytest_cache",
 	"*.dSYM",
+	"examples", // Example/demo code — not part of production source
+	"fixtures", // Test fixtures — data files, not scannable source
 ];
 
 function globToRegExp(glob: string): RegExp {
