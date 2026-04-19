@@ -693,7 +693,6 @@ async function findNpmGlobalToolPath(
 		const candidates = isWindows
 			? [
 					path.join(dir, `${binaryName}.cmd`),
-					path.join(dir, `${binaryName}.ps1`),
 					path.join(dir, `${binaryName}.exe`),
 					path.join(dir, binaryName),
 				]

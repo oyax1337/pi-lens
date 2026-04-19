@@ -28,7 +28,9 @@ export interface LSPState {
 	inFlight: Map<string, Promise<SpawnedServer | undefined>>; // prevent duplicate spawns
 }
 
-const BROKEN_RETRY_COOLDOWN_MS = 15_000;
+const BROKEN_BASE_COOLDOWN_MS = 15_000;
+const BROKEN_MAX_COOLDOWN_MS = 5 * 60_000; // cap at 5 minutes
+const BROKEN_PERMANENT_AFTER = 5; // disable for session after N consecutive failures
 const OPTIONAL_LSP_RETRY_COOLDOWN_MS = 5 * 60_000;
 const OPTIONAL_LSP_SERVER_IDS = new Set<string>();
 const NAV_CLIENT_WAIT_TIMEOUT_MS = Math.max(
@@ -69,6 +71,8 @@ export class LSPService {
 	private warmStartLogged = new Set<string>();
 	private optionalFailureLogged = new Set<string>();
 	private optionalDisabled = new Set<string>();
+	/** Consecutive failure counts for exponential backoff circuit breaker */
+	private failureCounts = new Map<string, number>();
 	private recentTouches = new Map<
 		string,
 		{ fingerprint: string; touchedAt: number; clientScope: "primary" | "all" }
@@ -312,7 +316,16 @@ export class LSPService {
 				logSessionStart(
 					`lsp spawn ${server.id}: unavailable (${Date.now() - startedAt}ms)`,
 				);
-				this.state.broken.set(key, Date.now() + BROKEN_RETRY_COOLDOWN_MS);
+				const uCount = (this.failureCounts.get(key) ?? 0) + 1;
+				this.failureCounts.set(key, uCount);
+				const uCooldown = Math.min(
+					BROKEN_BASE_COOLDOWN_MS * Math.pow(2, uCount - 1),
+					BROKEN_MAX_COOLDOWN_MS,
+				);
+				this.state.broken.set(key, Date.now() + uCooldown);
+				if (uCount >= BROKEN_PERMANENT_AFTER) {
+					logSessionStart(`lsp spawn ${server.id}: permanently disabled after ${uCount} failures`);
+				}
 				return undefined;
 			}
 
@@ -333,6 +346,7 @@ export class LSPService {
 					};
 
 			this.state.clients.set(key, client);
+			this.failureCounts.delete(key);
 			if (isOptionalServer) {
 				this.optionalDisabled.delete(key);
 				this.optionalFailureLogged.delete(key);
@@ -356,10 +370,15 @@ export class LSPService {
 					this.optionalFailureLogged.add(key);
 				}
 			}
-			this.state.broken.set(
-				key,
-				Date.now() + (isOptionalServer ? OPTIONAL_LSP_RETRY_COOLDOWN_MS : BROKEN_RETRY_COOLDOWN_MS),
-			);
+			const eCount = (this.failureCounts.get(key) ?? 0) + 1;
+			this.failureCounts.set(key, eCount);
+			const eCooldown = isOptionalServer
+				? OPTIONAL_LSP_RETRY_COOLDOWN_MS
+				: Math.min(BROKEN_BASE_COOLDOWN_MS * Math.pow(2, eCount - 1), BROKEN_MAX_COOLDOWN_MS);
+			this.state.broken.set(key, Date.now() + eCooldown);
+			if (!isOptionalServer && eCount >= BROKEN_PERMANENT_AFTER) {
+				logSessionStart(`lsp spawn ${server.id}: permanently disabled after ${eCount} failures`);
+			}
 			if (isOptionalServer) {
 				this.optionalDisabled.add(key);
 			}
