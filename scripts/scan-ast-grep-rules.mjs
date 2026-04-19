@@ -152,9 +152,11 @@ function matchPattern(sgRoot, pattern) {
   }
 }
 
-function matchRule(sgRoot, ruleSpec) {
+function matchRule(sgRoot, ruleSpec, constraints) {
   try {
-    return sgRoot.findAll({ rule: ruleSpec });
+    const config = { rule: ruleSpec };
+    if (constraints && Object.keys(constraints).length) config.constraints = constraints;
+    return sgRoot.findAll(config);
   } catch {
     return [];
   }
@@ -190,7 +192,7 @@ for (const filePath of walkFiles(scanDir)) {
 
     let matches;
     try {
-      matches = matchRule(sgRoot, rule.parsed?.rule ?? {});
+      matches = matchRule(sgRoot, rule.parsed?.rule ?? {}, rule.parsed?.constraints);
     } catch {
       continue;
     }
