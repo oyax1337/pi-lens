@@ -17,7 +17,7 @@ const _dirname =
 	typeof __dirname !== "undefined"
 		? __dirname
 		: path.dirname(fileURLToPath(import.meta.url));
-const _piLensRoot = path.resolve(_dirname, "../../../../..");
+const _piLensRoot = path.resolve(_dirname, "../../../..");
 
 // =============================================================================
 // VENV-AWARE COMMAND FINDER
