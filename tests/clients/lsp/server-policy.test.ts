@@ -28,6 +28,7 @@ afterEach(() => {
 	ensureTool.mockReset();
 	launchLSP.mockReset();
 	launchViaPackageManager.mockReset();
+	vi.resetModules();
 });
 
 describe("lsp server policy", () => {
@@ -458,5 +459,55 @@ describe("lsp server policy", () => {
 			["lsp", "stdio"],
 			expect.objectContaining({ cwd: tmp }),
 		);
+	});
+
+	it("prefers kotlin-lsp before kotlin-language-server", async () => {
+		const { KotlinServer } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-kotlin-cli-"));
+		dirs.push(tmp);
+
+		launchLSP.mockImplementation(async (command: string) => {
+			if (command === "kotlin-lsp") {
+				return {
+					process: { killed: false } as never,
+					stdin: {} as never,
+					stdout: {} as never,
+					stderr: {} as never,
+					pid: 2468,
+				};
+			}
+			throw new Error(`unexpected command: ${command}`);
+		});
+
+		const spawned = await KotlinServer.spawn(tmp, { allowInstall: true });
+		expect(spawned).toBeDefined();
+		expect(launchLSP.mock.calls[0]?.[0]).toBe("kotlin-lsp");
+	});
+
+	it("launches zls from managed install when direct command is unavailable", async () => {
+		const { ZigServer } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-zls-managed-"));
+		dirs.push(tmp);
+
+		ensureTool.mockResolvedValue(path.join(tmp, "bin", "zls.exe"));
+		launchLSP.mockImplementation(async (command: string) => {
+			if (command === "zls") {
+				throw new Error("ENOENT: command not found");
+			}
+			if (command.endsWith(path.join("bin", "zls.exe"))) {
+				return {
+					process: { killed: false } as never,
+					stdin: {} as never,
+					stdout: {} as never,
+					stderr: {} as never,
+					pid: 9753,
+				};
+			}
+			throw new Error(`unexpected command: ${command}`);
+		});
+
+		const spawned = await ZigServer.spawn(tmp, { allowInstall: true });
+		expect(spawned).toBeDefined();
+		expect(ensureTool).toHaveBeenCalledWith("zls");
 	});
 });

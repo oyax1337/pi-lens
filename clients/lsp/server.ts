@@ -1032,14 +1032,24 @@ export const JavaServer = createInteractiveServer({
 	command: () => process.env.JDTLS_PATH || "jdtls",
 });
 
-export const KotlinServer = createInteractiveServer({
+export const KotlinServer: LSPServerInfo = {
 	id: "kotlin",
 	name: "Kotlin Language Server",
 	extensions: [".kt", ".kts"],
 	root: RootWithFallback(createRootDetector(["build.gradle.kts", "build.gradle", "pom.xml"])),
-	language: "kotlin",
-	command: "kotlin-language-server",
-});
+	async spawn(root, options) {
+		// Prefer the newer official Kotlin LSP CLI when available, but keep
+		// compatibility with the older fwcd kotlin-language-server command.
+		return resolveAndLaunch(
+			{
+				candidates: ["kotlin-lsp", "kotlin-language-server"],
+				args: [],
+				cwd: root,
+			},
+			options?.allowInstall,
+		);
+	},
+};
 
 export const SwiftServer = createInteractiveServer({
 	id: "swift",
@@ -1084,14 +1094,23 @@ export const CppServer = createInteractiveServer({
 	args: ["--background-index"],
 });
 
-export const ZigServer = createInteractiveServer({
+export const ZigServer: LSPServerInfo = {
 	id: "zig",
 	name: "ZLS",
 	extensions: [".zig", ".zon"],
 	root: RootWithFallback(createRootDetector(["build.zig"])),
-	language: "zig",
-	command: "zls",
-});
+	spawn(root, options) {
+		return resolveAndLaunch(
+			{
+				candidates: ["zls"],
+				args: [],
+				cwd: root,
+				managedToolId: "zls",
+			},
+			options?.allowInstall,
+		);
+	},
+};
 
 export const HaskellServer = createInteractiveServer({
 	id: "haskell",

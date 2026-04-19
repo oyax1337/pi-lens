@@ -13,6 +13,7 @@ const GITHUB_TOOLS = [
 	"ktlint",
 	"tflint",
 	"terraform-ls",
+	"zls",
 ] as const;
 type GitHubToolId = (typeof GITHUB_TOOLS)[number];
 
@@ -189,6 +190,20 @@ describe("GitHub release asset selection", () => {
 				browser_download_url:
 					"https://releases.hashicorp.com/terraform-ls/0.38.2/terraform-ls_0.38.2_windows_amd64.zip",
 			});
+		});
+	});
+
+	describe("zls asset patterns", () => {
+		it.each([
+			["linux", "x64", "x86_64-linux.tar.xz"],
+			["linux", "arm64", "aarch64-linux.tar.xz"],
+			["darwin", "x64", "x86_64-macos.tar.xz"],
+			["darwin", "arm64", "aarch64-macos.tar.xz"],
+			["win32", "x64", "x86_64-windows.zip"],
+			["win32", "arm64", "aarch64-windows.zip"],
+		] as const)("%s/%s → %s", async (platform, arch, expected) => {
+			const { resolveGitHubAsset } = await import("../../../clients/installer/index.ts");
+			expect(resolveGitHubAsset("zls", platform, arch)).toBe(expected);
 		});
 	});
 });

@@ -524,6 +524,24 @@ const TOOLS: ToolDefinition[] = [
 			binaryInArchive: "terraform-ls",
 		},
 	},
+	{
+		id: "zls",
+		name: "zls",
+		checkCommand: "zls",
+		checkArgs: ["--version"],
+		installStrategy: "github",
+		binaryName: "zls",
+		github: {
+			repo: "zigtools/zls",
+			assetMatch: (platform, arch) => {
+				if (platform === "linux") return arch === "arm64" ? "aarch64-linux.tar.xz" : "x86_64-linux.tar.xz";
+				if (platform === "darwin") return arch === "arm64" ? "aarch64-macos.tar.xz" : "x86_64-macos.tar.xz";
+				if (platform === "win32") return arch === "arm64" ? "aarch64-windows.zip" : "x86_64-windows.zip";
+				return undefined;
+			},
+			binaryInArchive: "zls",
+		},
+	},
 ];
 
 const ensureInFlight = new Map<string, Promise<string | undefined>>();
