@@ -127,18 +127,25 @@ function buildAugmentedPath(basePath?: string): string {
 	}
 
 	if (isWindows) {
-		const userProfile = process.env.USERPROFILE;
-		if (userProfile) {
-			candidates.push(path.join(userProfile, ".cargo", "bin"));
-			candidates.push(path.join(userProfile, "go", "bin"));
-			candidates.push(path.join(userProfile, ".dotnet", "tools"));
-		}
+		const home = os.homedir();
+		const driveRoot = path.parse(home).root; // e.g. "C:\"
+		candidates.push(path.join(home, ".cargo", "bin"));
+		candidates.push(path.join(home, "go", "bin"));
+		candidates.push(path.join(home, ".dotnet", "tools"));
 		candidates.push(PI_LENS_BIN_DIR);
 		candidates.push(PI_LENS_TOOLS_BIN_DIR);
-		candidates.push(path.join("C:\\", "Program Files", "Go", "bin"));
-		candidates.push(path.join("C:\\", "Go", "bin"));
-		candidates.push(path.join("C:\\", "Ruby34-x64", "bin"));
-		candidates.push(path.join("C:\\", "Ruby33-x64", "bin"));
+		candidates.push(path.join(driveRoot, "Program Files", "Go", "bin"));
+		candidates.push(path.join(driveRoot, "Go", "bin"));
+		// Ruby installer drops versioned dirs (e.g. Ruby34-x64) on the drive root — scan dynamically
+		try {
+			for (const entry of fs.readdirSync(driveRoot)) {
+				if (/^ruby\d/i.test(entry)) {
+					candidates.push(path.join(driveRoot, entry, "bin"));
+				}
+			}
+		} catch {
+			// drive root not readable — skip
+		}
 	}
 
 	// On Windows, merge the live registry PATH so newly installed tools are visible

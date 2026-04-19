@@ -11,6 +11,7 @@
 
 import * as childProcess from "node:child_process";
 import * as nodeFs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import type { BiomeClient } from "./biome-client.js";
 import type { ComplexityClient } from "./complexity-client.js";
@@ -65,10 +66,7 @@ export interface FixScanResults {
 	slopFiles: SlopFile[];
 }
 
-const DEBUG_LOG = path.join(
-	process.env.HOME || process.env.USERPROFILE || ".",
-	"pi-lens-debug.log",
-);
+const DEBUG_LOG = path.join(os.homedir(), "pi-lens-debug.log");
 
 function dbg(msg: string) {
 	const line = `[${new Date().toISOString()}] ${msg}\n`;

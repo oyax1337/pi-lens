@@ -7,7 +7,7 @@
  * - Platform-specific handling
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync } from "node:fs";
 import { appendFile, mkdir, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -320,33 +320,31 @@ function IgnoreHomeRoot(primary: RootFunction): RootFunction {
 
 function rubyBinCandidates(baseName: string): string[] {
 	const candidates: string[] = [];
-	const userProfile = process.env.USERPROFILE;
-	if (userProfile) {
-		candidates.push(
-			path.join(
-				userProfile,
-				".local",
-				"share",
-				"mise",
-				"installs",
-				"ruby",
-				"bin",
-				`${baseName}.bat`,
-			),
-		);
-		candidates.push(
-			path.join(
-				userProfile,
-				".asdf",
-				"installs",
-				"ruby",
-				"bin",
-				`${baseName}.bat`,
-			),
-		);
+	const home = os.homedir();
+	const isWin = process.platform === "win32";
+	const ext = isWin ? ".bat" : "";
+
+	// mise and asdf version managers — same layout on all platforms
+	candidates.push(path.join(home, ".local", "share", "mise", "installs", "ruby", "bin", `${baseName}${ext}`));
+	candidates.push(path.join(home, ".asdf", "installs", "ruby", "bin", `${baseName}${ext}`));
+
+	if (isWin) {
+		// Ruby installer drops versioned dirs on C: by convention, but the drive
+		// and version suffix vary — scan what's actually present instead of hardcoding
+		const driveRoot = path.parse(home).root; // e.g. "C:\"
+		try {
+			const entries = readdirSync(driveRoot);
+			for (const entry of entries) {
+				if (/^ruby\d/i.test(entry)) {
+					candidates.push(path.join(driveRoot, entry, "bin", `${baseName}.bat`));
+					candidates.push(path.join(driveRoot, entry, "bin", baseName));
+				}
+			}
+		} catch {
+			// drive root not readable — skip
+		}
 	}
-	candidates.push(path.join("C:\\Ruby34-x64", "bin", `${baseName}.bat`));
-	candidates.push(path.join("C:\\Ruby33-x64", "bin", `${baseName}.bat`));
+
 	return candidates;
 }
 
@@ -566,13 +564,13 @@ function tryDotnetToolInstall(tool: string): Promise<boolean> {
 }
 
 function dotnetToolCandidates(tool: string): string[] {
-	const userProfile = process.env.USERPROFILE;
+	const home = os.homedir();
 	return [
 		path.join(PI_LENS_BIN_DIR, `${tool}.exe`),
 		path.join(PI_LENS_BIN_DIR, `${tool}.cmd`),
 		path.join(PI_LENS_BIN_DIR, tool),
-		userProfile ? path.join(userProfile, ".dotnet", "tools", `${tool}.exe`) : "",
-		userProfile ? path.join(userProfile, ".dotnet", "tools", tool) : "",
+		path.join(home, ".dotnet", "tools", `${tool}.exe`),
+		path.join(home, ".dotnet", "tools", tool),
 		tool,
 	].filter(Boolean);
 }
