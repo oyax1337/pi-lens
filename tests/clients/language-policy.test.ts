@@ -125,4 +125,10 @@ describe("language-policy", () => {
 		const elixir = getPrimaryDispatchGroup("elixir", false);
 		expect(elixir?.runnerIds).toEqual(["elixir-check", "credo"]);
 	});
+
+	it("keeps zig compile coverage active even when lsp is enabled", () => {
+		const zig = getPrimaryDispatchGroup("zig", true);
+		expect(zig?.mode).toBe("all");
+		expect(zig?.runnerIds).toEqual(["lsp", "zig-check"]);
+	});
 });

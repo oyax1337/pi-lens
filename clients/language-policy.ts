@@ -154,7 +154,7 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 	swift: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["swift"] },
 	dart: { mode: "fallback", runnerIds: ["lsp", "dart-analyze"], filterKinds: ["dart"] },
 	lua: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["lua"] },
-	zig: { mode: "fallback", runnerIds: ["lsp", "zig-check"], filterKinds: ["zig"] },
+	zig: { mode: "all", runnerIds: ["lsp", "zig-check"], filterKinds: ["zig"] },
 	haskell: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["haskell"] },
 	elixir: { mode: "fallback", runnerIds: ["lsp", "elixir-check", "credo"], filterKinds: ["elixir"] },
 	gleam: { mode: "fallback", runnerIds: ["lsp", "gleam-check"], filterKinds: ["gleam"] },
