@@ -11,13 +11,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolvePackagePath } from "../../package-root.js";
 import { safeSpawnAsync } from "../../safe-spawn.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
 
 const ESLINT_CONFIGS = [
 	".eslintrc",
@@ -120,15 +120,9 @@ const eslintRunner: RunnerDefinition = {
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
 		const userHasConfig = hasEslintConfig(cwd);
-		const useBundledCore = !!ctx.pi.getFlag("lens-eslint-core") && !userHasConfig;
 
-		// Default mode: only run if project has an ESLint config.
-		// Optional fallback mode: use bundled JS-only core rules.
-		if (!userHasConfig && !useBundledCore) {
-			return { status: "skipped", diagnostics: [], semantic: "none" };
-		}
-
-		if (useBundledCore && !isJavaScriptFamily(ctx.filePath)) {
+		// Only run if project has an ESLint config.
+		if (!userHasConfig) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
@@ -143,22 +137,9 @@ const eslintRunner: RunnerDefinition = {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
-		const configArgs = useBundledCore
-			? [
-					"--config",
-					resolvePackagePath(import.meta.url, "config", "eslint", "core.mjs"),
-				]
-			: [];
-
 		const result = await safeSpawnAsync(
 			cmd,
-			[
-				"--format",
-				"json",
-				"--no-error-on-unmatched-pattern",
-				...configArgs,
-				ctx.filePath,
-			],
+			["--format", "json", "--no-error-on-unmatched-pattern", ctx.filePath],
 			{ timeout: 30000, cwd },
 		);
 

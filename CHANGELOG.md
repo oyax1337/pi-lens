@@ -5,13 +5,37 @@ All notable changes to pi-lens will be documented in this file.
 ## [Unreleased]
 
 ### Changed (Breaking)
-- **Simplified CLI flags** — removed 15 flags to reduce surface area and cognitive load:
+- **Simplified CLI flags** — removed 16 flags to reduce surface area and cognitive load:
   - Removed per-tool disable flags: `--no-biome`, `--no-ast-grep`, `--no-shellcheck`, `--no-madge`, `--no-oxlint`, `--no-ruff`, `--no-go`, `--no-rust`
   - Removed per-tool autofix flags: `--no-autofix-biome`, `--no-autofix-ruff`
-  - Removed feature flags: `--lens-verbose`, `--error-debt`, `--auto-install`
+  - Removed feature flags: `--lens-verbose`, `--error-debt`, `--auto-install`, `--lens-eslint-core`
   - Removed redundant `--lens-lsp` flag (LSP is default-on; use `--no-lsp` to disable)
   - Removed internal dead flag: `--lens-blocking-only`
-  - New minimal flag set: `--no-lsp`, `--no-autoformat`, `--no-autofix`, `--no-tests`, `--lens-eslint-core`, `--lens-guard`
+  - New minimal flag set: `--no-lsp`, `--no-autoformat`, `--no-autofix`, `--no-tests`, `--no-delta`, `--no-lsp-install`, `--lens-guard`
+
+### Removed
+- **Dead code cleanup** — removed 1,262 lines of unused code from `clients/`:
+  - `auto-loop.ts` (200 lines) — auto-loop feature never integrated
+  - `config-validator.ts` (558 lines) — config validation never wired up
+  - `fix-scanners.ts` (301 lines) — scanner functions superseded by dispatch system
+  - `scan-architectural-debt.ts` (203 lines) — arch debt scanning unused
+
+### Fixed
+- **Biome check runner reliability** — fixed path resolution and configuration issues causing "skipped" status and parse errors:
+  - Fixed biome flag: `--output-format=json` → `--reporter=json`
+  - Fixed `findBiome()` to check `~/.pi-lens/tools/` directory (was falling back to bare "biome" not in PATH)
+  - Fixed `findBiome()` to return `{cmd, argsPrefix}` object for proper npx fallback with `@biomejs/biome` prefix
+  - Added `vcs.root: "."` to `config/biome/core.jsonc` to respect project `.gitignore`
+- **LSP error messaging** — improved error messages for Windows .cmd shim failures to distinguish "npm .cmd shim failed (underlying binary not installed)" from "may be missing or corrupted"
+- **Windows installer improvements** — multiple fixes for Windows tool discovery and LSP stability:
+  - Prefer `.cmd` over extensionless in local TOOLS_DIR path lookup on Windows
+  - Bypass PS1 hangs in LSP initialization with hard-kill on timeout
+  - Remove `.ps1` from pyright managed candidates and ast-grep discovery on Windows
+  - Use `SYSTEMDRIVE` env var instead of hardcoded `C:` for cargo fallback path
+- **Rust LSP** — exponential backoff circuit breaker for failing LSP connections
+- **Installer reliability** — remove `console.error` verbosity, route all events to `sessionstart.log`
+- **Circular dependencies** — fixed circular dependencies identified in code review
+- **Knip race condition** — fixed race condition in knip tool discovery
 
 ## [3.8.28] - 2026-04-19
 

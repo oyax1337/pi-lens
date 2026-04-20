@@ -180,13 +180,6 @@ export default function (pi: ExtensionAPI) {
 		default: false,
 	});
 
-	pi.registerFlag("lens-eslint-core", {
-		description:
-			"Use bundled ESLint core rules when project has no ESLint config (JS-only fallback)",
-		type: "boolean",
-		default: false,
-	});
-
 	pi.registerFlag("lens-guard", {
 		description:
 			"Experimental: block git commit/push when unresolved pi-lens blockers exist",

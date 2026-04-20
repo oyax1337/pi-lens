@@ -459,8 +459,7 @@ const astGrepNapiRunner: RunnerDefinition = {
 		const diagnostics: Diagnostic[] = [];
 		const seenRuleIds = new Set<string>();
 		const suppressLinterOverlap =
-			ctx.kind === "jsts" &&
-			(hasEslintConfig(ctx.cwd) || !!ctx.pi.getFlag("lens-eslint-core"));
+			ctx.kind === "jsts" && hasEslintConfig(ctx.cwd);
 
 		const ruleDirs = [
 			path.join(process.cwd(), "rules", "ast-grep-rules", "rules"),
