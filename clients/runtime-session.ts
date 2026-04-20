@@ -17,6 +17,7 @@ import {
 	hasLanguage,
 	isLanguageConfigured,
 } from "./language-profile.js";
+import { runLogCleanup } from "./log-cleanup.js";
 import type { MetricsClient } from "./metrics-client.js";
 import {
 	buildProjectIndex,
@@ -401,6 +402,12 @@ export async function handleSessionStart(
 	runtime.complexityBaselines.clear();
 	resetDispatchBaselines();
 	runtime.resetForSession();
+
+	// Run log cleanup early in session start (non-blocking)
+	const logCleanup = runLogCleanup(dbg);
+	if (logCleanup.cleaned > 0 || logCleanup.rotated > 0) {
+		notify(`🧹 ${logCleanup.report}`, "info");
+	}
 	dbg(`session_start startup mode: ${startupMode}`);
 
 	if (!getFlag("no-lsp")) {

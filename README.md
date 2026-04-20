@@ -253,3 +253,13 @@ Additional language servers (gopls, ruby-lsp, solargraph, etc.) are auto-detecte
 - Not every auto-install runs in every project: gate type decides when install is attempted.
 - Rule packs are customizable via project-level rule directories.
 - Inline suppression: `// pi-lens-ignore` or `# pi-lens-ignore` comments suppress diagnostic output for that line.
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PI_LENS_STARTUP_MODE` | auto | `full`, `minimal`, or `quick` — override session startup behavior |
+| `PI_LENS_LOG_RETENTION_DAYS` | 7 | Days to retain log files before automatic cleanup |
+| `PI_LENS_MAX_LOG_SIZE_MB` | 10 | Max size in MB before rotating active log files |
+
+Logs are stored in `~/.pi-lens/` and automatically cleaned up at session start based on these settings.
