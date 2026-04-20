@@ -444,6 +444,42 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	pi.registerCommand("lens-lsp", {
+		description:
+			"Show LSP server health status: active clients, connection state, and ping times. Usage: /lens-lsp",
+		handler: async (_args, ctx) => {
+			const lspService = getLSPService();
+			const clients = lspService.getStatus();
+
+			if (clients.length === 0) {
+				ctx.ui.notify(
+					"🔌 PI-LENS LSP STATUS\n\nNo active LSP clients.",
+					"info",
+				);
+				return;
+			}
+
+			const lines: string[] = [
+				"🔌 PI-LENS LSP STATUS",
+				"",
+				`Active clients: ${clients.length}`,
+				"",
+			];
+
+			for (const client of clients) {
+				const status = client.connected ? "✓" : "✗";
+				lines.push(`  ${status} ${client.serverId} (${client.root})`);
+			}
+
+			lines.push(
+				"",
+				"Note: Restart session to refresh LSP connections if needed.",
+			);
+
+			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+
 	// --- Tools (extracted to tools/) ---
 	pi.registerTool(createAstGrepSearchTool(astGrepClient) as any);
 	pi.registerTool(createAstGrepReplaceTool(astGrepClient) as any);
