@@ -67,6 +67,10 @@ All notable changes to pi-lens will be documented in this file.
   - `ruff-client.ts`, `biome-client.ts`, `sg-runner.ts` (first batch)
   - `knip-client.ts`, `dependency-checker.ts`, `jscpd-client.ts` (second batch)
   - `sg-runner.ts` — added missing `safeSpawnAsync` import
+- **Secrets scanner false positives** — fixed incorrect flagging of environment variable name references (e.g., `"FIREWORKS_API_KEY"`, `"AWS_ACCESS_KEY_ID"`) as hardcoded secrets:
+  - Added word boundaries to `hardcoded-secret` regex pattern
+  - Added `looksLikeEnvVarName()` filter to skip UPPERCASE_SNAKE_CASE values
+  - Prevents false positives when env var names are used as placeholder strings
 
 ## [3.8.28] - 2026-04-19
 
