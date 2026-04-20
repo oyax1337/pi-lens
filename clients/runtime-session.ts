@@ -14,8 +14,6 @@ import { canRunStartupHeavyScans } from "./language-policy.js";
 import {
 	detectProjectLanguageProfile,
 	getDefaultStartupTools,
-	hasLanguage,
-	isLanguageConfigured,
 } from "./language-profile.js";
 import { runLogCleanup } from "./log-cleanup.js";
 import type { MetricsClient } from "./metrics-client.js";
@@ -29,7 +27,7 @@ import type { RuffClient } from "./ruff-client.js";
 import { scanProjectRules } from "./rules-scanner.js";
 import type { RuntimeCoordinator } from "./runtime-coordinator.js";
 import type { RustClient } from "./rust-client.js";
-import { safeSpawn } from "./safe-spawn.js";
+
 import { getSourceFiles } from "./scan-utils.js";
 import { resolveStartupScanContext } from "./startup-scan.js";
 import type { TestRunnerClient } from "./test-runner-client.js";
@@ -64,14 +62,6 @@ interface SessionStartDeps {
 }
 
 type StartupMode = "full" | "minimal" | "quick";
-
-function isCommandAvailable(
-	command: string,
-	args: string[] = ["--version"],
-): boolean {
-	const result = safeSpawn(command, args, { timeout: 5000 });
-	return !result.error && result.status === 0;
-}
 
 function resolveStartupMode(): StartupMode {
 	const envMode = (process.env.PI_LENS_STARTUP_MODE ?? "").trim().toLowerCase();
@@ -525,7 +515,7 @@ export async function handleSessionStart(
 	dbg(`session_start tools: ${tools.join(", ")}`);
 
 	const agentStartupGuidance = [
-		"📌 pi-lens active — as you work on this project, fix any errors you encounter (including pre-existing). Prefer: lsp_navigation for definitions/references, ast_grep_search for code patterns, grep for text/TODO search.",
+		"📌 pi-lens active — automated checks run on your edits and writes. Blocking errors will be shown inline; you must fix all errors including pre-existing ones. Prefer: lsp_navigation for definitions/references, ast_grep_search for code patterns, grep for text/TODO search.",
 	];
 
 	runtime.projectRulesScan = scanProjectRules(analysisRoot);
