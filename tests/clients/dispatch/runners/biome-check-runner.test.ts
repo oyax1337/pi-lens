@@ -52,9 +52,9 @@ describe("biome-check runner", () => {
 					stderr: "",
 				});
 
-			const runner = (await import(
-				"../../../../clients/dispatch/runners/biome-check.ts"
-			)).default;
+			const runner = (
+				await import("../../../../clients/dispatch/runners/biome-check.ts")
+			).default;
 
 			await runner.run(createCtx(filePath, env.tmpDir) as never);
 
@@ -64,7 +64,7 @@ describe("biome-check runner", () => {
 
 			expect(
 				biomeCalls.some(
-					(args) => args.includes("check") && args.includes("--output-format=json"),
+					(args) => args.includes("check") && args.includes("--reporter=json"),
 				),
 			).toBe(true);
 			expect(biomeCalls.some((args) => args.includes("--write"))).toBe(false);

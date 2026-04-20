@@ -10,13 +10,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolvePackagePath } from "../../package-root.js";
 import { safeSpawnAsync } from "../../safe-spawn.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
 
 const BIOME_CONFIGS = ["biome.json", "biome.jsonc"];
 
@@ -90,16 +90,16 @@ function parseBiomeJson(
 
 		return {
 			diagnostics: diagnostics.map((d) => ({
-			id: `biome:${d.category}:${d.location.start.line}`,
-			message: d.message,
-			filePath,
-			line: d.location.start.line,
-			column: d.location.start.column,
-			severity: d.severity === "error" ? "error" : "warning",
-			semantic: d.severity === "error" ? "blocking" : ("warning" as const),
-			tool: "biome",
-			rule: d.category,
-			fixable: d.tags?.includes("fixable") ?? false,
+				id: `biome:${d.category}:${d.location.start.line}`,
+				message: d.message,
+				filePath,
+				line: d.location.start.line,
+				column: d.location.start.column,
+				severity: d.severity === "error" ? "error" : "warning",
+				semantic: d.severity === "error" ? "blocking" : ("warning" as const),
+				tool: "biome",
+				rule: d.category,
+				fixable: d.tags?.includes("fixable") ?? false,
 			})),
 		};
 	} catch (err) {
@@ -157,7 +157,7 @@ const biomeCheckJsonRunner: RunnerDefinition = {
 			biomeCmd,
 			[
 				"check",
-				"--output-format=json",
+				"--reporter=json",
 				"--no-errors-on-unmatched",
 				...configArg,
 				ctx.filePath,
