@@ -40,6 +40,10 @@ All notable changes to pi-lens will be documented in this file.
 - **Installer reliability** — remove `console.error` verbosity, route all events to `sessionstart.log`
 - **Circular dependencies** — fixed circular dependencies identified in code review
 - **Knip race condition** — fixed race condition in knip tool discovery
+- **Non-blocking tool availability checks** — changed all `ensureAvailable()` methods to use async `safeSpawnAsync` instead of sync `safeSpawn`, completing the startup unblocking work:
+  - `ruff-client.ts`, `biome-client.ts`, `sg-runner.ts` (first batch)
+  - `knip-client.ts`, `dependency-checker.ts`, `jscpd-client.ts` (second batch)
+  - `sg-runner.ts` — added missing `safeSpawnAsync` import
 
 ## [3.8.28] - 2026-04-19
 
