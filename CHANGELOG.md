@@ -4,6 +4,14 @@ All notable changes to pi-lens will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Configurable log cleanup** — automatic retention and rotation for `~/.pi-lens/*.log` files:
+  - Environment variable `PI_LENS_LOG_RETENTION_DAYS` (default: 7) — days to keep log files
+  - Environment variable `PI_LENS_MAX_LOG_SIZE_MB` (default: 10) — max size before rotation
+  - Runs automatically on session start, notifies when cleanup occurs
+  - Rotated backups (`.log.*`) cleaned after retention period
+  - Project-level logs (`{cwd}/.pi-lens/*`) intentionally excluded from cleanup
+
 ### Changed (Breaking)
 - **Simplified CLI flags** — removed 16 flags to reduce surface area and cognitive load:
   - Removed per-tool disable flags: `--no-biome`, `--no-ast-grep`, `--no-shellcheck`, `--no-madge`, `--no-oxlint`, `--no-ruff`, `--no-go`, `--no-rust`
@@ -11,16 +19,12 @@ All notable changes to pi-lens will be documented in this file.
   - Removed feature flags: `--lens-verbose`, `--error-debt`, `--auto-install`, `--lens-eslint-core`
   - Removed redundant `--lens-lsp` flag (LSP is default-on; use `--no-lsp` to disable)
   - Removed internal dead flag: `--lens-blocking-only`
-  - New minimal flag set: `--no-lsp`, `--no-autoformat`, `--no-autofix`, `--no-tests`, `--no-delta`, `--no-lsp-install`, `--lens-guard`
-
-### Removed
-- **Dead code cleanup** — removed 1,262 lines of unused code from `clients/`:
-  - `auto-loop.ts` (200 lines) — auto-loop feature never integrated
-  - `config-validator.ts` (558 lines) — config validation never wired up
-  - `fix-scanners.ts` (301 lines) — scanner functions superseded by dispatch system
-  - `scan-architectural-debt.ts` (203 lines) — arch debt scanning unused
+  - **Removed `--no-lsp-install` flag** — LSP servers now always auto-install when needed (no manual opt-out)
+  - New minimal flag set: `--no-lsp`, `--no-autoformat`, `--no-autofix`, `--no-tests`, `--no-delta`, `--lens-guard`
+- **Cross-platform line ending handling** — all `.split("\n")` changed to `.split(/\r?\n/)` for Windows CRLF compatibility (11 files updated)
 
 ### Fixed
+- **Error swallowing in tool availability checks** — `runtime-session.ts` now logs errors when biome/ast-grep/ruff/knip/dep/jscpd availability checks fail (was silently returning `false`)
 - **Biome check runner reliability** — fixed path resolution and configuration issues causing "skipped" status and parse errors:
   - Fixed biome flag: `--output-format=json` → `--reporter=json`
   - Fixed `findBiome()` to check `~/.pi-lens/tools/` directory (was falling back to bare "biome" not in PATH)
