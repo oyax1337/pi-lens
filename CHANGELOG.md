@@ -20,7 +20,8 @@ All notable changes to pi-lens will be documented in this file.
   - Rotated backups (`.log.*`) cleaned after retention period
   - Project-level logs (`{cwd}/.pi-lens/*`) intentionally excluded from cleanup
 
-### Changed (Breaking)
+### Changed
+- **`/lens-tools` output improved** — added explanatory note when GitHub-release tools are shown as missing: "GitHub-release tools auto-install when you open files of those languages"
 - **Simplified agent prompts** — removed verbose prompt sections to reduce token burn:
   - Removed startup notes about project rules count (now just logged, not shown)
   - Removed tooling hints for missing language tools (Go/Rust/Ruby install suggestions)

@@ -74,6 +74,7 @@ LSP is enabled by default. Use `--no-lsp` to use language-specific fallbacks (ts
 
 - `/lens-booboo` — full quality report for current project state
 - `/lens-health` — runtime health, latency, and diagnostic telemetry
+- `/lens-tools` — tool installation status: globally installed, auto-installed, or npx fallback
 
 ## Language Coverage
 
