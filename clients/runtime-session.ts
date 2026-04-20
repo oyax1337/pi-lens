@@ -448,14 +448,32 @@ export async function handleSessionStart(
 	void (async () => {
 		const warmStart = Date.now();
 		const [biomeReady, sgReady, ruffReady] = await Promise.all([
-			biomeClient.ensureAvailable().catch(() => false),
-			astGrepClient.ensureAvailable().catch(() => false),
-			ruffClient.ensureAvailable().catch(() => false),
+			biomeClient.ensureAvailable().catch((err) => {
+				dbg(`session_start: biome availability check failed: ${err}`);
+				return false;
+			}),
+			astGrepClient.ensureAvailable().catch((err) => {
+				dbg(`session_start: ast-grep availability check failed: ${err}`);
+				return false;
+			}),
+			ruffClient.ensureAvailable().catch((err) => {
+				dbg(`session_start: ruff availability check failed: ${err}`);
+				return false;
+			}),
 		]);
 		await Promise.allSettled([
-			knipClient.ensureAvailable().catch(() => false),
-			depChecker.ensureAvailable().catch(() => false),
-			jscpdClient.ensureAvailable().catch(() => false),
+			knipClient.ensureAvailable().catch((err) => {
+				dbg(`session_start: knip availability check failed: ${err}`);
+				return false;
+			}),
+			depChecker.ensureAvailable().catch((err) => {
+				dbg(`session_start: dep-checker availability check failed: ${err}`);
+				return false;
+			}),
+			jscpdClient.ensureAvailable().catch((err) => {
+				dbg(`session_start: jscpd availability check failed: ${err}`);
+				return false;
+			}),
 		]);
 		dbg(
 			`session_start tools (deferred probes complete, ${Date.now() - warmStart}ms): biome=${biomeReady} ast-grep=${sgReady} ruff=${ruffReady}`,
