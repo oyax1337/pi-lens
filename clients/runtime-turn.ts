@@ -1,12 +1,15 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { RUNTIME_CONFIG } from "./runtime-config.js";
-import { resolveRunnerPath, toRunnerDisplayPath } from "./dispatch/runner-context.js";
 import type { CacheManager } from "./cache-manager.js";
 import type { DependencyChecker } from "./dependency-checker.js";
+import {
+	resolveRunnerPath,
+	toRunnerDisplayPath,
+} from "./dispatch/runner-context.js";
+import { getKnipIgnorePatterns } from "./file-utils.js";
 import type { JscpdClient } from "./jscpd-client.js";
 import type { KnipClient, KnipIssue } from "./knip-client.js";
-import { getKnipIgnorePatterns } from "./file-utils.js";
+import { RUNTIME_CONFIG } from "./runtime-config.js";
 import type { RuntimeCoordinator } from "./runtime-coordinator.js";
 
 interface TurnEndDeps {
@@ -20,6 +23,20 @@ interface TurnEndDeps {
 	depChecker: DependencyChecker;
 	resetLSPService: () => void;
 	resetFormatService: () => void;
+}
+
+// LSP idle reset scheduling — prevents thrashing by delaying shutdown
+let lspIdleResetTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleLSPIdleReset(resetFn: () => void, delayMs: number): void {
+	// Clear any pending reset to avoid multiple timers
+	if (lspIdleResetTimeout) {
+		clearTimeout(lspIdleResetTimeout);
+	}
+	lspIdleResetTimeout = setTimeout(() => {
+		resetFn();
+		lspIdleResetTimeout = null;
+	}, delayMs);
 }
 
 function capTurnEndMessage(content: string): string {
@@ -57,11 +74,19 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 	const files = Object.keys(turnState.files);
 
 	if (files.length === 0) {
+		dbg("turn_end: no modified files, scheduling LSP idle reset (240s)");
 		if (!getFlag("no-lsp")) {
-			resetLSPService();
+			scheduleLSPIdleReset(resetLSPService, 240_000);
 		}
 		resetFormatService();
 		return;
+	}
+
+	// Cancel any pending idle reset since we're actively working
+	if (lspIdleResetTimeout) {
+		clearTimeout(lspIdleResetTimeout);
+		lspIdleResetTimeout = null;
+		dbg("turn_end: cancelled pending LSP idle reset (active editing)");
 	}
 
 	dbg(
@@ -108,12 +133,18 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 				const matchA =
 					jscpdFileSet.has(resolvedA) &&
 					!!stateA &&
-					cacheManager.isLineInModifiedRange(clone.startA, stateA.modifiedRanges);
+					cacheManager.isLineInModifiedRange(
+						clone.startA,
+						stateA.modifiedRanges,
+					);
 
 				const matchB =
 					jscpdFileSet.has(resolvedB) &&
 					!!stateB &&
-					cacheManager.isLineInModifiedRange(clone.startB, stateB.modifiedRanges);
+					cacheManager.isLineInModifiedRange(
+						clone.startB,
+						stateB.modifiedRanges,
+					);
 
 				return matchA || matchB;
 			});
@@ -131,10 +162,16 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 						const stateB = cacheManager.getTurnFileState(resolvedB, cwd);
 						const matchA =
 							!!stateA &&
-							cacheManager.isLineInModifiedRange(clone.startA, stateA.modifiedRanges);
+							cacheManager.isLineInModifiedRange(
+								clone.startA,
+								stateA.modifiedRanges,
+							);
 						const matchB =
 							!!stateB &&
-							cacheManager.isLineInModifiedRange(clone.startB, stateB.modifiedRanges);
+							cacheManager.isLineInModifiedRange(
+								clone.startB,
+								stateB.modifiedRanges,
+							);
 						firstPath = matchB && !matchA ? displayB : displayA;
 					}
 					report += `  ${displayA}:${clone.startA} ↔ ${displayB}:${clone.startB} (${clone.lines} lines)\n`;
@@ -175,7 +212,8 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 				(i) => i.type === "unlisted" || i.type === "bin",
 			);
 			if (blockerIssues.length > 0) {
-				let report = "🔴 New unresolved imports/deps in modified code (Knip):\n";
+				let report =
+					"🔴 New unresolved imports/deps in modified code (Knip):\n";
 				let firstPath: string | null = null;
 				for (const issue of blockerIssues.slice(0, 5)) {
 					const display = issue.file
@@ -244,7 +282,9 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 			cwd,
 		);
 		if (last?.data?.signature === signature) {
-			dbg("turn_end: duplicate blocker findings detected, suppressing re-prompt");
+			dbg(
+				"turn_end: duplicate blocker findings detected, suppressing re-prompt",
+			);
 			cacheManager.clearTurnState(cwd);
 			runtime.fixedThisTurn.clear();
 			resetFormatService();
