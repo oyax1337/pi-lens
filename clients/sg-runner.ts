@@ -13,7 +13,7 @@ import {
 	getSgCommand,
 	isSgAvailable,
 } from "./dispatch/runners/utils/runner-helpers.js";
-import { safeSpawn } from "./safe-spawn.js";
+import { safeSpawn, safeSpawnAsync } from "./safe-spawn.js";
 
 /**
  * Escape an argument for Windows cmd.exe shell execution.
