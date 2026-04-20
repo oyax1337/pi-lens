@@ -438,6 +438,10 @@ export default function (pi: ExtensionAPI) {
 				for (const tool of trulyMissing) {
 					lines.push(`  ✗ ${tool.name} (${tool.strategy})`);
 				}
+				lines.push(
+					"",
+					"Note: GitHub-release tools auto-install when you open files of those languages",
+				);
 			}
 
 			ctx.ui.notify(lines.join("\n"), "info");
