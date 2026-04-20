@@ -8,25 +8,25 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { RuleCache } from "../../cache/rule-cache.js";
+import {
+	buildOrUpdateGraph,
+	computeImpactCascade,
+	recordEntitySnapshotDiff,
+} from "../../review-graph/service.js";
 import { TreeSitterClient } from "../../tree-sitter-client.js";
 import { logTreeSitter } from "../../tree-sitter-logger.js";
-import { classifyDefect } from "../diagnostic-taxonomy.js";
 import {
 	queryLoader,
 	type TreeSitterQuery,
 } from "../../tree-sitter-query-loader.js";
+import { classifyDefect } from "../diagnostic-taxonomy.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
-import {
-	buildOrUpdateGraph,
-	computeImpactCascade,
-	recordEntitySnapshotDiff,
-} from "../../review-graph/service.js";
 
 // Module-level singleton: web-tree-sitter WASM must only be initialized once per process.
 // Creating a new TreeSitterClient() on every write resets TRANSFER_BUFFER (a module-level
@@ -221,6 +221,20 @@ function getSharedClient(): TreeSitterClient {
 	return _sharedClient;
 }
 
+/**
+ * Calculate total lines changed in modified ranges.
+ * Used to skip expensive entity extraction for trivial changes.
+ */
+function getTotalLinesChanged(
+	ranges: ReadonlyArray<{ start: number; end: number }> | undefined,
+): number {
+	if (!ranges || ranges.length === 0) return 0;
+	return ranges.reduce((total, r) => total + (r.end - r.start + 1), 0);
+}
+
+/** Threshold: skip entity extraction for changes under 5 lines */
+const ENTITY_EXTRACTION_LINE_THRESHOLD = 5;
+
 const treeSitterRunner: RunnerDefinition = {
 	id: "tree-sitter",
 	appliesTo: ["jsts", "python", "go", "rust", "ruby"],
@@ -377,7 +391,6 @@ const treeSitterRunner: RunnerDefinition = {
 			metadata: { blockingOnly: !!ctx.blockingOnly },
 		});
 
-		const diagnostics: Diagnostic[] = [];
 		const contentFromFacts = ctx.facts.getFileFact<string | null>(
 			filePath,
 			"file.content",
@@ -387,90 +400,116 @@ const treeSitterRunner: RunnerDefinition = {
 				? contentFromFacts
 				: undefined;
 
-		// Run each query against the file
-		for (const query of effectiveQueries) {
-			try {
-				const matches = await client.runQueryOnFile(
-					query,
-					filePath,
-					languageId,
-					{
-						maxResults: 10,
-					},
-					contentOverride,
-				);
+		// Run queries in parallel with concurrency limit for optimal performance
+		const CONCURRENCY_LIMIT = 6;
+		const queryResults: Diagnostic[][] = [];
 
-				for (const match of matches) {
-					// Get line/column from match (already 0-indexed from tree-sitter)
-					const line = match.line;
-					const column = match.column;
+		for (let i = 0; i < effectiveQueries.length; i += CONCURRENCY_LIMIT) {
+			const batch = effectiveQueries.slice(i, i + CONCURRENCY_LIMIT);
+			const batchResults = await Promise.all(
+				batch.map(async (query) => {
+					const queryDiagnostics: Diagnostic[] = [];
+					try {
+						const matches = await client.runQueryOnFile(
+							query,
+							filePath,
+							languageId,
+							{ maxResults: 10 },
+							contentOverride,
+						);
 
-					// Modified-ranges gate only applies to blocking-tier diagnostics.
-					// Warning-tier diagnostics always flow through for logging.
-					const isSeverityBlocking =
-						query.severity === "error" ||
-						query.inline_tier === "blocking" ||
-						SILENT_ERROR_QUERY_IDS.has(query.id);
-					if (
-						ctx.blockingOnly &&
-						isSeverityBlocking &&
-						!isLineInModifiedRanges(line + 1, ctx.modifiedRanges)
-					) {
-						continue;
+						for (const match of matches) {
+							// Get line/column from match (already 0-indexed from tree-sitter)
+							const line = match.line;
+							const column = match.column;
+
+							// Modified-ranges gate only applies to blocking-tier diagnostics.
+							// Warning-tier diagnostics always flow through for logging.
+							const isSeverityBlocking =
+								query.severity === "error" ||
+								query.inline_tier === "blocking" ||
+								SILENT_ERROR_QUERY_IDS.has(query.id);
+							if (
+								ctx.blockingOnly &&
+								isSeverityBlocking &&
+								!isLineInModifiedRanges(line + 1, ctx.modifiedRanges)
+							) {
+								continue;
+							}
+
+							// Map severity to semantic
+							const semantic =
+								query.severity === "error"
+									? "blocking"
+									: query.severity === "warning"
+										? "warning"
+										: "none";
+							const defectClass =
+								(query.defect_class as any) ??
+								classifyDefect(query.id, "tree-sitter", query.message);
+							const suggestion =
+								query.has_fix && query.fix_action
+									? `${query.fix_action} this statement`
+									: semantic === "blocking"
+										? defaultFixSuggestion(defectClass, query.id)
+										: undefined;
+
+							queryDiagnostics.push({
+								id: `tree-sitter:${query.id}:${line}`,
+								message: query.message,
+								filePath,
+								line: line + 1, // 1-indexed
+								column: column + 1, // 1-indexed
+								severity: query.severity,
+								semantic,
+								tool: "tree-sitter",
+								rule: query.id,
+								defectClass,
+								// Surface fix intent to agent — tree-sitter never auto-applies;
+								// linters (biome/ruff/eslint) own the autofix phase.
+								fixable: query.has_fix,
+								fixSuggestion: suggestion,
+							});
+						}
+					} catch (err) {
+						// pi-lens-ignore: missing-error-propagation — per-query resilience loop, intentional
+						console.error(`[tree-sitter] Query ${query.id} failed:`, err);
+						logTreeSitter({
+							phase: "query_error",
+							filePath,
+							languageId,
+							queryId: query.id,
+							error: err instanceof Error ? err.message : String(err),
+						});
 					}
-
-					// Map severity to semantic
-					const semantic =
-						query.severity === "error"
-							? "blocking"
-							: query.severity === "warning"
-								? "warning"
-								: "none";
-					const defectClass =
-						(query.defect_class as any) ??
-						classifyDefect(query.id, "tree-sitter", query.message);
-					const suggestion =
-						query.has_fix && query.fix_action
-							? `${query.fix_action} this statement`
-							: semantic === "blocking"
-								? defaultFixSuggestion(defectClass, query.id)
-								: undefined;
-
-					diagnostics.push({
-						id: `tree-sitter:${query.id}:${line}`,
-						message: query.message,
-						filePath,
-						line: line + 1, // 1-indexed
-						column: column + 1, // 1-indexed
-						severity: query.severity,
-						semantic,
-						tool: "tree-sitter",
-						rule: query.id,
-						defectClass,
-						// Surface fix intent to agent — tree-sitter never auto-applies;
-						// linters (biome/ruff/eslint) own the autofix phase.
-						fixable: query.has_fix,
-						fixSuggestion: suggestion,
-					});
-				}
-			} catch (err) {
-				// pi-lens-ignore: missing-error-propagation — per-query resilience loop, intentional
-				console.error(`[tree-sitter] Query ${query.id} failed:`, err);
-				logTreeSitter({
-					phase: "query_error",
-					filePath,
-					languageId,
-					queryId: query.id,
-					error: err instanceof Error ? err.message : String(err),
-				});
-			}
+					return queryDiagnostics;
+				}),
+			);
+			queryResults.push(...batchResults);
 		}
 
-		if (diagnostics.length === 0) {
+		// Flatten all query results into final diagnostics array
+		const diagnostics: Diagnostic[] = queryResults.flat();
+
+		// Skip expensive entity extraction for trivial changes (< 5 lines)
+		// This avoids ~500-800ms overhead for small edits like single-line fixes
+		const totalLinesChanged = getTotalLinesChanged(ctx.modifiedRanges);
+		const skipEntityExtraction =
+			totalLinesChanged < ENTITY_EXTRACTION_LINE_THRESHOLD;
+
+		if (diagnostics.length === 0 && !skipEntityExtraction) {
 			try {
-				const snapshot = await extractEntitySnapshot(client, filePath, languageId);
+				const snapshot = await extractEntitySnapshot(
+					client,
+					filePath,
+					languageId,
+				);
 				const diff = recordEntitySnapshotDiff(ctx.facts, filePath, snapshot);
-				const changedEntityKeys = [...diff.added, ...diff.modified, ...diff.removed];
+				const changedEntityKeys = [
+					...diff.added,
+					...diff.modified,
+					...diff.removed,
+				];
 
 				if (changedEntityKeys.length > 0) {
 					logTreeSitter({
@@ -495,7 +534,11 @@ const treeSitterRunner: RunnerDefinition = {
 						});
 					} else {
 						blastCooldownByFile.set(filePath, Date.now());
-						const graph = await buildOrUpdateGraph(ctx.cwd, [filePath], ctx.facts);
+						const graph = await buildOrUpdateGraph(
+							ctx.cwd,
+							[filePath],
+							ctx.facts,
+						);
 						const impact = computeImpactCascade(graph, filePath);
 						logTreeSitter({
 							phase: "blast_radius",
@@ -511,7 +554,9 @@ const treeSitterRunner: RunnerDefinition = {
 						});
 					}
 				}
-			} catch { /* entity snapshot / blast-radius enrichment is best-effort */ }
+			} catch {
+				/* entity snapshot / blast-radius enrichment is best-effort */
+			}
 
 			logTreeSitter({
 				phase: "runner_complete",
@@ -532,7 +577,11 @@ const treeSitterRunner: RunnerDefinition = {
 			(d) => d.semantic === "blocking",
 		).length;
 		try {
-			const snapshot = await extractEntitySnapshot(client, filePath, languageId);
+			const snapshot = await extractEntitySnapshot(
+				client,
+				filePath,
+				languageId,
+			);
 			const diff = recordEntitySnapshotDiff(ctx.facts, filePath, snapshot);
 			const changedEntityKeys = [
 				...diff.added,
@@ -563,7 +612,11 @@ const treeSitterRunner: RunnerDefinition = {
 					});
 				} else {
 					blastCooldownByFile.set(filePath, Date.now());
-					const graph = await buildOrUpdateGraph(ctx.cwd, [filePath], ctx.facts);
+					const graph = await buildOrUpdateGraph(
+						ctx.cwd,
+						[filePath],
+						ctx.facts,
+					);
 					const impact = computeImpactCascade(graph, filePath);
 					logTreeSitter({
 						phase: "blast_radius",
