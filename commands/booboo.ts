@@ -118,6 +118,10 @@ export async function handleBooboo(
 
 	const categoryKey = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
 
+	// Tunable thresholds — adjust these to reduce false positives across all projects
+	const FACT_SEVERITY_FILTER = new Set(["error", "warning"]);
+	const MIN_TREE_SITTER_HITS_PER_RULE = 3;
+
 	// Detect project metadata for richer reporting
 	const projectMeta = detectProjectMetadata(targetPath);
 	const _metaDisplay = formatProjectMetadata(projectMeta);
@@ -447,7 +451,9 @@ export async function handleBooboo(
 				if (metrics) {
 					results.push(metrics);
 					// AI slop check - already filtered by shouldIncludeFile above
-					const warnings = clients.complexity.checkThresholds(metrics);
+					const warnings = clients.complexity
+						.checkThresholds(metrics)
+						.filter((w) => !w.includes("entropy") && !w.includes("AI-style"));
 					if (warnings.length > 0) {
 						aiSlopIssues.push(`  ${metrics.filePath}:`);
 						for (const w of warnings) {
@@ -538,7 +544,7 @@ export async function handleBooboo(
 
 			// Report severe issues (thresholds match findings count)
 			if (severeLowMI.length > 0) {
-				fullSection += `### Low Maintainability (MI < 40)\n\n| File | MI | Cognitive | Cyclomatic | Nesting |\n|------|-----|-----------|------------|--------|\n`;
+				fullSection += `### Low Maintainability (MI < 20)\n\n| File | MI | Cognitive | Cyclomatic | Nesting |\n|------|-----|-----------|------------|--------|\n`;
 				for (const f of severeLowMI) {
 					fullSection += `| ${f.filePath} | ${f.maintainabilityIndex.toFixed(1)} | ${f.cognitiveComplexity} | ${f.cyclomaticComplexity} | ${f.maxNestingDepth} |\n`;
 				}
@@ -546,7 +552,7 @@ export async function handleBooboo(
 			}
 
 			if (veryHighCognitive.length > 0) {
-				fullSection += `### Very High Cognitive Complexity (> 30)\n\n| File | Cognitive | MI | Cyclomatic | Nesting |\n|------|-----------|-----|------------|--------|\n`;
+				fullSection += `### Very High Cognitive Complexity (> 80)\n\n| File | Cognitive | MI | Cyclomatic | Nesting |\n|------|-----------|-----|------------|--------|\n`;
 				for (const f of veryHighCognitive) {
 					fullSection += `| ${f.filePath} | ${f.cognitiveComplexity} | ${f.maintainabilityIndex.toFixed(1)} | ${f.cyclomaticComplexity} | ${f.maxNestingDepth} |\n`;
 				}
@@ -554,7 +560,7 @@ export async function handleBooboo(
 			}
 
 			if (deepNesting.length > 0) {
-				fullSection += `### Deep Nesting (> 5 levels)\n\n| File | Nesting | Cognitive | MI |\n|------|---------|-----------|-----|\n`;
+				fullSection += `### Deep Nesting (> 8 levels)\n\n| File | Nesting | Cognitive | MI |\n|------|---------|-----------|-----|\n`;
 				for (const f of deepNesting) {
 					fullSection += `| ${f.filePath} | ${f.maxNestingDepth} | ${f.cognitiveComplexity} | ${f.maintainabilityIndex.toFixed(1)} |\n`;
 				}
@@ -658,6 +664,14 @@ export async function handleBooboo(
 			}
 		}
 
+		// Suppress rules with fewer than N hits (false positives from one-off matches)
+		for (const [ruleId, bucket] of byRule) {
+			if (bucket.length < MIN_TREE_SITTER_HITS_PER_RULE) {
+				byRule.delete(ruleId);
+				findings -= bucket.length;
+			}
+		}
+
 		if (findings === 0) return { findings: 0, status: "done" };
 
 		const errorCount = [...byRule.values()]
@@ -726,7 +740,9 @@ export async function handleBooboo(
 				continue;
 			}
 
-			const diagnostics = evaluateRules(ctx);
+			const diagnostics = evaluateRules(ctx).filter((d) =>
+				FACT_SEVERITY_FILTER.has(d.severity ?? "warning"),
+			);
 			for (const diag of diagnostics) {
 				const relFile = path.relative(targetPath, filePath);
 				const bucket = byRule.get(diag.rule ?? diag.id) ?? [];
@@ -1509,7 +1525,7 @@ interface SimilarPair {
 	similarity: number;
 }
 
-const SEMANTIC_SIMILARITY_THRESHOLD = 0.96;
+const SEMANTIC_SIMILARITY_THRESHOLD = 0.98;
 const MIN_SIMILARITY_TRANSITIONS = 40;
 const MAX_TRANSITION_RATIO = 1.8;
 

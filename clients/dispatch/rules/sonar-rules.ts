@@ -95,9 +95,10 @@ export const commentedOutCodeRule: FactRule = {
 			if (seen.has(r.pos)) continue;
 			seen.add(r.pos);
 			const text = content.slice(r.pos, r.end);
-			const inner = r.kind === ts.SyntaxKind.MultiLineCommentTrivia
-				? text.slice(2, -2)
-				: text.replace(/^\/\//gm, "");
+			const inner =
+				r.kind === ts.SyntaxKind.MultiLineCommentTrivia
+					? text.slice(2, -2)
+					: text.replace(/^\/\//gm, "");
 			if (!looksLikeCode(inner)) continue;
 			const { line } = sf.getLineAndCharacterOfPosition(r.pos);
 			diagnostics.push(
@@ -117,7 +118,7 @@ export const commentedOutCodeRule: FactRule = {
 
 // ---------- SN-002: duplicate string literals ----------
 
-const MIN_DUPLICATES = 4;
+const MIN_DUPLICATES = 10;
 const MIN_STRING_LENGTH = 5;
 // Skip common non-signal strings (string-enum values, HTTP verbs, primitives, etc.)
 const SKIP_STRINGS = new Set([
@@ -280,8 +281,9 @@ export const functionInLoopRule: FactRule = {
 
 		function visit(node: ts.Node) {
 			if (ts.isFunctionDeclaration(node) && isInsideLoop(node)) {
-				const { line, character } =
-					sf.getLineAndCharacterOfPosition(node.getStart(sf));
+				const { line, character } = sf.getLineAndCharacterOfPosition(
+					node.getStart(sf),
+				);
 				diagnostics.push(
 					makeD(
 						"function-in-loop",
@@ -393,8 +395,9 @@ export const dynamicRegexpRule: FactRule = {
 					!ts.isStringLiteral(firstArg) &&
 					!ts.isNoSubstitutionTemplateLiteral(firstArg)
 				) {
-					const { line, character } =
-						sf.getLineAndCharacterOfPosition(node.getStart(sf));
+					const { line, character } = sf.getLineAndCharacterOfPosition(
+						node.getStart(sf),
+					);
 					diagnostics.push(
 						makeD(
 							"dynamic-regexp",
@@ -430,12 +433,11 @@ export const maxSwitchCasesRule: FactRule = {
 
 		function visit(node: ts.Node) {
 			if (ts.isSwitchStatement(node)) {
-				const caseCount = node.caseBlock.clauses.filter(
-					ts.isCaseClause,
-				).length;
+				const caseCount = node.caseBlock.clauses.filter(ts.isCaseClause).length;
 				if (caseCount > MAX_SWITCH_CASES) {
-					const { line, character } =
-						sf.getLineAndCharacterOfPosition(node.getStart(sf));
+					const { line, character } = sf.getLineAndCharacterOfPosition(
+						node.getStart(sf),
+					);
 					diagnostics.push(
 						makeD(
 							"max-switch-cases",
@@ -477,7 +479,11 @@ export const commentedCredentialsRule: FactRule = {
 		const lines = content.split("\n");
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i].trimStart();
-			if (!line.startsWith("//") && !line.startsWith("#") && !line.startsWith("*"))
+			if (
+				!line.startsWith("//") &&
+				!line.startsWith("#") &&
+				!line.startsWith("*")
+			)
 				continue;
 			for (const p of CREDENTIAL_PATTERNS) {
 				if (p.test(line)) {

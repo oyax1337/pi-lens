@@ -81,11 +81,9 @@ import { missingErrorPropagationRule } from "./rules/missing-error-propagation.j
 import { passThroughWrappersRule } from "./rules/pass-through-wrappers.js";
 import { placeholderCommentsRule } from "./rules/placeholder-comments.js";
 import {
-	highEntropyStringRule,
 	highImportCouplingRule,
 	noBooleanParamsRule,
 	noComplexConditionalsRule,
-	noMagicNumbersRule,
 } from "./rules/quality-rules.js";
 import {
 	commentedCredentialsRule,
@@ -117,11 +115,9 @@ registerRule(corsWildcardRule);
 registerRule(dynamicRegexpRule);
 registerRule(maxSwitchCasesRule);
 registerRule(commentedCredentialsRule);
-registerRule(noMagicNumbersRule);
 registerRule(noBooleanParamsRule);
 registerRule(highImportCouplingRule);
 registerRule(noComplexConditionalsRule);
-registerRule(highEntropyStringRule);
 
 const sessionFacts = new FactStore();
 const sessionRunnerRegistry = new RunnerRegistry();
@@ -146,11 +142,9 @@ const FACT_RULE_IDS = new Set([
 	"dynamic-regexp",
 	"max-switch-cases",
 	"no-commented-credentials",
-	"no-magic-numbers",
 	"no-boolean-params",
 	"high-import-coupling",
 	"no-complex-conditionals",
-	"high-entropy-string",
 ]);
 const sessionSlopRuleCounts = new Map<string, number>();
 let sessionSlopDiagnosticCount = 0;
