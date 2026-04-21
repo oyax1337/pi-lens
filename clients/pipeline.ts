@@ -218,7 +218,7 @@ function supportsAutofix(filePath: string): boolean {
 	return AUTOFIX_EXTS.has(path.extname(filePath).toLowerCase());
 }
 
-function hasEslintConfig(cwd: string): boolean {
+export function hasEslintConfig(cwd: string): boolean {
 	for (const cfg of ESLINT_CONFIGS) {
 		if (nodeFs.existsSync(path.join(cwd, cfg))) return true;
 	}
@@ -231,7 +231,7 @@ function hasEslintConfig(cwd: string): boolean {
 	return false;
 }
 
-function hasStylelintConfig(cwd: string): boolean {
+export function hasStylelintConfig(cwd: string): boolean {
 	if (STYLELINT_CONFIGS.some((cfg) => nodeFs.existsSync(path.join(cwd, cfg)))) {
 		return true;
 	}
@@ -244,7 +244,7 @@ function hasStylelintConfig(cwd: string): boolean {
 	return false;
 }
 
-function hasSqlfluffConfig(cwd: string): boolean {
+export function hasSqlfluffConfig(cwd: string): boolean {
 	for (const cfg of SQLFLUFF_CONFIGS) {
 		const cfgPath = path.join(cwd, cfg);
 		if (!nodeFs.existsSync(cfgPath)) continue;
