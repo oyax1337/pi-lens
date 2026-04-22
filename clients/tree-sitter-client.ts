@@ -123,41 +123,39 @@ export class TreeSitterClient {
 
 	/** Find tree-sitter grammar directory */
 	private findGrammarsDir(): string {
-		const pkgGrammars = resolvePackagePath(
-			import.meta.url,
-			"node_modules",
-			"web-tree-sitter",
-			"grammars",
-		);
-		const downloadedGrammars = [
-			path.join(process.cwd(), "node_modules", "web-tree-sitter", "grammars"),
-			pkgGrammars,
-		];
-
-		for (const dir of downloadedGrammars) {
-			if (
-				fs.existsSync(dir) &&
-				fs.existsSync(path.join(dir, "tree-sitter-typescript.wasm"))
-			) {
-				return dir;
+		// Resolve external dep locations via Node's module resolver so the path
+		// is correct regardless of whether the package manager hoisted them.
+		const resolveExternal = (pkg: string, asset: string): string | undefined => {
+			try {
+				return path.join(path.dirname(_require.resolve(`${pkg}/package.json`)), asset);
+			} catch {
+				return undefined;
 			}
+		};
+
+		const webTreeSitterGrammars = resolveExternal("web-tree-sitter", "grammars");
+		if (
+			webTreeSitterGrammars &&
+			fs.existsSync(webTreeSitterGrammars) &&
+			fs.existsSync(path.join(webTreeSitterGrammars, "tree-sitter-typescript.wasm"))
+		) {
+			return webTreeSitterGrammars;
 		}
 
-		const candidates: string[] = [
+		const treeSitterWasmsOut = resolveExternal("tree-sitter-wasms", "out");
+		if (treeSitterWasmsOut && fs.existsSync(treeSitterWasmsOut)) {
+			return treeSitterWasmsOut;
+		}
+
+		// Fallback: walk up from cwd (covers local dev where hoisting isn't a factor)
+		for (const candidate of [
 			path.join(process.cwd(), "node_modules", "tree-sitter-wasms", "out"),
-			resolvePackagePath(
-				import.meta.url,
-				"node_modules",
-				"tree-sitter-wasms",
-				"out",
-			),
-		];
-
-		for (const dir of candidates) {
-			if (fs.existsSync(dir)) return dir;
+			path.join(process.cwd(), "node_modules", "web-tree-sitter", "grammars"),
+		]) {
+			if (fs.existsSync(candidate)) return candidate;
 		}
 
-		return pkgGrammars;
+		return resolveExternal("web-tree-sitter", "grammars") ?? "";
 	}
 
 	/** Initialize tree-sitter WASM runtime */
