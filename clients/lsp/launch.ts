@@ -225,7 +225,7 @@ function _findBinaryInNpmGlobal(command: string): string | undefined {
  * Returns true if the shim is valid (or we can't determine), false if the
  * target is definitively missing.
  */
-function isCmdShimValid(cmdPath: string): boolean {
+export function isCmdShimValid(cmdPath: string): boolean {
 	try {
 		const content = fs.readFileSync(cmdPath, "utf-8");
 		// npm cmd shim pattern: "%~dp0\..\<relpath>" or "%~dp0/<relpath>"
