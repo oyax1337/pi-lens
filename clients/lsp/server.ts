@@ -568,17 +568,27 @@ function tryDotnetToolInstall(tool: string): Promise<boolean> {
 		const proc = spawnSync(
 			"dotnet",
 			["tool", "install", "--tool-path", PI_LENS_BIN_DIR, tool],
-			{ stdio: "ignore", shell: false },
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], shell: false },
 		);
 		if (proc.status === 0) {
 			resolve(true);
 			return;
 		}
 
+		const stderr = proc.stderr ?? "";
+		if (stderr.includes("No NuGet sources are defined or enabled")) {
+			logSessionStart(
+				`lsp dotnet-install: NuGet sources missing — cannot install ${tool}. ` +
+					`Run: dotnet nuget add source https://api.nuget.org/v3/index.json -n nuget.org`,
+			);
+			resolve(false);
+			return;
+		}
+
 		const updateProc = spawnSync(
 			"dotnet",
 			["tool", "update", "--tool-path", PI_LENS_BIN_DIR, tool],
-			{ stdio: "ignore", shell: false },
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], shell: false },
 		);
 		resolve(updateProc.status === 0);
 	});
