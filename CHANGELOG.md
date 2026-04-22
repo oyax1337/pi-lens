@@ -4,6 +4,13 @@ All notable changes to pi-lens will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **Pipeline test assertion drift** — updated `tests/clients/pipeline.test.ts` to match the current auto-format warning text (`File was modified by auto-format/fix...`)
+
+### Removed
+- **Worthless `diagnostic-logger` tests** — deleted `tests/clients/diagnostic-logger.test.ts` (5 tests that only asserted mock objects equaled what was just assigned; zero behavior coverage)
+- **Redundant circular-dependency regression tests** — removed 3 no-op import tests from `tests/clients/circular-deps-regression.test.ts` (`expect(module).toBeDefined()` after `await import(...)` adds no value; import failure throws before the assertion)
+
 ### Changed
 - **Similarity runner skips small edits** — when `modifiedRanges` total lines is below `MIN_FUNCTION_LINES` (8), the similarity runner exits early; a new function can't fit in fewer lines than that, so the ~1100ms scan is wasted on targeted fixes
 - **Stronger auto-format/fix re-read warning** — message now explicitly tells the agent it MUST re-read the file before any further edits, listing what may have changed (whitespace, indentation, quotes, code)

@@ -230,7 +230,7 @@ describe("Pipeline", () => {
 			const result = await runPipeline(createMockContext(filePath), deps);
 
 			expect(result.fileModified).toBe(true);
-			expect(result.output).toContain("File modified by auto-format");
+			expect(result.output).toContain("File was modified by auto-format/fix");
 		});
 
 		it("skips format when --no-autoformat flag is set", async () => {

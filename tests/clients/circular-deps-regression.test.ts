@@ -8,12 +8,6 @@ import { describe, expect, it } from "vitest";
  * former circular dependency to ensure they can still be resolved.
  */
 describe("circular dependency regression - diagnostic taxonomy", () => {
-	it("can import from types.ts without circular errors", async () => {
-		const typesModule = await import("../../clients/dispatch/types.js");
-		// Module should load successfully - this will fail at build time if circular
-		expect(typesModule).toBeDefined();
-	});
-
 	it("can import from diagnostic-taxonomy.ts without circular errors", async () => {
 		const { classifyDefect, classifyDiagnostic } = await import(
 			"../../clients/dispatch/diagnostic-taxonomy.js"
@@ -25,22 +19,6 @@ describe("circular dependency regression - diagnostic taxonomy", () => {
 		// Test actual classification behavior
 		const result = classifyDefect("empty-catch", undefined, "some message");
 		expect(result).toBe("silent-error");
-	});
-
-	it("DefectClass type is usable from both modules", async () => {
-		// This test verifies the type export works correctly
-		// Importing the type from types.ts
-		const typesModule = await import("../../clients/dispatch/types.js");
-		expect(typesModule).toBeDefined();
-
-		// Importing functions that use the type from diagnostic-taxonomy.ts
-		const taxonomyModule = await import(
-			"../../clients/dispatch/diagnostic-taxonomy.js"
-		);
-		expect(taxonomyModule.classifyDefect).toBeDefined();
-
-		// The type is now defined in types.ts, not re-exported from diagnostic-taxonomy.ts
-		// This prevents the circular dependency
 	});
 
 	it("classifies various defect types correctly", () => {
@@ -109,12 +87,6 @@ describe("circular dependency regression - diagnostic taxonomy", () => {
 });
 
 describe("circular dependency regression - language policy", () => {
-	it("can import ProjectLanguageProfile from language-policy.ts", async () => {
-		// The type was moved here to break the circular dependency
-		const policyModule = await import("../../clients/language-policy.js");
-		expect(policyModule).toBeDefined();
-	});
-
 	it("can import from language-profile.ts without circular errors", async () => {
 		const profileModule = await import("../../clients/language-profile.js");
 		expect(profileModule).toBeDefined();
