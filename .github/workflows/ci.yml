@@ -25,6 +25,9 @@ jobs:
       - name: TypeScript type-check
         run: npx tsc --noEmit
 
+      - name: TypeScript dead-code check
+        run: npx tsc --noUnusedLocals --noUnusedParameters --noEmit
+
   test:
     name: Unit tests
     runs-on: ubuntu-latest

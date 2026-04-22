@@ -723,7 +723,7 @@ type DispatchResult = Awaited<ReturnType<typeof dispatchLintWithResult>>;
 type TestSummary = { passed: number; total: number; failed: number } | null;
 
 function buildAllClearOutput(
-	dispatchResult: DispatchResult,
+	_dispatchResult: DispatchResult,
 	testSummary: TestSummary,
 	elapsed: number,
 	filePath: string,
@@ -732,16 +732,7 @@ function buildAllClearOutput(
 	const langLabel = kind ? getFileKindLabel(kind) : path.extname(filePath);
 	const parts: string[] = [];
 
-	if (dispatchResult.warnings.length > 0) {
-		const newWarnings = dispatchResult.warnings.length;
-		const totalWarnings = newWarnings + dispatchResult.baselineWarningCount;
-		const totalStr =
-			totalWarnings === newWarnings
-				? `${totalWarnings} warning(s)`
-				: `${newWarnings} new (${totalWarnings} total)`;
-		parts.push(`no blockers`);
-		parts.push(`${totalStr} -> /lens-booboo`);
-	} else if (kind) {
+	if (kind) {
 		parts.push(`${langLabel} clean`);
 	}
 

@@ -68,6 +68,11 @@ function parseDiffRanges(diff: string): { start: number; end: number }[] {
 	return ranges;
 }
 
+// Deduplicates concurrent tool_result calls for the same file.
+// The pi framework fires tool_result once per edit when Edit receives an array
+// of hunks — both fire concurrently, producing duplicate pipeline output.
+const inFlightPipelines = new Map<string, Promise<unknown>>();
+
 export async function handleToolResult(
 	deps: ToolResultDeps,
 ): Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean } | void> {
@@ -105,6 +110,14 @@ export async function handleToolResult(
 		dbg(
 			`tool_result: skipped turn tracking - no filePath for toolName="${event.toolName}"`,
 		);
+		return;
+	}
+
+	// Deduplicate concurrent calls for the same file (pi fires once per hunk in
+	// an Edit array, causing duplicate pipeline runs and doubled agent output).
+	if (inFlightPipelines.has(filePath)) {
+		dbg(`tool_result: skipping duplicate concurrent call for ${filePath}`);
+		await inFlightPipelines.get(filePath);
 		return;
 	}
 
@@ -184,31 +197,33 @@ export async function handleToolResult(
 		cascadeOutput?: string;
 		impactCascadeOutput?: string;
 	};
+	const pipelinePromise = runPipeline(
+		{
+			filePath,
+			cwd,
+			toolName: event.toolName,
+			modifiedRanges,
+			telemetry: {
+				model: runtime.telemetryModel,
+				sessionId: runtime.telemetrySessionId,
+				turnIndex: runtime.turnIndex,
+				writeIndex,
+			},
+			getFlag,
+			dbg,
+		},
+		{
+			biomeClient,
+			ruffClient,
+			testRunnerClient,
+			metricsClient,
+			getFormatService,
+			fixedThisTurn: runtime.fixedThisTurn,
+		},
+	);
+	inFlightPipelines.set(filePath, pipelinePromise);
 	try {
-		result = await runPipeline(
-			{
-				filePath,
-				cwd,
-				toolName: event.toolName,
-				modifiedRanges,
-				telemetry: {
-					model: runtime.telemetryModel,
-					sessionId: runtime.telemetrySessionId,
-					turnIndex: runtime.turnIndex,
-					writeIndex,
-				},
-				getFlag,
-				dbg,
-			},
-			{
-				biomeClient,
-				ruffClient,
-				testRunnerClient,
-				metricsClient,
-				getFormatService,
-				fixedThisTurn: runtime.fixedThisTurn,
-			},
-		);
+		result = await pipelinePromise;
 	} catch (pipelineErr) {
 		dbg(`runPipeline crashed: ${pipelineErr}`);
 		dbg(`runPipeline crash stack: ${(pipelineErr as Error).stack}`);
@@ -230,6 +245,8 @@ export async function handleToolResult(
 		return {
 			content: [...event.content, { type: "text", text: notice }],
 		};
+	} finally {
+		inFlightPipelines.delete(filePath);
 	}
 
 	if (result.cascadeOutput) {
