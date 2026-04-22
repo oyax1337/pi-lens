@@ -68,7 +68,6 @@ const LANGUAGE_TO_GRAMMAR: Record<string, string> = {
 	c: "tree-sitter-c.wasm",
 	cpp: "tree-sitter-cpp.wasm",
 	elixir: "tree-sitter-elixir.wasm",
-	gleam: "tree-sitter-gleam.wasm",
 	ruby: "tree-sitter-ruby.wasm",
 };
 
@@ -1112,7 +1111,6 @@ export class TreeSitterClient {
 			c: [".c", ".h"],
 			cpp: [".cpp", ".hpp", ".cc", ".hh"],
 			elixir: [".ex", ".exs"],
-			gleam: [".gleam"],
 			ruby: [".rb"],
 		};
 		return mapping[languageId] || [];
