@@ -10,10 +10,52 @@ All notable changes to pi-lens will be documented in this file.
 - **@ast-grep/cli postinstall skipped** — added `@ast-grep/cli` to `NEEDS_POSTINSTALL`; without it `--ignore-scripts` left ASCII stubs in place of `sg.exe` / `ast-grep.exe` on Windows
 - **Windows .exe binary lookup** — `getToolPath` now also probes the `.exe` extension on Windows, covering packages (like `@ast-grep/cli`) that place a `.exe` directly without a `.cmd` wrapper
 - **jscpd broken on Node 24** — pinned `jscpd` to `3.5.10`; v4 introduced a `reprism` dependency whose `lib/languages/` directory is absent from the published package
-- **TypeScript LSP using home dir as workspace root** — wrapped `TypeScriptServer` and `ESLintServer` roots with `IgnoreHomeRoot` so a `package.json` / eslint config in `~` can no longer hijack the workspace root; fallback is the file's own directory
+- **TypeScript LSP using home dir as workspace root** — wrapped `TypeScriptServer` and `ESLintServer` roots with `IgnoreHomeRoot` so a `package.json` / eslint config in `~` can no longer hijacks the workspace root; fallback is the file's own directory
 - **CI npm publish runs without token** — gated `publish-npm` job and dry-run step on `NPM_TOKEN` secret being set
 - **Stale compiled .js triggered test failures** — rebuilt project; `secrets-scanner.js` and `project-index.js` were from before the env-var-name false-positive fix and line-number capture fix respectively
 - **ast_grep_search test mock** — updated test mock from `isAvailable` to `ensureAvailable` to match the new async availability check
+- **Stale LSP diagnostics in cascade** — cascade diagnostics now skip entries older than 240s, preventing false positives from earlier test injections bleeding across turns
+- **Biome check on Vue/Svelte** — biome-check-json was briefly skipped on `.vue`/`.svelte` but restored after confirming Biome 2.x has native support; the 3 blocking diagnostics were real lint findings, not parse errors
+- **Vue/Svelte TypeScript SDK** — extracted `findTsserverPath` helper and wired it into `VueServer` and `SvelteServer` `initializationOptions` so Vue/Svelte LSP servers find the correct `typescript.tsdk`
+- **Broken npm .cmd shims on Windows** — `launch.ts` now validates npm `.cmd` shims before spawning; if the target JS file doesn't exist the shim exits with code 1 after a 500ms startup window, pre-checking avoids the delay for all LSP servers on Windows
+- **Tree-sitter WASM path in hoisted installs** — `tree-sitter-client.ts` now resolves `web-tree-sitter/tree-sitter.wasm` via `createRequire` so Node walks `node_modules` ancestors correctly; fixes `ENOENT` crash in pnpm/monorepo layouts where the wasm is not nested under pi-lens's own `node_modules`
+- **Grammar directory lookups in hoisted installs** — `findGrammarsDir` uses the same `createRequire` fix to anchor `web-tree-sitter/grammars` and `tree-sitter-wasms/out` paths correctly in pnpm/monorepo layouts
+- **tree-sitter-gleam download 404** — removed `tree-sitter-gleam.wasm` from grammar downloads; the file was never published in `tree-sitter-wasms@0.1.13`
+- **Pipeline deduplication** — `handleToolResult` now deduplicates concurrent pipeline calls for the same file; the pi framework fires `tool_result` once per hunk in an Edit array, causing duplicate pipeline runs and doubled agent output
+
+### Changed
+- **Tuned false-positive thresholds across all runners** — reduced noise in `lens-booboo` and dispatch for all users:
+  - Added `FACT_SEVERITY_FILTER` (`error`/`warning` only) and `MIN_TREE_SITTER_HITS_PER_RULE = 3`
+  - Filtered entropy/AI-style warnings from complexity metrics
+  - Aligned complexity markdown headers with actual thresholds (`MI < 20`, `cognitive > 80`, `nesting > 8`)
+  - Raised `SEMANTIC_SIMILARITY_THRESHOLD` from `0.96` → `0.98` (aligned with dispatch similarity runner)
+  - Raised duplicate-string-literal `MIN_DUPLICATES` from `4` → `10`
+  - Unregistered `no-magic-numbers` and `high-entropy-string` fact rules globally
+
+### Removed
+- **Dead code across 32 files** — removed 51 sites of unused imports, locals, and parameters flagged by `tsc --noUnusedLocals --noUnusedParameters`:
+  - `clients/architect-client.ts`, `ast-grep-client.ts`, `biome-client.ts`, `complexity-client.ts`, `go-client.ts`, `rust-client.ts`, `scan-utils.ts`, `secrets-scanner.ts`, `subprocess-client.ts`, `test-runner-client.ts`, `tool-availability.ts`, `tree-sitter-cache.ts`, `tree-sitter-client.ts`, `type-coverage-client.ts`, `type-safety-client.ts`
+  - `clients/dispatch/dispatcher.ts`, `runners/ast-grep-napi.ts`, `runners/golangci-lint.ts`, `runners/index.ts`, `runners/python-slop.ts`, `runners/ts-lsp.ts`, `runners/utils/diagnostic-parsers.ts`
+  - `clients/lsp/client.ts`, `config.ts`, `interactive-install.ts`, `launch.ts`, `server.ts`
+  - `clients/pipeline.ts`, `review-graph/builder.ts`, `runner-tracker.ts`
+  - `commands/booboo.ts`, `index.ts`
+
+### Tests
+- **Pipeline regression tests** — `tests/clients/pipeline.test.ts` (11 tests): secrets blocking, format modification, LSP sync, dispatch blockers, autofix output, test runner skip, all-clear output
+- **Autofix helper tests** — `tests/clients/autofix-helpers.test.ts` (12 tests): config detection (eslint, stylelint, sqlfluff), malformed JSON handling, file change detection after command
+- **LSP lifecycle tests** — `tests/clients/lsp/lifecycle.test.ts` (4 tests): missing binary error, process spawn, immediate exit detection, process kill
+- **FormatService tests** — `tests/clients/format-service.test.ts` (11 tests): disabled/skip mode, no matching formatters, successful run with change detection, formatter failure, external modification detection, singleton behavior, state clearing, file tracking
+- **Dispatch integration tests** — `tests/clients/dispatch/integration.test.ts` (11 tests): `dispatchLintWithResult` empty results, result propagation, warnings-only; `shouldDispatch` for supported/unsupported; `getAvailableRunners` for supported/unsupported
+- **LSP client internals tests** — `tests/clients/lsp/client-internals.test.ts` (13 tests): `handleNotifyOpen` (first open, re-open, pending opens, clear diagnostics, skip when not alive), `handleNotifyChange` (didChange when open, fallback to didOpen, clear stale diagnostics, skip when not alive), `clientWaitForDiagnostics` (immediate resolve if cached, resolve via emitter, timeout, ignore other files)
+- **Runtime event flow test fix** — added missing `gatherCascadeDiagnostics` mock export to `tests/clients/runtime-event-flow.test.ts`
+
+### Refactored
+- **Extract `detectFileChangedAfterCommand`** — moved from `clients/pipeline.ts` to `clients/file-utils.ts` and exported for reuse/testing; imported back into `pipeline.ts`; `tests/clients/autofix-helpers.test.ts` now imports the real function instead of reimplementing a copy
+- **Export testable pipeline helpers** — exported `hasEslintConfig`, `hasStylelintConfig`, `hasSqlfluffConfig` from `clients/pipeline.ts` so config detection is testable
+- **Export LSP client internals** — exported `clientWaitForDiagnostics`, `handleNotifyOpen`, `handleNotifyChange`, and `LSPClientState` from `clients/lsp/client.ts` for direct testing with mocks
+
+### CI
+- **Dead-code gate** — `lint-and-typecheck` job now runs `tsc --noUnusedLocals --noUnusedParameters --noEmit` alongside `--noEmit` so dead code regressions fail CI immediately
 
 ## [3.8.29] - 2026-04-21
 
