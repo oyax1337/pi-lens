@@ -4,6 +4,8 @@ All notable changes to pi-lens will be documented in this file.
 
 ## [Unreleased]
 
+## [3.8.30] - 2026-04-22
+
 ### Fixed
 - **lsp_navigation permanently disabled** — removed stale `lens-lsp` flag check (flag was removed in 3.8.29) that caused every `lsp_navigation` call to short-circuit with `lsp_disabled`; tool now only gates on `--no-lsp`
 - **ast_grep_search / ast_grep_replace auto-install** — switched availability check from sync `isAvailable()` to async `ensureAvailable()` so the auto-installer triggers when `sg` is missing
