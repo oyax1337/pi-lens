@@ -610,8 +610,30 @@ async function isCommandAvailable(
 					shell: true,
 				})
 			: spawn(command, args, { stdio: "ignore" });
-		proc.on("exit", (code) => resolve(code === 0));
-		proc.on("error", () => resolve(false));
+
+		let resolved = false;
+		const timeoutId = setTimeout(() => {
+			if (!resolved) {
+				resolved = true;
+				proc.kill();
+				resolve(false);
+			}
+		}, 5000);
+
+		proc.on("exit", (code) => {
+			if (!resolved) {
+				resolved = true;
+				clearTimeout(timeoutId);
+				resolve(code === 0);
+			}
+		});
+		proc.on("error", () => {
+			if (!resolved) {
+				resolved = true;
+				clearTimeout(timeoutId);
+				resolve(false);
+			}
+		});
 	});
 }
 
@@ -820,34 +842,9 @@ export async function getToolPath(toolId: string): Promise<string | undefined> {
 	const tool = TOOLS.find((t) => t.id === toolId);
 	if (!tool) return undefined;
 
-	// Check if global
-	if (await isCommandAvailable(tool.checkCommand, tool.checkArgs)) {
-		return tool.checkCommand;
-	}
-
-	if (tool.installStrategy === "npm") {
-		const npmPath = await findNpmGlobalToolPath(tool.binaryName || tool.id);
-		if (npmPath) {
-			return npmPath;
-		}
-	}
-
-	// For pip tools, also probe user-level script locations
-	if (tool.installStrategy === "pip") {
-		const pipPath = await findPipUserToolPath(tool.binaryName || tool.id);
-		if (pipPath) {
-			return pipPath;
-		}
-	}
-
-	// For github-strategy tools, probe ~/.pi-lens/bin/
-	if (tool.installStrategy === "github") {
-		const githubPath = await findGitHubToolPath(tool.binaryName || tool.id);
-		if (githubPath) return githubPath;
-		return undefined;
-	}
-
-	// Check local npm tools dir - with verification that binary actually works
+	// Fast path: check local npm install first (where auto-install places tools).
+	// This avoids the ~2-5s overhead of spawning npm global probes and PATH
+	// searches for tools we already manage locally.
 	const localBase = path.join(
 		TOOLS_DIR,
 		"node_modules",
@@ -882,18 +879,58 @@ export async function getToolPath(toolId: string): Promise<string | undefined> {
 		} catch {
 			// fall through to extensionless
 		}
-	}
-	try {
-		await fs.access(localBase);
-		if (await verifyToolBinary(localBase)) {
-			return localBase;
+		try {
+			await fs.access(localBase);
+			if (await verifyToolBinary(localBase)) {
+				return localBase;
+			}
+			logSessionStart(
+				`auto-install verify: ${localBase} exists but is broken, will reinstall`,
+			);
+		} catch {
+			// fall through to global checks
 		}
-		logSessionStart(
-			`auto-install verify: ${localBase} exists but is broken, will reinstall`,
-		);
-	} catch {
-		// fall through
+	} else {
+		try {
+			await fs.access(localBase);
+			if (await verifyToolBinary(localBase)) {
+				return localBase;
+			}
+			logSessionStart(
+				`auto-install verify: ${localBase} exists but is broken, will reinstall`,
+			);
+		} catch {
+			// fall through to global checks
+		}
 	}
+
+	// Check if global
+	if (await isCommandAvailable(tool.checkCommand, tool.checkArgs)) {
+		return tool.checkCommand;
+	}
+
+	if (tool.installStrategy === "npm") {
+		const npmPath = await findNpmGlobalToolPath(tool.binaryName || tool.id);
+		if (npmPath) {
+			return npmPath;
+		}
+	}
+
+	// For pip tools, also probe user-level script locations
+	if (tool.installStrategy === "pip") {
+		const pipPath = await findPipUserToolPath(tool.binaryName || tool.id);
+		if (pipPath) {
+			return pipPath;
+		}
+	}
+
+	// For github-strategy tools, probe ~/.pi-lens/bin/
+	if (tool.installStrategy === "github") {
+		const githubPath = await findGitHubToolPath(tool.binaryName || tool.id);
+		if (githubPath) return githubPath;
+		return undefined;
+	}
+
 	return undefined;
 }
 

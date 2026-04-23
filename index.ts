@@ -175,11 +175,16 @@ export default function (pi: ExtensionAPI) {
 		setStatus: (id: string, text: string | undefined) => void,
 		fg: (color: "accent" | "success" | "error", text: string) => string,
 	) {
-		const count = getLSPService().getAliveClientCount();
-		if (count > 0) {
-			setStatus("pi-lens-lsp", fg("success", `● LSP ${count}`));
-		} else {
-			setStatus("pi-lens-lsp", fg("error", "● LSP —"));
+		try {
+			const count = getLSPService().getAliveClientCount();
+			if (count > 0) {
+				setStatus("pi-lens-lsp", fg("success", `● LSP ${count}`));
+			} else {
+				setStatus("pi-lens-lsp", fg("error", "● LSP —"));
+			}
+		} catch {
+			// Theme may not be fully initialized during early session startup.
+			// Skip the status update rather than crashing the event handler.
 		}
 	}
 
