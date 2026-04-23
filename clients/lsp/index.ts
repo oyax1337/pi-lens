@@ -225,6 +225,27 @@ export class LSPService {
 		return spawned.filter((entry): entry is SpawnedServer => Boolean(entry));
 	}
 
+	/**
+	 * Get a warm LSP client for a file without spawning.
+	 * Returns undefined if no matching client is already connected and alive.
+	 */
+	async getWarmClientForFile(
+		filePath: string,
+	): Promise<SpawnedServer | undefined> {
+		if (this.checkDestroyed()) return undefined;
+		const servers = getServersForFileWithConfig(filePath);
+		for (const server of servers) {
+			const root = await server.root(filePath);
+			if (!root) continue;
+			const key = `${server.id}:${normalizeMapKey(root)}`;
+			const existing = this.state.clients.get(key);
+			if (existing && existing.isAlive()) {
+				return { client: existing, info: server };
+			}
+		}
+		return undefined;
+	}
+
 	private async ensureClientForServer(
 		filePath: string,
 		server: LSPServerInfo,

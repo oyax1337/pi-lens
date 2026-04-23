@@ -19,6 +19,8 @@ import {
 	isGitCommitOrPushAttempt,
 } from "./clients/git-guard.js";
 import { getAllToolStatuses } from "./clients/installer/index.js";
+import { logLatency } from "./clients/latency-logger.js";
+import type { LSPSymbol } from "./clients/lsp/client.js";
 import { initLSPConfig } from "./clients/lsp/config.js";
 import { getLSPService, resetLSPService } from "./clients/lsp/index.js";
 import {
@@ -98,6 +100,40 @@ function updateRuntimeIdentityFromEvent(event: unknown): void {
  *
  * Only called when LSP is active (that's when tsserver runs).
  */
+function findSymbolAtLine(
+	symbols: LSPSymbol[],
+	line1: number,
+):
+	| {
+			name: string;
+			kind: number;
+			range: { start: { line: number }; end: { line: number } };
+	  }
+	| undefined {
+	const targetLine = line1 - 1;
+	function search(items: LSPSymbol[]): LSPSymbol | undefined {
+		for (const s of items) {
+			const start = s.range?.start?.line ?? 0;
+			const end = s.range?.end?.line ?? start;
+			if (targetLine >= start && targetLine <= end) {
+				if (s.children && s.children.length > 0) {
+					const child = search(s.children);
+					if (child) return child;
+				}
+				return s;
+			}
+		}
+		return undefined;
+	}
+	const match = search(symbols);
+	if (!match?.range) return undefined;
+	return {
+		name: match.name ?? "(unknown)",
+		kind: match.kind ?? 0,
+		range: match.range,
+	};
+}
+
 function cleanStaleTsBuildInfo(cwd: string): string[] {
 	const cleaned: string[] = [];
 	try {
@@ -597,6 +633,55 @@ export default function (pi: ExtensionAPI) {
 					.catch((err) => dbg(`lsp auto-touch failed for ${filePath}: ${err}`));
 			} catch {
 				// Best effort only; never block tool calls.
+			}
+		}
+
+		// --- Opportunistic LSP range expansion for single-line reads ---
+		if (toolName === "read" && !pi.getFlag("no-lsp") && filePath) {
+			const readInput = event.input as {
+				filePath?: string;
+				offset?: number;
+				limit?: number;
+			};
+			const isSingleLine =
+				readInput.offset != null &&
+				(readInput.limit == null || readInput.limit <= 1);
+			if (isSingleLine) {
+				const lsp = getLSPService();
+				const startedAt = Date.now();
+				lsp
+					.getWarmClientForFile(filePath)
+					.then((spawned) => {
+						if (!spawned?.client.isAlive()) return;
+						return spawned.client.documentSymbol(filePath).then((symbols) => {
+							const match = findSymbolAtLine(symbols, readInput.offset!);
+							if (match) {
+								const newOffset = match.range.start.line + 1;
+								const endLine = match.range.end.line + 1;
+								readInput.offset = newOffset;
+								readInput.limit = endLine - newOffset + 1;
+								logLatency({
+									type: "phase",
+									phase: "lsp_read_range_expansion",
+									filePath,
+									durationMs: Date.now() - startedAt,
+									metadata: {
+										symbol: match.name,
+										kind: match.kind,
+										fromLine: readInput.offset,
+										toRange: `${newOffset}-${endLine}`,
+										serverId: spawned.info.id,
+									},
+								});
+								dbg(
+									`lsp expanded read range: ${path.basename(filePath)} line ${readInput.offset} → ${match.name} (${newOffset}-${endLine})`,
+								);
+							}
+						});
+					})
+					.catch(() => {
+						/* silent fallback */
+					});
 			}
 		}
 
