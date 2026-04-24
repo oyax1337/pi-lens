@@ -51,7 +51,7 @@ export function getLatencyLogPath(): string {
 export function readLatencyLog(limit = 100): LatencyEntry[] {
 	try {
 		const content = fs.readFileSync(LATENCY_LOG_FILE, "utf-8");
-		const lines = content.trim().split("\n").filter(Boolean);
+		const lines = content.trim().split(/\r?\n/).filter(Boolean);
 		return lines
 			.slice(-limit)
 			.map((line) => JSON.parse(line))

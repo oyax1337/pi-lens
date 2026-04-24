@@ -10,7 +10,6 @@ import type { CacheManager } from "./cache-manager.js";
 import type { MetricsClient } from "./metrics-client.js";
 import type { RuffClient } from "./ruff-client.js";
 import type { RuntimeCoordinator } from "./runtime-coordinator.js";
-import type { TestRunnerClient } from "./test-runner-client.js";
 
 interface ToolResultEvent {
 	toolName: string;
@@ -31,7 +30,6 @@ interface ToolResultDeps {
 	cacheManager: CacheManager;
 	biomeClient: BiomeClient;
 	ruffClient: RuffClient;
-	testRunnerClient: TestRunnerClient;
 	metricsClient: MetricsClient;
 	resetLSPService: () => void;
 	agentBehaviorRecord: (toolName: string, filePath?: string) => unknown[];
@@ -41,7 +39,7 @@ interface ToolResultDeps {
 function parseDiffRanges(diff: string): { start: number; end: number }[] {
 	const changedLines: number[] = [];
 	for (const line of diff.split("\n")) {
-		const match = line.match(/^[+-]\s+(\d+)\s/);
+		const match = line.match(/^[+-]\s*(\d+)\s/);
 		if (match) {
 			changedLines.push(Number.parseInt(match[1], 10));
 		}
@@ -68,6 +66,11 @@ function parseDiffRanges(diff: string): { start: number; end: number }[] {
 	return ranges;
 }
 
+// Deduplicates concurrent tool_result calls for the same file.
+// The pi framework fires tool_result once per edit when Edit receives an array
+// of hunks — both fire concurrently, producing duplicate pipeline output.
+const inFlightPipelines = new Map<string, Promise<unknown>>();
+
 export async function handleToolResult(
 	deps: ToolResultDeps,
 ): Promise<{ content: Array<{ type: string; text?: string }>; isError?: boolean } | void> {
@@ -79,7 +82,6 @@ export async function handleToolResult(
 		cacheManager,
 		biomeClient,
 		ruffClient,
-		testRunnerClient,
 		metricsClient,
 		resetLSPService,
 		agentBehaviorRecord,
@@ -105,6 +107,22 @@ export async function handleToolResult(
 		dbg(
 			`tool_result: skipped turn tracking - no filePath for toolName="${event.toolName}"`,
 		);
+		return;
+	}
+
+	// Deduplicate concurrent calls for the same file (pi fires once per hunk in
+	// an Edit array, causing duplicate pipeline runs and doubled agent output).
+	if (inFlightPipelines.has(filePath)) {
+		dbg(`tool_result: skipping duplicate concurrent call for ${filePath}`);
+		await inFlightPipelines.get(filePath);
+		return;
+	}
+
+	// Deduplicate sequential calls for the same file within the same turn.
+	// When pi processes an edit array serially, each hunk fires tool_result after
+	// the previous completes, bypassing the in-flight map above.
+	if (runtime.reportedThisTurn.has(filePath)) {
+		dbg(`tool_result: skipping already-reported file this turn for ${filePath}`);
 		return;
 	}
 
@@ -184,35 +202,36 @@ export async function handleToolResult(
 		cascadeOutput?: string;
 		impactCascadeOutput?: string;
 	};
+	const pipelinePromise = runPipeline(
+		{
+			filePath,
+			cwd,
+			toolName: event.toolName,
+			modifiedRanges,
+			telemetry: {
+				model: runtime.telemetryModel,
+				sessionId: runtime.telemetrySessionId,
+				turnIndex: runtime.turnIndex,
+				writeIndex,
+			},
+			getFlag,
+			dbg,
+		},
+		{
+			biomeClient,
+			ruffClient,
+			metricsClient,
+			getFormatService,
+			fixedThisTurn: runtime.fixedThisTurn,
+		},
+	);
+	inFlightPipelines.set(filePath, pipelinePromise);
 	try {
-		result = await runPipeline(
-			{
-				filePath,
-				cwd,
-				toolName: event.toolName,
-				modifiedRanges,
-				telemetry: {
-					model: runtime.telemetryModel,
-					sessionId: runtime.telemetrySessionId,
-					turnIndex: runtime.turnIndex,
-					writeIndex,
-				},
-				getFlag,
-				dbg,
-			},
-			{
-				biomeClient,
-				ruffClient,
-				testRunnerClient,
-				metricsClient,
-				getFormatService,
-				fixedThisTurn: runtime.fixedThisTurn,
-			},
-		);
+		result = await pipelinePromise;
 	} catch (pipelineErr) {
 		dbg(`runPipeline crashed: ${pipelineErr}`);
 		dbg(`runPipeline crash stack: ${(pipelineErr as Error).stack}`);
-		if (getFlag("lens-lsp") && !getFlag("no-lsp")) {
+		if (!getFlag("no-lsp")) {
 			resetLSPService();
 		}
 
@@ -230,13 +249,14 @@ export async function handleToolResult(
 		return {
 			content: [...event.content, { type: "text", text: notice }],
 		};
+	} finally {
+		inFlightPipelines.delete(filePath);
 	}
 
 	if (result.cascadeOutput) {
 		runtime.lastCascadeOutput = result.cascadeOutput;
 	} else if (
 		result.cascadeOutput === undefined &&
-		getFlag("lens-lsp") &&
 		!getFlag("no-lsp")
 	) {
 		runtime.lastCascadeOutput = "";
@@ -268,6 +288,8 @@ export async function handleToolResult(
 		durationMs: totalMs,
 		result: output ? "completed" : "no_output",
 	});
+
+	runtime.reportedThisTurn.add(filePath);
 
 	if (!output) return;
 

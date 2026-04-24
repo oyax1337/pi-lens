@@ -5,7 +5,7 @@ describe("similarity runner name overlap filters", () => {
 		const similarity = await import(
 			"../../clients/dispatch/runners/similarity.js"
 		);
-		expect(similarity.CONFIG.SIMILARITY_THRESHOLD).toBe(0.96);
+		expect(similarity.CONFIG.SIMILARITY_THRESHOLD).toBe(0.98);
 		expect(similarity.CONFIG.MIN_TRANSITIONS).toBe(40);
 		expect(similarity.CONFIG.MAX_TRANSITION_RATIO).toBe(1.8);
 	});

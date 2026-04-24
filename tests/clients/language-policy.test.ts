@@ -3,8 +3,8 @@ import {
 	canRunStartupHeavyScans,
 	getLspCapableKinds,
 	getPrimaryDispatchGroup,
-	getStartupDefaultsForProfile,
 } from "../../clients/language-policy.js";
+import { getDefaultStartupTools } from "../../clients/language-profile.js";
 
 describe("language-policy", () => {
 	it("exposes LSP-capable kinds from centralized policy", () => {
@@ -47,7 +47,9 @@ describe("language-policy", () => {
 			detectedKinds: ["jsts", "python", "yaml", "sql"],
 		} as const;
 
-		const tools = getStartupDefaultsForProfile(profile);
+		const tools = getDefaultStartupTools(
+			profile as unknown as import("../../clients/language-policy.js").ProjectLanguageProfile,
+		);
 		expect(tools).toContain("pyright");
 		expect(tools).toContain("ruff");
 		expect(tools).not.toContain("typescript-language-server");
@@ -77,9 +79,19 @@ describe("language-policy", () => {
 			detectedKinds: ["jsts"],
 		} as const;
 
-		expect(canRunStartupHeavyScans(profile, "jsts")).toBe(false);
+		expect(
+			canRunStartupHeavyScans(
+				profile as unknown as import("../../clients/language-policy.js").ProjectLanguageProfile,
+				"jsts",
+			),
+		).toBe(false);
 		const configured = { ...profile, configured: { jsts: true } };
-		expect(canRunStartupHeavyScans(configured, "jsts")).toBe(true);
+		expect(
+			canRunStartupHeavyScans(
+				configured as unknown as import("../../clients/language-policy.js").ProjectLanguageProfile,
+				"jsts",
+			),
+		).toBe(true);
 	});
 
 	it("provides language primary dispatch fallback groups", () => {

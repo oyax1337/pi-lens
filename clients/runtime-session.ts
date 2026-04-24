@@ -1,6 +1,5 @@
 import * as nodeFs from "node:fs";
 import * as path from "node:path";
-import type { ArchitectClient } from "./architect-client.js";
 import type { AstGrepClient } from "./ast-grep-client.js";
 import type { BiomeClient } from "./biome-client.js";
 import type { CacheManager } from "./cache-manager.js";
@@ -14,9 +13,8 @@ import { canRunStartupHeavyScans } from "./language-policy.js";
 import {
 	detectProjectLanguageProfile,
 	getDefaultStartupTools,
-	hasLanguage,
-	isLanguageConfigured,
 } from "./language-profile.js";
+import { runLogCleanup } from "./log-cleanup.js";
 import type { MetricsClient } from "./metrics-client.js";
 import {
 	buildProjectIndex,
@@ -28,7 +26,7 @@ import type { RuffClient } from "./ruff-client.js";
 import { scanProjectRules } from "./rules-scanner.js";
 import type { RuntimeCoordinator } from "./runtime-coordinator.js";
 import type { RustClient } from "./rust-client.js";
-import { safeSpawn } from "./safe-spawn.js";
+
 import { getSourceFiles } from "./scan-utils.js";
 import { resolveStartupScanContext } from "./startup-scan.js";
 import type { TestRunnerClient } from "./test-runner-client.js";
@@ -52,7 +50,6 @@ interface SessionStartDeps {
 	jscpdClient: JscpdClient;
 	typeCoverageClient: TypeCoverageClient;
 	depChecker: DependencyChecker;
-	architectClient: ArchitectClient;
 	testRunnerClient: TestRunnerClient;
 	goClient: GoClient;
 	rustClient: RustClient;
@@ -63,14 +60,6 @@ interface SessionStartDeps {
 }
 
 type StartupMode = "full" | "minimal" | "quick";
-
-function isCommandAvailable(
-	command: string,
-	args: string[] = ["--version"],
-): boolean {
-	const result = safeSpawn(command, args, { timeout: 5000 });
-	return !result.error && result.status === 0;
-}
 
 function resolveStartupMode(): StartupMode {
 	const envMode = (process.env.PI_LENS_STARTUP_MODE ?? "").trim().toLowerCase();
@@ -86,56 +75,7 @@ function resolveStartupMode(): StartupMode {
 	return "full";
 }
 
-function getLanguageInstallHints(
-	languageProfile: ReturnType<typeof detectProjectLanguageProfile>,
-): string[] {
-	const hints: string[] = [];
-	const hasStrongSignal = (
-		kind: "go" | "rust" | "ruby",
-		minCount = 3,
-	): boolean => {
-		if (!hasLanguage(languageProfile, kind)) return false;
-		if (isLanguageConfigured(languageProfile, kind)) return true;
-		return (languageProfile.counts[kind] ?? 0) >= minCount;
-	};
-
-	if (hasStrongSignal("go") && !isCommandAvailable("gopls")) {
-		hints.push(
-			"Go detected: install gopls (`go install golang.org/x/tools/gopls@latest`).",
-		);
-	}
-	if (hasStrongSignal("rust") && !isCommandAvailable("rust-analyzer")) {
-		hints.push(
-			"Rust detected: install rust-analyzer (`rustup component add rust-analyzer`).",
-		);
-	}
-	if (hasStrongSignal("ruby") && !isCommandAvailable("ruby-lsp")) {
-		hints.push("Ruby detected: install ruby-lsp (`gem install ruby-lsp`).");
-	}
-
-	return hints;
-}
-
 // --- Session-start helpers ---
-
-function applyEnvFlags(
-	getFlag: SessionStartDeps["getFlag"],
-	dbg: SessionStartDeps["dbg"],
-): void {
-	if (getFlag("auto-install")) {
-		process.env.PI_LENS_AUTO_INSTALL = "1";
-		dbg("session_start: LSP auto-install enabled (PI_LENS_AUTO_INSTALL=1)");
-	} else {
-		delete process.env.PI_LENS_AUTO_INSTALL;
-	}
-
-	if (getFlag("no-lsp-install")) {
-		process.env.PI_LENS_DISABLE_LSP_INSTALL = "1";
-		dbg("session_start: LSP install disabled (PI_LENS_DISABLE_LSP_INSTALL=1)");
-	} else {
-		delete process.env.PI_LENS_DISABLE_LSP_INSTALL;
-	}
-}
 
 function firePreinstallDefaults(
 	ensureTool: SessionStartDeps["ensureTool"],
@@ -371,64 +311,6 @@ function scheduleStartupScans(
 	});
 }
 
-function runErrorDebtBaseline(
-	deps: Pick<
-		SessionStartDeps,
-		"testRunnerClient" | "cacheManager" | "notify" | "dbg" | "runtime"
-	>,
-	detectedRunner: ReturnType<
-		SessionStartDeps["testRunnerClient"]["detectRunner"]
-	>,
-	analysisRoot: string,
-	allowBootstrapTasks: boolean,
-	getFlag: SessionStartDeps["getFlag"],
-): void {
-	const { testRunnerClient, cacheManager, notify, dbg, runtime } = deps;
-	const errorDebtEnabled = allowBootstrapTasks && getFlag("error-debt");
-	const pendingDebt = cacheManager.readCache<{
-		pendingCheck: boolean;
-		baselineTestsPassed: boolean;
-	}>("errorDebt", analysisRoot);
-
-	if (errorDebtEnabled && detectedRunner && pendingDebt?.data?.pendingCheck) {
-		dbg("session_start: running pending error debt check");
-		const testResult = testRunnerClient.runTestFile(
-			".",
-			analysisRoot,
-			detectedRunner.runner,
-			detectedRunner.config,
-		);
-		const testsPassed = testResult.failed === 0 && !testResult.error;
-		const baselinePassed = pendingDebt.data.baselineTestsPassed;
-
-		if (baselinePassed && !testsPassed) {
-			const msg = `🔴 ERROR DEBT: Tests were passing but now failing (${testResult.failed} failure(s)). Fix before continuing.`;
-			dbg(`session_start ERROR DEBT: ${msg}`);
-			notify(msg, "warning");
-		}
-
-		runtime.errorDebtBaseline = { testsPassed, buildPassed: true };
-		cacheManager.writeCache(
-			"errorDebt",
-			{ pendingCheck: false, baselineTestsPassed: testsPassed },
-			analysisRoot,
-		);
-	} else if (errorDebtEnabled && detectedRunner) {
-		dbg("session_start: establishing fresh error debt baseline");
-		const testResult = testRunnerClient.runTestFile(
-			".",
-			analysisRoot,
-			detectedRunner.runner,
-			detectedRunner.config,
-		);
-		const testsPassed = testResult.failed === 0 && !testResult.error;
-		runtime.errorDebtBaseline = { testsPassed, buildPassed: true };
-		dbg(
-			`session_start error debt baseline: testsPassed=${runtime.errorDebtBaseline.testsPassed}`,
-		);
-	}
-}
-
 export async function handleSessionStart(
 	deps: SessionStartDeps,
 ): Promise<void> {
@@ -449,9 +331,8 @@ export async function handleSessionStart(
 		ruffClient,
 		knipClient,
 		jscpdClient,
-		typeCoverageClient,
+		typeCoverageClient: _typeCoverageClient,
 		depChecker,
-		architectClient,
 		testRunnerClient,
 		goClient,
 		rustClient,
@@ -467,9 +348,15 @@ export async function handleSessionStart(
 	runtime.complexityBaselines.clear();
 	resetDispatchBaselines();
 	runtime.resetForSession();
+
+	// Run log cleanup early in session start (non-blocking)
+	const logCleanup = runLogCleanup(dbg);
+	if (logCleanup.cleaned > 0 || logCleanup.rotated > 0) {
+		notify(`🧹 ${logCleanup.report}`, "info");
+	}
 	dbg(`session_start startup mode: ${startupMode}`);
 
-	if (getFlag("lens-lsp") && !getFlag("no-lsp")) {
+	if (!getFlag("no-lsp")) {
 		resetLSPService();
 		dbg("session_start: LSP service reset");
 		dbg(
@@ -477,14 +364,12 @@ export async function handleSessionStart(
 		);
 	}
 
-	applyEnvFlags(getFlag, dbg);
-
 	const hasWorkspaceCwd = typeof ctxCwd === "string" && ctxCwd.length > 0;
 	const cwd = ctxCwd ?? process.cwd();
 	if (quickMode) {
 		runtime.projectRoot = cwd;
 		const quickTools: string[] = [];
-		if (getFlag("lens-lsp") && !getFlag("no-lsp")) {
+		if (!getFlag("no-lsp")) {
 			quickTools.push("LSP Service");
 		}
 		log(`Active tools: ${quickTools.join(", ")}`);
@@ -499,7 +384,7 @@ export async function handleSessionStart(
 	}
 
 	const tools: string[] = [];
-	if (getFlag("lens-lsp") && !getFlag("no-lsp")) tools.push("LSP Service");
+	if (!getFlag("no-lsp")) tools.push("LSP Service");
 
 	// Warm tool availability caches off the critical startup path. The previous
 	// version used `setImmediate` + sync `isAvailable()`, which still blocked
@@ -520,21 +405,39 @@ export async function handleSessionStart(
 	void (async () => {
 		const warmStart = Date.now();
 		const [biomeReady, sgReady, ruffReady] = await Promise.all([
-			biomeClient.ensureAvailable().catch(() => false),
-			astGrepClient.ensureAvailable().catch(() => false),
-			ruffClient.ensureAvailable().catch(() => false),
+			biomeClient.ensureAvailable().catch((err) => {
+				dbg(`session_start: biome availability check failed: ${err}`);
+				return false;
+			}),
+			astGrepClient.ensureAvailable().catch((err) => {
+				dbg(`session_start: ast-grep availability check failed: ${err}`);
+				return false;
+			}),
+			ruffClient.ensureAvailable().catch((err) => {
+				dbg(`session_start: ruff availability check failed: ${err}`);
+				return false;
+			}),
 		]);
 		await Promise.allSettled([
-			knipClient.ensureAvailable().catch(() => false),
-			depChecker.ensureAvailable().catch(() => false),
-			jscpdClient.ensureAvailable().catch(() => false),
+			knipClient.ensureAvailable().catch((err) => {
+				dbg(`session_start: knip availability check failed: ${err}`);
+				return false;
+			}),
+			depChecker.ensureAvailable().catch((err) => {
+				dbg(`session_start: dep-checker availability check failed: ${err}`);
+				return false;
+			}),
+			jscpdClient.ensureAvailable().catch((err) => {
+				dbg(`session_start: jscpd availability check failed: ${err}`);
+				return false;
+			}),
 		]);
 		dbg(
 			`session_start tools (deferred probes complete, ${Date.now() - warmStart}ms): biome=${biomeReady} ast-grep=${sgReady} ruff=${ruffReady}`,
 		);
 	})();
 
-	if (allowBootstrapTasks && getFlag("lens-lsp") && !getFlag("no-lsp")) {
+	if (allowBootstrapTasks && !getFlag("no-lsp")) {
 		const cleaned = cleanStaleTsBuildInfo(ctxCwd ?? process.cwd());
 		if (cleaned.length > 0) {
 			notify(
@@ -569,7 +472,7 @@ export async function handleSessionStart(
 		dbg(`session_start: monorepo analysis root override -> ${analysisRoot}`);
 	}
 
-	const lensLspEnabled = !!getFlag("lens-lsp") && !getFlag("no-lsp");
+	const lensLspEnabled = !getFlag("no-lsp");
 	const startupDefaults = getDefaultStartupTools(languageProfile).filter(
 		(tool) => {
 			if (
@@ -578,7 +481,6 @@ export async function handleSessionStart(
 			) {
 				return false;
 			}
-			if (tool === "ruff" && getFlag("no-autofix-ruff")) return false;
 			return true;
 		},
 	);
@@ -593,13 +495,11 @@ export async function handleSessionStart(
 	}
 
 	if (allowBootstrapTasks) {
-		await probePrettierInstall(ensureTool, dbg, analysisRoot);
+		// Fire-and-forget like other tool probes
+		void probePrettierInstall(ensureTool, dbg, analysisRoot);
 	} else {
 		dbg("session_start: skipping prettier preinstall probe (startup mode)");
 	}
-
-	const hasArchitectRules = architectClient.loadConfig(analysisRoot);
-	if (hasArchitectRules) tools.push("Architect rules");
 
 	const detectedRunner = testRunnerClient.detectRunner(analysisRoot);
 	if (detectedRunner) tools.push(`Test runner (${detectedRunner.runner})`);
@@ -608,9 +508,8 @@ export async function handleSessionStart(
 	log(`Active tools: ${tools.join(", ")}`);
 	dbg(`session_start tools: ${tools.join(", ")}`);
 
-	const startupNotes: string[] = [];
 	const agentStartupGuidance = [
-		"📌 pi-lens active — as you work on this project, fix any errors you encounter (including pre-existing). Prefer: lsp_navigation for definitions/references, ast_grep_search for code patterns, grep for text/TODO search.",
+		"📌 pi-lens active — automated checks run on your edits and writes. Blocking errors will be shown inline; you must fix all errors including pre-existing ones. Prefer: lsp_navigation for definitions/references, ast_grep_search for code patterns, grep for text/TODO search.",
 	];
 
 	runtime.projectRulesScan = scanProjectRules(analysisRoot);
@@ -622,21 +521,8 @@ export async function handleSessionStart(
 		dbg(
 			`session_start: found ${ruleCount} project rule(s) from ${sources.join(", ")}`,
 		);
-		startupNotes.push(
-			`📋 Project rules found: ${ruleCount} file(s) in ${sources.join(", ")}. These apply alongside pi-lens defaults.`,
-		);
 	} else {
 		dbg("session_start: no project rules found");
-	}
-
-	if (hasWorkspaceCwd) {
-		const installHints = getLanguageInstallHints(languageProfile);
-		dbg(`session_start tooling hints count: ${installHints.length}`);
-		if (installHints.length > 0) {
-			startupNotes.push(`🧰 Tooling hints: ${installHints.join(" ")}`);
-		}
-	} else {
-		dbg("session_start: skipping tooling hints (workspace cwd unavailable)");
 	}
 
 	cacheManager.writeCache(
@@ -666,21 +552,7 @@ export async function handleSessionStart(
 		);
 	}
 
-	dbg(
-		`session_start: background scans launched (${startupNotes.length} startup note(s))`,
-	);
-
-	runErrorDebtBaseline(
-		deps,
-		detectedRunner,
-		analysisRoot,
-		allowBootstrapTasks,
-		getFlag,
-	);
-
-	if (startupNotes.length > 0) {
-		notify(startupNotes.join("\n"), "info");
-	}
+	dbg("session_start: background scans launched");
 
 	dbg(`session_start total: ${Date.now() - sessionStartMs}ms`);
 }

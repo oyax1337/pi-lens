@@ -24,14 +24,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ensureTool } from "../../installer/index.js";
 import { safeSpawn } from "../../safe-spawn.js";
-import { createAvailabilityChecker } from "./utils/runner-helpers.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
+import { createAvailabilityChecker } from "./utils/runner-helpers.js";
 
 const shellcheck = createAvailabilityChecker("shellcheck", ".exe");
 
@@ -136,11 +136,6 @@ const shellcheckRunner: RunnerDefinition = {
 	skipTestFiles: false, // Shell scripts in test directories should still be checked
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
-		// Check if user explicitly disabled shellcheck
-		if (ctx.pi.getFlag("no-shellcheck")) {
-			return { status: "skipped", diagnostics: [], semantic: "none" };
-		}
-
 		const cwd = ctx.cwd || process.cwd();
 		let cmd: string | null = null;
 		if (shellcheck.isAvailable(cwd)) {
@@ -164,12 +159,7 @@ const shellcheckRunner: RunnerDefinition = {
 		// --format json: JSON output
 		// --shell: Specify shell dialect (bash, sh, zsh, ksh, busybox)
 		// --severity: Minimum severity (we'll filter ourselves)
-		const args: string[] = [
-			"--format",
-			"json",
-			"--shell",
-			shellDialect,
-		];
+		const args: string[] = ["--format", "json", "--shell", shellDialect];
 
 		// Check for config file
 		const configPath = findShellcheckConfig(ctx.cwd);

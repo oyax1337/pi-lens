@@ -3,53 +3,51 @@
  */
 
 import type { RunnerRegistry } from "../types.js";
-import architectRunner from "./architect.js";
 import astGrepNapiRunner from "./ast-grep-napi.js";
 import biomeRunner from "./biome.js";
 import biomeCheckJsonRunner from "./biome-check.js";
+import cppCheckRunner from "./cpp-check.js";
+import credoRunner from "./credo.js";
+import dartAnalyzeRunner from "./dart-analyze.js";
+import dotnetBuildRunner from "./dotnet-build.js";
+import elixirCheckRunner from "./elixir-check.js";
 import eslintRunner from "./eslint.js";
+import factRulesRunner from "./fact-rules.js";
+import gleamCheckRunner from "./gleam-check.js";
 import goVetRunner from "./go-vet.js";
 import golangciRunner from "./golangci-lint.js";
+import hadolintRunner from "./hadolint.js";
+import htmlhintRunner from "./htmlhint.js";
+import javacRunner from "./javac.js";
+import ktlintRunner from "./ktlint.js";
 import lspRunner from "./lsp.js";
-import oxlintRunner from "./oxlint.js";
+import markdownlintRunner from "./markdownlint.js";
+import mypyRunner from "./mypy.js";
+import phpLintRunner from "./php-lint.js";
+import phpstanRunner from "./phpstan.js";
+import prettierCheckRunner from "./prettier-check.js";
+import prismaValidateRunner from "./prisma-validate.js";
+import psScriptAnalyzerRunner from "./psscriptanalyzer.js";
 import pyrightRunner from "./pyright.js";
 import pythonSlopRunner from "./python-slop.js";
 import rubocopRunner from "./rubocop.js";
 import ruffRunner from "./ruff.js";
 import rustClippyRunner from "./rust-clippy.js";
 import shellcheckRunner from "./shellcheck.js";
-import sqlfluffRunner from "./sqlfluff.js";
+import shfmtRunner from "./shfmt.js";
 // Import similarity runner
 import similarityRunner from "./similarity.js";
 import spellcheckRunner from "./spellcheck.js";
-import yamllintRunner from "./yamllint.js";
+import sqlfluffRunner from "./sqlfluff.js";
+import stylelintRunner from "./stylelint.js";
+import taploRunner from "./taplo.js";
+import tflintRunner from "./tflint.js";
 // Import tree-sitter runner
 import treeSitterRunner from "./tree-sitter.js";
 import tsLspRunner from "./ts-lsp.js";
 import typeSafetyRunner from "./type-safety.js";
-import markdownlintRunner from "./markdownlint.js";
-import mypyRunner from "./mypy.js";
-import stylelintRunner from "./stylelint.js";
-import shfmtRunner from "./shfmt.js";
-import factRulesRunner from "./fact-rules.js";
-import htmlhintRunner from "./htmlhint.js";
-import hadolintRunner from "./hadolint.js";
-import phpLintRunner from "./php-lint.js";
-import psScriptAnalyzerRunner from "./psscriptanalyzer.js";
-import prismaValidateRunner from "./prisma-validate.js";
-import ktlintRunner from "./ktlint.js";
-import tflintRunner from "./tflint.js";
-import taploRunner from "./taplo.js";
-import dartAnalyzeRunner from "./dart-analyze.js";
-import javacRunner from "./javac.js";
-import dotnetBuildRunner from "./dotnet-build.js";
+import yamllintRunner from "./yamllint.js";
 import zigCheckRunner from "./zig-check.js";
-import gleamCheckRunner from "./gleam-check.js";
-import credoRunner from "./credo.js";
-import elixirCheckRunner from "./elixir-check.js";
-import cppCheckRunner from "./cpp-check.js";
-import prettierCheckRunner from "./prettier-check.js";
-import phpstanRunner from "./phpstan.js";
 
 export function registerDefaultRunners(registry: RunnerRegistry): void {
 	// Register all runners (ordered by priority)
@@ -69,7 +67,6 @@ export function registerDefaultRunners(registry: RunnerRegistry): void {
 	// DISABLED: registerRunner(astGrepRunner); // Replaced by ast-grep-napi for dispatch
 	// CLI ast-grep kept for ast_grep_search/ast_grep_replace tools only
 	registry.register(similarityRunner); // Semantic reuse detection (priority 35)
-	registry.register(architectRunner); // Architectural rules (priority 40)
 	registry.register(eslintRunner); // ESLint (priority 12, jsts, config-gated)
 	registry.register(golangciRunner); // golangci-lint (priority 20, go, config-gated)
 	registry.register(rubocopRunner); // RuboCop lint (priority 10, ruby)

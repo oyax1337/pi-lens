@@ -57,7 +57,7 @@ export class RuffClient {
 		if (this.ruffAvailable !== null) return this.ruffAvailable;
 
 		// Check if available in PATH
-		const result = safeSpawn("ruff", ["--version"], {
+		const result = await safeSpawnAsync("ruff", ["--version"], {
 			timeout: 5000,
 		});
 		this.ruffAvailable = !result.error && result.status === 0;

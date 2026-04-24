@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getDispatchGroupsForKind } from "../../../clients/dispatch/integration.js";
 
-	describe("dispatch integration groups", () => {
+describe("dispatch integration groups", () => {
 	it("keeps centralized css primary group when lens-lsp is enabled", () => {
 		const groups = getDispatchGroupsForKind("css", {
 			getFlag: (name: string) => name === "lens-lsp",
@@ -31,9 +31,9 @@ import { getDispatchGroupsForKind } from "../../../clients/dispatch/integration.
 		expect(lspGroups).toHaveLength(1);
 	});
 
-	it("strips lsp from css group when lens-lsp is disabled", () => {
+	it("strips lsp from css group when no-lsp is enabled", () => {
 		const groups = getDispatchGroupsForKind("css", {
-			getFlag: () => false,
+			getFlag: (name: string) => name === "no-lsp",
 		});
 
 		expect(groups).toHaveLength(1);

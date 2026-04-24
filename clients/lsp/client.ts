@@ -8,6 +8,7 @@
  * - Request/response handling
  */
 
+import { spawn as nodeSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { pathToFileURL } from "node:url";
 import type { MessageConnection } from "vscode-jsonrpc";
@@ -138,8 +139,8 @@ export interface LSPClientInfo {
 	};
 	getDiagnostics(filePath: string): LSPDiagnostic[];
 	waitForDiagnostics(filePath: string, timeoutMs?: number): Promise<void>;
-	/** Get all tracked diagnostics (for cascade checking) */
-	getAllDiagnostics(): Map<string, LSPDiagnostic[]>;
+	/** Get all tracked diagnostics with timestamps (for cascade checking) */
+	getAllDiagnostics(): Map<string, { diags: LSPDiagnostic[]; ts: number }>;
 	/** Capability snapshot for workspace diagnostics support */
 	getWorkspaceDiagnosticsSupport(): LSPWorkspaceDiagnosticsSupport;
 	/** Capability snapshot for navigation/edit operations */
@@ -221,6 +222,10 @@ const INITIALIZE_TIMEOUT_MS = positiveIntFromEnv(
 	"PI_LENS_LSP_INIT_TIMEOUT_MS",
 	15_000,
 ); // 15s — npx downloads are handled by ensureTool, not here
+const NAV_REQUEST_TIMEOUT_MS = positiveIntFromEnv(
+	"PI_LENS_LSP_NAV_REQUEST_TIMEOUT_MS",
+	10_000,
+); // 10s — per-request ceiling; prevents heavy servers (vue, svelte) from hanging
 const DIAGNOSTICS_WAIT_TIMEOUT_MS = positiveIntFromEnv(
 	"PI_LENS_LSP_DIAGNOSTICS_WAIT_MS",
 	10_000,
@@ -277,17 +282,19 @@ function installCrashGuard(): void {
 
 // --- Client State + Module-level helpers ---
 
-interface LSPClientState {
+export interface LSPClientState {
 	isConnected: boolean;
 	isDestroyed: boolean;
 	connectionDisposed: boolean;
 	lastError: Error | undefined;
 	readonly connection: MessageConnection;
 	readonly diagnostics: Map<string, LSPDiagnostic[]>;
+	readonly diagnosticTimestamps: Map<string, number>;
 	readonly pendingDiagnostics: Map<string, ReturnType<typeof setTimeout>>;
 	readonly diagnosticEmitter: EventEmitter;
 	readonly documentVersions: Map<string, number>;
 	readonly openDocuments: Set<string>;
+	readonly pendingOpens: Set<string>;
 	readonly workspaceDiagnosticsSupport: LSPWorkspaceDiagnosticsSupport;
 	readonly operationSupport: LSPOperationSupport;
 	readonly serverId: string;
@@ -327,6 +334,7 @@ function setupIncomingHandlers(
 
 			const timer = setTimeout(() => {
 				state.diagnostics.set(normalizedPath, newDiags);
+				state.diagnosticTimestamps.set(normalizedPath, Date.now());
 				state.pendingDiagnostics.delete(normalizedPath);
 				state.diagnosticEmitter.emit("diagnostics", normalizedPath);
 			}, DIAGNOSTICS_DEBOUNCE_MS);
@@ -340,17 +348,15 @@ function setupIncomingHandlers(
 	]);
 	state.connection.onRequest("client/registerCapability", async () => {});
 	state.connection.onRequest("client/unregisterCapability", async () => {});
-	state.connection.onRequest(
-		"workspace/configuration",
-		async () => [initialization ?? {}],
-	);
+	state.connection.onRequest("workspace/configuration", async () => [
+		initialization ?? {},
+	]);
 	state.connection.onRequest("window/workDoneProgress/create", async () => {});
 }
 
 function setupConnectionLifecycle(state: LSPClientState): void {
-	state.connection.onError((error) => {
-		state.lastError =
-			error instanceof Error ? error : new Error(String(error));
+	state.connection.onError(([error]: [Error, ...unknown[]]) => {
+		state.lastError = error instanceof Error ? error : new Error(String(error));
 		state.isConnected = false;
 		state.isDestroyed = true;
 		disposeClientConnection(state);
@@ -362,7 +368,7 @@ function setupConnectionLifecycle(state: LSPClientState): void {
 		disposeClientConnection(state);
 	});
 
-	state.lspProcess.process.on("exit", (code) => {
+	state.lspProcess.process.on("exit", (_code) => {
 		state.isConnected = false;
 		state.isDestroyed = true;
 		disposeClientConnection(state);
@@ -386,7 +392,9 @@ async function clientRequestPullDiagnostics(
 
 		const normalizedPath = normalizeMapKey(filePath);
 		const primaryItems = report.items ?? [];
+		const now = Date.now();
 		state.diagnostics.set(normalizedPath, primaryItems);
+		state.diagnosticTimestamps.set(normalizedPath, now);
 		let totalCount = primaryItems.length;
 
 		if (report.relatedDocuments) {
@@ -396,6 +404,7 @@ async function clientRequestPullDiagnostics(
 				const relatedPath = uriToPath(relatedUri);
 				const relatedItems = related?.items ?? [];
 				state.diagnostics.set(normalizeMapKey(relatedPath), relatedItems);
+				state.diagnosticTimestamps.set(normalizeMapKey(relatedPath), now);
 				totalCount += relatedItems.length;
 			}
 		}
@@ -407,7 +416,7 @@ async function clientRequestPullDiagnostics(
 	}
 }
 
-async function clientWaitForDiagnostics(
+export async function clientWaitForDiagnostics(
 	state: LSPClientState,
 	filePath: string,
 	timeoutMs: number,
@@ -456,7 +465,7 @@ async function clientWaitForDiagnostics(
 	});
 }
 
-async function handleNotifyOpen(
+export async function handleNotifyOpen(
 	state: LSPClientState,
 	filePath: string,
 	content: string,
@@ -466,11 +475,12 @@ async function handleNotifyOpen(
 	const uri = pathToFileURL(filePath).href;
 	const normalizedPath = normalizeMapKey(filePath);
 
-	if (state.openDocuments.has(normalizedPath)) {
+	if (
+		state.openDocuments.has(normalizedPath) ||
+		state.pendingOpens.has(normalizedPath)
+	) {
 		const version = (state.documentVersions.get(normalizedPath) ?? 0) + 1;
 		state.documentVersions.set(normalizedPath, version);
-		// Clear cached diagnostics so waitForDiagnostics actually waits for
-		// fresh results from the server instead of returning stale ones.
 		state.diagnostics.delete(normalizedPath);
 		await safeSendNotification(state.connection, "textDocument/didChange", {
 			textDocument: { uri, version },
@@ -479,6 +489,7 @@ async function handleNotifyOpen(
 		return;
 	}
 
+	state.pendingOpens.add(normalizedPath);
 	state.documentVersions.set(normalizedPath, 0);
 	state.diagnostics.delete(normalizedPath);
 
@@ -494,10 +505,11 @@ async function handleNotifyOpen(
 	await safeSendNotification(state.connection, "textDocument/didOpen", {
 		textDocument: { uri, languageId, version: 0, text: content },
 	});
+	state.pendingOpens.delete(normalizedPath);
 	state.openDocuments.add(normalizedPath);
 }
 
-async function handleNotifyChange(
+export async function handleNotifyChange(
 	state: LSPClientState,
 	filePath: string,
 	content: string,
@@ -519,8 +531,8 @@ async function handleNotifyChange(
 
 	const version = (state.documentVersions.get(normalizedPath) ?? 0) + 1;
 	state.documentVersions.set(normalizedPath, version);
-	// Clear cached diagnostics so waitForDiagnostics actually waits for
-	// fresh results from the server instead of returning stale ones.
+	// Clear stale diagnostics before sending new content so waitForDiagnostics
+	// doesn't return immediately with the previous edit's results.
 	state.diagnostics.delete(normalizedPath);
 	await safeSendNotification(state.connection, "textDocument/didChange", {
 		textDocument: { uri, version },
@@ -535,6 +547,7 @@ async function clientShutdown(state: LSPClientState): Promise<void> {
 		clearTimeout(timer);
 	}
 	state.pendingDiagnostics.clear();
+	state.pendingOpens.clear();
 	state.openDocuments.clear();
 	state.diagnosticEmitter.removeAllListeners();
 	try {
@@ -557,7 +570,15 @@ async function navRequest<T>(
 	params: Record<string, unknown>,
 ): Promise<T | null | undefined> {
 	if (!isClientAlive(state)) return null;
-	return safeSendRequest<T>(state.connection, method, params);
+	return withTimeout(
+		safeSendRequest<T>(state.connection, method, params),
+		NAV_REQUEST_TIMEOUT_MS,
+	).catch((err: unknown) => {
+		if (err instanceof Error && err.message.startsWith("Timeout after")) {
+			return undefined;
+		}
+		throw err;
+	}) as Promise<T | undefined>;
 }
 
 // --- Client Factory ---
@@ -597,11 +618,17 @@ export async function createLSPClient(options: {
 		if (startupState.stderr.length >= 4096) return;
 		startupState.stderr += chunk.toString();
 	};
-	const onProcessExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+	const onProcessExit = (
+		code: number | null,
+		signal: NodeJS.Signals | null,
+	): void => {
 		startupState.exitCode = code;
 		startupState.exitSignal = signal;
 	};
-	const onProcessClose = (code: number | null, signal: NodeJS.Signals | null): void => {
+	const onProcessClose = (
+		code: number | null,
+		signal: NodeJS.Signals | null,
+	): void => {
 		startupState.closeCode = code;
 		startupState.closeSignal = signal;
 	};
@@ -619,7 +646,7 @@ export async function createLSPClient(options: {
 	// vscode-jsonrpc covers stdin/stdout during the connection lifetime but
 	// removes its listeners on dispose(). Our permanent listeners cover the gap.
 	const streamErrorHandler =
-		(label: string) => (err: Error & { code?: string }) => {
+		(_label: string) => (err: Error & { code?: string }) => {
 			if (
 				err.code === "ERR_STREAM_DESTROYED" ||
 				err.code === "ERR_STREAM_WRITE_AFTER_END" ||
@@ -659,12 +686,15 @@ export async function createLSPClient(options: {
 		lastError: undefined,
 		connection,
 		diagnostics: new Map(),
+		diagnosticTimestamps: new Map(),
 		pendingDiagnostics: new Map(),
 		diagnosticEmitter,
 		documentVersions: new Map(),
 		openDocuments: new Set(),
+		pendingOpens: new Set(),
 		// these are filled in after initialize — cast to avoid two-phase init
-		workspaceDiagnosticsSupport: undefined as unknown as LSPWorkspaceDiagnosticsSupport,
+		workspaceDiagnosticsSupport:
+			undefined as unknown as LSPWorkspaceDiagnosticsSupport,
 		operationSupport: undefined as unknown as LSPOperationSupport,
 		serverId,
 		root,
@@ -681,7 +711,9 @@ export async function createLSPClient(options: {
 			safeSendRequest(connection, "initialize", {
 				processId: process.pid,
 				rootUri: pathToFileURL(root).href,
-				workspaceFolders: [{ name: "workspace", uri: pathToFileURL(root).href }],
+				workspaceFolders: [
+					{ name: "workspace", uri: pathToFileURL(root).href },
+				],
 				capabilities: {
 					window: { workDoneProgress: true },
 					workspace: {
@@ -698,6 +730,23 @@ export async function createLSPClient(options: {
 			}),
 			initializeTimeoutMs,
 		);
+	} catch (err) {
+		// Hard-kill the hung process so it doesn't become a zombie.
+		// SIGTERM alone is unreliable on Windows for cmd.exe/PowerShell trees.
+		const pid = lspProcess.pid;
+		lspProcess.process.kill("SIGTERM");
+		if (process.platform === "win32" && pid > 0) {
+			try {
+				nodeSpawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
+					shell: false,
+					windowsHide: true,
+				});
+			} catch {}
+		}
+		setTimeout(() => {
+			if (!lspProcess.process.killed) lspProcess.process.kill("SIGKILL");
+		}, 2000);
+		throw err;
 	} finally {
 		(lspProcess.stderr as NodeJS.ReadableStream).off("data", onStartupStderr);
 	}
@@ -723,8 +772,9 @@ export async function createLSPClient(options: {
 		);
 	}
 
-	(state as { workspaceDiagnosticsSupport: LSPWorkspaceDiagnosticsSupport }).workspaceDiagnosticsSupport =
-		detectWorkspaceDiagnosticsSupport(initResult);
+	(
+		state as { workspaceDiagnosticsSupport: LSPWorkspaceDiagnosticsSupport }
+	).workspaceDiagnosticsSupport = detectWorkspaceDiagnosticsSupport(initResult);
 	(state as { operationSupport: LSPOperationSupport }).operationSupport =
 		detectOperationSupport(initResult);
 
@@ -755,7 +805,14 @@ export async function createLSPClient(options: {
 		},
 
 		getAllDiagnostics() {
-			return new Map(state.diagnostics);
+			const result = new Map<string, { diags: LSPDiagnostic[]; ts: number }>();
+			for (const [key, diags] of state.diagnostics) {
+				result.set(key, {
+					diags,
+					ts: state.diagnosticTimestamps.get(key) ?? 0,
+				});
+			}
+			return result;
 		},
 
 		getWorkspaceDiagnosticsSupport() {
@@ -766,7 +823,10 @@ export async function createLSPClient(options: {
 			return state.operationSupport;
 		},
 
-		async waitForDiagnostics(filePath, timeoutMs = DIAGNOSTICS_WAIT_TIMEOUT_MS) {
+		async waitForDiagnostics(
+			filePath,
+			timeoutMs = DIAGNOSTICS_WAIT_TIMEOUT_MS,
+		) {
 			return clientWaitForDiagnostics(state, filePath, timeoutMs);
 		},
 
@@ -774,7 +834,10 @@ export async function createLSPClient(options: {
 			const result = await navRequest<LSPLocation | LSPLocation[]>(
 				state,
 				"textDocument/definition",
-				{ textDocument: { uri: pathToFileURL(filePath).href }, position: { line, character } },
+				{
+					textDocument: { uri: pathToFileURL(filePath).href },
+					position: { line, character },
+				},
 			);
 			if (!result) return [];
 			return Array.isArray(result) ? result : [result];
@@ -784,17 +847,20 @@ export async function createLSPClient(options: {
 			const result = await navRequest<LSPLocation[]>(
 				state,
 				"textDocument/references",
-				{ textDocument: { uri: pathToFileURL(filePath).href }, position: { line, character }, context: { includeDeclaration } },
+				{
+					textDocument: { uri: pathToFileURL(filePath).href },
+					position: { line, character },
+					context: { includeDeclaration },
+				},
 			);
 			return result ?? [];
 		},
 
 		async hover(filePath, line, character) {
-			const result = await navRequest<LSPHover>(
-				state,
-				"textDocument/hover",
-				{ textDocument: { uri: pathToFileURL(filePath).href }, position: { line, character } },
-			);
+			const result = await navRequest<LSPHover>(state, "textDocument/hover", {
+				textDocument: { uri: pathToFileURL(filePath).href },
+				position: { line, character },
+			});
 			return result ?? null;
 		},
 
@@ -802,7 +868,10 @@ export async function createLSPClient(options: {
 			const result = await navRequest<LSPSignatureHelp>(
 				state,
 				"textDocument/signatureHelp",
-				{ textDocument: { uri: pathToFileURL(filePath).href }, position: { line, character } },
+				{
+					textDocument: { uri: pathToFileURL(filePath).href },
+					position: { line, character },
+				},
 			);
 			return result ?? null;
 		},
@@ -839,8 +908,7 @@ export async function createLSPClient(options: {
 						end: { line: endLine, character: endCharacter },
 					},
 					context: {
-						diagnostics:
-							state.diagnostics.get(normalizeMapKey(filePath)) ?? [],
+						diagnostics: state.diagnostics.get(normalizeMapKey(filePath)) ?? [],
 					},
 				},
 			);
@@ -855,7 +923,11 @@ export async function createLSPClient(options: {
 			const result = await navRequest<LSPWorkspaceEdit>(
 				state,
 				"textDocument/rename",
-				{ textDocument: { uri: pathToFileURL(filePath).href }, position: { line, character }, newName },
+				{
+					textDocument: { uri: pathToFileURL(filePath).href },
+					position: { line, character },
+					newName,
+				},
 			);
 			return result ?? null;
 		},
@@ -864,7 +936,10 @@ export async function createLSPClient(options: {
 			const result = await navRequest<LSPLocation | LSPLocation[]>(
 				state,
 				"textDocument/implementation",
-				{ textDocument: { uri: pathToFileURL(filePath).href }, position: { line, character } },
+				{
+					textDocument: { uri: pathToFileURL(filePath).href },
+					position: { line, character },
+				},
 			);
 			if (!result) return [];
 			return Array.isArray(result) ? result : [result];
@@ -965,23 +1040,6 @@ function isStreamError(err: unknown): boolean {
 }
 
 // Using shared path utilities from path-utils.ts
-
-function severityFromNumber(
-	sev: number,
-): "error" | "warning" | "info" | "hint" {
-	switch (sev) {
-		case 1:
-			return "error";
-		case 2:
-			return "warning";
-		case 3:
-			return "info";
-		case 4:
-			return "hint";
-		default:
-			return "error";
-	}
-}
 
 async function withTimeout<T>(
 	promise: Promise<T>,

@@ -13,15 +13,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { safeSpawnAsync } from "../../safe-spawn.js";
-import { stripAnsi } from "../../sanitize.js";
-import { tryLazyInstall } from "./utils/lazy-installer.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
+import { tryLazyInstall } from "./utils/lazy-installer.js";
 
 const GOLANGCI_CONFIGS = [
 	".golangci.yml",
@@ -116,8 +115,6 @@ const golangciRunner: RunnerDefinition = {
 			["run", "--out-format=json", ctx.filePath],
 			{ timeout: 60000, cwd },
 		);
-
-		const raw = stripAnsi(result.stdout + result.stderr);
 
 		if (result.status === 0) {
 			return { status: "succeeded", diagnostics: [], semantic: "none" };

@@ -186,7 +186,7 @@ const TOOLS: ToolDefinition[] = [
 		checkCommand: "jscpd",
 		checkArgs: ["--version"],
 		installStrategy: "npm",
-		packageName: "jscpd",
+		packageName: "jscpd@3.5.10", // jscpd v4 introduced reprism dep whose lib/languages/ dir is missing from the published package — v3.5.x is the last stable release
 		binaryName: "jscpd",
 	},
 	// Structural search and dead code detection
@@ -610,9 +610,222 @@ async function isCommandAvailable(
 					shell: true,
 				})
 			: spawn(command, args, { stdio: "ignore" });
-		proc.on("exit", (code) => resolve(code === 0));
-		proc.on("error", () => resolve(false));
+
+		let resolved = false;
+		const timeoutId = setTimeout(() => {
+			if (!resolved) {
+				resolved = true;
+				proc.kill();
+				resolve(false);
+			}
+		}, 5000);
+
+		proc.on("exit", (code) => {
+			if (!resolved) {
+				resolved = true;
+				clearTimeout(timeoutId);
+				resolve(code === 0);
+			}
+		});
+		proc.on("error", () => {
+			if (!resolved) {
+				resolved = true;
+				clearTimeout(timeoutId);
+				resolve(false);
+			}
+		});
 	});
+}
+
+// --- Verification Functions
+
+/**
+ * Verify a tool binary actually works by running --version
+ * This catches broken symlinks, partial installs, and corrupted binaries
+ */
+async function verifyToolBinary(binPath: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		const isWindows = process.platform === "win32";
+		const hasKnownWindowsExt = /\.(cmd|exe|ps1)$/i.test(binPath);
+
+		// On Windows, resolve the best executable path:
+		// - extensionless → prefer .cmd (cmd.exe-safe)
+		// - .ps1 → prefer .cmd sibling to avoid PowerShell execution-policy hangs
+		// - .cmd / .exe → use as-is
+		let execPath =
+			isWindows && !hasKnownWindowsExt ? `${binPath}.cmd` : binPath;
+		let useShell = isWindows && /\.(cmd|bat)$/i.test(execPath);
+
+		if (isWindows && /\.ps1$/i.test(execPath)) {
+			const cmdSibling = `${execPath.slice(0, -4)}.cmd`;
+			if (require("node:fs").existsSync(cmdSibling)) {
+				execPath = cmdSibling;
+				useShell = true;
+			} else {
+				// Fall back to running without shell — cmd.exe can't run .ps1
+				useShell = false;
+			}
+		}
+
+		const proc = spawn(execPath, ["--version"], {
+			timeout: 10000,
+			stdio: ["ignore", "pipe", "pipe"],
+			shell: useShell,
+		});
+
+		let stdout = "";
+		let stderr = "";
+
+		proc.stdout?.on("data", (data) => (stdout += data));
+		proc.stderr?.on("data", (data) => (stderr += data));
+
+		proc.on("exit", (code) => {
+			if (code === 0) {
+				debugLog(`Verified: ${binPath} (version: ${stdout.trim()})`);
+				resolve(true);
+			} else {
+				logSessionStart(
+					`auto-install verify: failed for ${binPath} (exit=${code})`,
+				);
+				resolve(false);
+			}
+		});
+
+		proc.on("error", (err) => {
+			logSessionStart(
+				`auto-install verify: error for ${binPath}: ${err.message}`,
+			);
+			resolve(false);
+		});
+	});
+}
+
+export type ToolSource =
+	| "global-path"
+	| "npm-global"
+	| "pip-user"
+	| "pi-lens-auto"
+	| "github-release"
+	| "npx-fallback"
+	| "not-installed";
+
+export interface ToolStatus {
+	id: string;
+	name: string;
+	installed: boolean;
+	source: ToolSource;
+	path?: string;
+	version?: string;
+	strategy: "npm" | "pip" | "github";
+}
+
+/**
+ * Get detailed status for all tools
+ */
+export async function getAllToolStatuses(): Promise<ToolStatus[]> {
+	const statuses: ToolStatus[] = [];
+
+	for (const tool of TOOLS) {
+		const status: ToolStatus = {
+			id: tool.id,
+			name: tool.name,
+			installed: false,
+			source: "not-installed",
+			strategy: tool.installStrategy,
+		};
+
+		// 1. Check if in PATH (global)
+		if (await isCommandAvailable(tool.checkCommand, tool.checkArgs)) {
+			status.installed = true;
+			status.source = "global-path";
+			status.path = tool.checkCommand;
+			// Try to get version
+			const versionResult = await new Promise<string>((resolve) => {
+				const proc = spawn(tool.checkCommand, ["--version"], {
+					stdio: ["ignore", "pipe", "pipe"],
+					shell: process.platform === "win32",
+					timeout: 5000,
+				});
+				let out = "";
+				proc.stdout?.on("data", (d) => (out += d));
+				proc.stderr?.on("data", (d) => (out += d));
+				proc.on("exit", () =>
+					resolve(out.trim().split("\n")[0]?.slice(0, 30) || ""),
+				);
+				proc.on("error", () => resolve(""));
+			});
+			status.version = versionResult || undefined;
+			statuses.push(status);
+			continue;
+		}
+
+		// 2. Check npm global
+		if (tool.installStrategy === "npm") {
+			const npmPath = await findNpmGlobalToolPath(tool.binaryName || tool.id);
+			if (npmPath) {
+				status.installed = true;
+				status.source = "npm-global";
+				status.path = npmPath;
+				statuses.push(status);
+				continue;
+			}
+		}
+
+		// 3. Check pip user install
+		if (tool.installStrategy === "pip") {
+			const pipPath = await findPipUserToolPath(tool.binaryName || tool.id);
+			if (pipPath) {
+				status.installed = true;
+				status.source = "pip-user";
+				status.path = pipPath;
+				statuses.push(status);
+				continue;
+			}
+		}
+
+		// 4. Check GitHub releases (~/.pi-lens/bin/)
+		if (tool.installStrategy === "github") {
+			const githubPath = await findGitHubToolPath(tool.binaryName || tool.id);
+			if (githubPath) {
+				status.installed = true;
+				status.source = "github-release";
+				status.path = githubPath;
+				statuses.push(status);
+				continue;
+			}
+		}
+
+		// 5. Check pi-lens auto-install (~/.pi-lens/tools/)
+		const localBase = path.join(
+			TOOLS_DIR,
+			"node_modules",
+			".bin",
+			tool.binaryName || tool.id,
+		);
+		const localPath =
+			process.platform === "win32" ? `${localBase}.cmd` : localBase;
+		try {
+			await fs.access(localPath);
+			if (await verifyToolBinary(localPath)) {
+				status.installed = true;
+				status.source = "pi-lens-auto";
+				status.path = localPath;
+				statuses.push(status);
+				continue;
+			}
+		} catch {
+			// fall through to not-installed
+		}
+
+		// 6. Not installed - will use npx fallback if npm strategy
+		if (tool.installStrategy === "npm") {
+			status.source = "npx-fallback";
+		}
+
+		statuses.push(status);
+	}
+
+	return statuses;
 }
 
 /**
@@ -628,6 +841,56 @@ export async function isToolInstalled(toolId: string): Promise<boolean> {
 export async function getToolPath(toolId: string): Promise<string | undefined> {
 	const tool = TOOLS.find((t) => t.id === toolId);
 	if (!tool) return undefined;
+
+	// Fast path: check local npm install first (where auto-install places tools).
+	// This avoids the ~2-5s overhead of spawning npm global probes and PATH
+	// searches for tools we already manage locally.
+	const localBase = path.join(
+		TOOLS_DIR,
+		"node_modules",
+		".bin",
+		tool.binaryName || tool.id,
+	);
+	if (process.platform === "win32") {
+		// Prefer .cmd over extensionless — Node.js can't execute POSIX shell scripts on Windows
+		const cmdPath = `${localBase}.cmd`;
+		try {
+			await fs.access(cmdPath);
+			if (await verifyToolBinary(cmdPath)) {
+				return cmdPath;
+			}
+			logSessionStart(
+				`auto-install verify: ${cmdPath} exists but is broken, will reinstall`,
+			);
+		} catch {
+			// fall through to .exe
+		}
+		// Also check .exe — some postinstall scripts (e.g. @ast-grep/cli) place a
+		// .exe directly without a .cmd wrapper
+		const exePath = `${localBase}.exe`;
+		try {
+			await fs.access(exePath);
+			if (await verifyToolBinary(exePath)) {
+				return exePath;
+			}
+			logSessionStart(
+				`auto-install verify: ${exePath} exists but is broken, will reinstall`,
+			);
+		} catch {
+			// fall through to extensionless
+		}
+	}
+	try {
+		await fs.access(localBase);
+		if (await verifyToolBinary(localBase)) {
+			return localBase;
+		}
+		logSessionStart(
+			`auto-install verify: ${localBase} exists but is broken, will reinstall`,
+		);
+	} catch {
+		// fall through to global checks
+	}
 
 	// Check if global
 	if (await isCommandAvailable(tool.checkCommand, tool.checkArgs)) {
@@ -656,19 +919,7 @@ export async function getToolPath(toolId: string): Promise<string | undefined> {
 		return undefined;
 	}
 
-	// Check local npm tools dir
-	const localPath = path.join(
-		TOOLS_DIR,
-		"node_modules",
-		".bin",
-		tool.binaryName || tool.id,
-	);
-	try {
-		await fs.access(localPath);
-		return localPath;
-	} catch {
-		return undefined;
-	}
+	return undefined;
 }
 
 async function findGitHubToolPath(
@@ -738,7 +989,6 @@ async function findNpmGlobalToolPath(
 		const candidates = isWindows
 			? [
 					path.join(dir, `${binaryName}.cmd`),
-					path.join(dir, `${binaryName}.ps1`),
 					path.join(dir, `${binaryName}.exe`),
 					path.join(dir, binaryName),
 				]
@@ -893,51 +1143,6 @@ async function getPythonUserBaseCandidates(): Promise<string[]> {
 	return candidates;
 }
 
-// --- Verification Functions
-
-/**
- * Verify a tool binary actually works by running --version
- * This catches broken symlinks, partial installs, and corrupted binaries
- */
-async function verifyToolBinary(binPath: string): Promise<boolean> {
-	return new Promise((resolve) => {
-		// Add .cmd extension on Windows for the actual binary
-		const isWindows = process.platform === "win32";
-		const hasKnownWindowsExt = /\.(cmd|exe|ps1)$/i.test(binPath);
-		const execPath =
-			isWindows && !hasKnownWindowsExt ? `${binPath}.cmd` : binPath;
-
-		const proc = spawn(execPath, ["--version"], {
-			timeout: 10000, // 10 second timeout for verification
-			stdio: ["ignore", "pipe", "pipe"],
-			shell: isWindows, // Required for .cmd wrappers on Windows
-		});
-
-		let stdout = "";
-		let stderr = "";
-
-		proc.stdout?.on("data", (data) => (stdout += data));
-		proc.stderr?.on("data", (data) => (stderr += data));
-
-		proc.on("exit", (code) => {
-			if (code === 0) {
-				debugLog(`Verified: ${binPath} (version: ${stdout.trim()})`);
-				resolve(true);
-			} else {
-				console.error(`[auto-install] Verification failed for ${binPath}`);
-				debugLog("Exit code:", code, "stderr:", stderr);
-				resolve(false);
-			}
-		});
-
-		proc.on("error", (err) => {
-			console.error(`[auto-install] Verification failed for ${binPath}`);
-			debugLog("Error:", err.message);
-			resolve(false);
-		});
-	});
-}
-
 // --- Installation Functions
 
 /**
@@ -1004,9 +1209,6 @@ async function installGitHubTool(
 	const arch = process.arch; // "x64" | "arm64" | ...
 	const assetSubstring = spec.assetMatch(platform, arch);
 	if (!assetSubstring) {
-		console.error(
-			`[auto-install] ${tool.name}: no asset for ${platform}/${arch}`,
-		);
 		logSessionStart(
 			`github-install ${tool.id}: unsupported platform=${platform} arch=${arch}`,
 		);
@@ -1027,9 +1229,6 @@ async function installGitHubTool(
 		);
 		releaseJson = JSON.parse(body.toString("utf8"));
 	} catch (err) {
-		console.error(
-			`[auto-install] ${tool.name}: failed to fetch GitHub release: ${(err as Error).message}`,
-		);
 		logSessionStart(
 			`github-install ${tool.id}: release fetch failed: ${(err as Error).message}`,
 		);
@@ -1040,9 +1239,6 @@ async function installGitHubTool(
 		releaseJson.assets.find((a) => a.name.includes(assetSubstring)) ??
 		deriveHashiCorpReleaseAsset(tool, releaseJson.tag_name, assetSubstring);
 	if (!asset) {
-		console.error(
-			`[auto-install] ${tool.name}: no asset matching "${assetSubstring}" in release`,
-		);
 		logSessionStart(
 			`github-install ${tool.id}: no asset matched "${assetSubstring}"`,
 		);
@@ -1063,9 +1259,6 @@ async function installGitHubTool(
 			`github-install ${tool.id}: downloaded ${asset.name} (${assetBuffer.length} bytes, ${Date.now() - downloadStart}ms)`,
 		);
 	} catch (err) {
-		console.error(
-			`[auto-install] ${tool.name}: download failed: ${(err as Error).message}`,
-		);
 		logSessionStart(
 			`github-install ${tool.id}: download failed: ${(err as Error).message}`,
 		);
@@ -1113,7 +1306,6 @@ async function installGitHubTool(
 
 			if (!extracted) {
 				await fs.rm(tmpDir, { recursive: true, force: true });
-				console.error(`[auto-install] ${tool.name}: tar extraction failed`);
 				logSessionStart(
 					`github-install ${tool.id}: tar extraction failed for ${assetName}`,
 				);
@@ -1152,7 +1344,6 @@ async function installGitHubTool(
 
 			if (!extracted) {
 				await fs.rm(tmpDir, { recursive: true, force: true });
-				console.error(`[auto-install] ${tool.name}: zip extraction failed`);
 				logSessionStart(
 					`github-install ${tool.id}: zip extraction failed for ${assetName}`,
 				);
@@ -1167,7 +1358,6 @@ async function installGitHubTool(
 			);
 			if (!srcBinary) {
 				await fs.rm(tmpDir, { recursive: true, force: true });
-				console.error(`[auto-install] ${tool.name}: binary not found in zip`);
 				logSessionStart(
 					`github-install ${tool.id}: binary candidates ${JSON.stringify(
 						getArchiveBinaryCandidates(archiveBinaryName, platform, assetName),
@@ -1183,9 +1373,6 @@ async function installGitHubTool(
 			await fs.writeFile(destPath, assetBuffer, { mode: 0o755 });
 		}
 	} catch (err) {
-		console.error(
-			`[auto-install] ${tool.name}: install failed: ${(err as Error).message}`,
-		);
 		logSessionStart(
 			`github-install ${tool.id}: install failed: ${(err as Error).message}`,
 		);
@@ -1225,6 +1412,7 @@ async function findFirstFileRecursive(
  */
 const NEEDS_POSTINSTALL = new Set([
 	"@biomejs/biome",
+	"@ast-grep/cli", // postinstall copies platform binary (ast-grep.exe/sg.exe) into place
 	"@ast-grep/napi",
 	"esbuild",
 	"intelephense", // postinstall fetches platform binary; --ignore-scripts breaks install
@@ -1333,12 +1521,27 @@ async function installNpmTool(
 			}
 		}
 
-		// Verify the binary actually works before returning
+		// Brief delay — lets npm postinstall scripts finish writing bin wrappers
+		// before we stat/exec them (eliminates a race on slow Windows I/O).
+		await new Promise((r) => setTimeout(r, 500));
+
+		// Verify the binary actually works, retrying with backoff to handle
+		// postinstall scripts that complete asynchronously after npm exits 0.
 		debugLog(`Verifying ${binaryName}...`);
-		const isValid = await verifyToolBinary(binPath);
+		let isValid = false;
+		for (let attempt = 1; attempt <= 3; attempt++) {
+			isValid = await verifyToolBinary(binPath);
+			if (isValid) break;
+			if (attempt < 3) {
+				logSessionStart(
+					`auto-install verify ${binaryName}: attempt ${attempt} failed, retrying in ${attempt}s`,
+				);
+				await new Promise((r) => setTimeout(r, 1000 * attempt));
+			}
+		}
 		if (!isValid) {
-			console.error(
-				`[auto-install] ${packageName} installed but verification failed (binary may be corrupted)`,
+			logSessionStart(
+				`auto-install ${packageName}: installed but verification failed, cleaning up`,
 			);
 			// Clean up the broken installation
 			try {
@@ -1357,104 +1560,15 @@ async function installNpmTool(
 
 		return binPath;
 	} catch (err) {
-		console.error(
-			`[auto-install] Failed to install ${packageName}: ${(err as Error).message}`,
+		logSessionStart(
+			`auto-install npm ${packageName}: exception: ${(err as Error).message}`,
 		);
-		debugLog("Full error:", err);
 		return undefined;
 	}
 }
 /**
  * Install a pip package tool
  */
-/**
- * Detect whether pip refuses to install due to PEP 668
- * (externally-managed-environment, e.g. Homebrew Python ≥ 3.11).
- */
-function isExternallyManagedError(stderr: string): boolean {
-	return /externally.managed.environment/i.test(stderr);
-}
-
-/**
- * Try installing a Python tool via pipx or uv tool (PEP 668 fallback).
- * These create isolated venvs per tool, sidestepping the externally-managed block.
- * Returns the package name on success, undefined on failure.
- */
-async function installPipToolIsolated(
-	packageName: string,
-): Promise<string | undefined> {
-	const isWindows = process.platform === "win32";
-
-	// Candidates in preference order: uv (fastest), pipx (most common)
-	const isolatedCandidates: Array<{
-		label: string;
-		command: string;
-		args: string[];
-	}> = [
-		{
-			label: "uv",
-			command: isWindows ? "uv.exe" : "uv",
-			args: ["tool", "install", packageName],
-		},
-		{
-			label: "pipx",
-			command: isWindows ? "pipx.exe" : "pipx",
-			args: ["install", packageName],
-		},
-	];
-
-	for (const candidate of isolatedCandidates) {
-		const outcome = await new Promise<{ ok: boolean; error: string }>(
-			(resolve) => {
-				const proc = spawn(candidate.command, candidate.args, {
-					stdio: ["ignore", "pipe", "pipe"],
-					shell: isWindows,
-				});
-
-				let stderr = "";
-				proc.stderr?.on("data", (data: Buffer | string) => (stderr += data));
-
-				proc.on("exit", (code) => {
-					if (code === 0) {
-						resolve({ ok: true, error: "" });
-					} else {
-						resolve({ ok: false, error: stderr.trim() });
-					}
-				});
-
-				proc.on("error", (err) => {
-					resolve({ ok: false, error: err.message });
-				});
-			},
-		);
-
-		if (outcome.ok) {
-			debugLog(
-				`[pip-isolated] installed ${packageName} via ${candidate.label}`,
-			);
-			logSessionStart(
-				`auto-install pip-isolated ${packageName}: success via ${candidate.label}`,
-			);
-			return packageName;
-		}
-
-		// pipx returns non-zero if already installed — treat "already installed" as success
-		if (/already (installed|seems to be installed)/i.test(outcome.error)) {
-			debugLog(
-				`[pip-isolated] ${packageName} already installed via ${candidate.label}`,
-			);
-			logSessionStart(
-				`auto-install pip-isolated ${packageName}: already installed via ${candidate.label}`,
-			);
-			return packageName;
-		}
-
-		debugLog(`[pip-isolated] ${candidate.label} failed: ${outcome.error}`);
-	}
-
-	return undefined;
-}
-
 async function installPipTool(
 	packageName: string,
 ): Promise<string | undefined> {
@@ -1486,8 +1600,6 @@ async function installPipTool(
 				];
 
 		let lastError = "";
-		let hitExternallyManaged = false;
-
 		for (const candidate of pipCandidates) {
 			const outcome = await new Promise<{ ok: boolean; error: string }>(
 				(resolve) => {
@@ -1591,36 +1703,17 @@ async function installPipTool(
 				return packageName;
 			}
 
-			if (isExternallyManagedError(outcome.error)) {
-				hitExternallyManaged = true;
-			}
-
 			lastError = `${candidate.command} ${candidate.args.join(" ")}: ${outcome.error}`;
 			debugLog(`[pip-fallback] ${lastError}`);
-		}
-
-		// PEP 668 fallback: if all pip attempts failed because the environment is
-		// externally managed (Homebrew, system Python ≥ 3.11), try pipx / uv tool
-		// which install into isolated venvs.
-		if (hitExternallyManaged) {
-			debugLog(
-				`[pip] externally-managed-environment detected, trying isolated installers`,
-			);
-			logSessionStart(
-				`auto-install pip ${packageName}: PEP 668 detected, falling back to pipx/uv`,
-			);
-			const isolated = await installPipToolIsolated(packageName);
-			if (isolated) return isolated;
 		}
 
 		throw new Error(
 			`Failed to install ${packageName}: no usable pip command found (${lastError || "unknown error"})`,
 		);
 	} catch (err) {
-		console.error(
-			`[auto-install] Failed to install ${packageName}: ${(err as Error).message}`,
+		logSessionStart(
+			`auto-install pip ${packageName}: exception: ${(err as Error).message}`,
 		);
-		debugLog("Full error:", err);
 		return undefined;
 	}
 }
@@ -1631,12 +1724,10 @@ async function installPipTool(
 export async function installTool(toolId: string): Promise<boolean> {
 	const tool = TOOLS.find((t) => t.id === toolId);
 	if (!tool) {
-		console.error(`[auto-install] Unknown tool: ${toolId}`);
 		logSessionStart(`auto-install ${toolId}: unknown tool id`);
 		return false;
 	}
 
-	console.error(`[auto-install] Installing ${tool.name}...`);
 	const startedAt = Date.now();
 	logSessionStart(
 		`auto-install ${tool.id}: start strategy=${tool.installStrategy} package=${tool.packageName ?? "n/a"}`,
@@ -1675,20 +1766,13 @@ export async function installTool(toolId: string): Promise<boolean> {
 			}
 
 			default:
-				console.error(
-					`[auto-install] Unsupported strategy: ${tool.installStrategy}`,
-				);
 				logSessionStart(`auto-install ${tool.id}: unsupported strategy`);
 				return false;
 		}
 	} catch (err) {
-		console.error(
-			`[auto-install] Failed to install ${tool.name}: ${(err as Error).message}`,
-		);
 		logSessionStart(
 			`auto-install ${tool.id}: exception ${(err as Error).message} (${Date.now() - startedAt}ms)`,
 		);
-		debugLog("Full error:", err);
 		return false;
 	}
 }

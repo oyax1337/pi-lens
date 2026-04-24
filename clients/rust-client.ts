@@ -7,7 +7,6 @@
  * Docs: https://doc.rust-lang.org/cargo/
  */
 
-import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { safeSpawn } from "./safe-spawn.js";
@@ -45,7 +44,7 @@ interface CargoMessage {
 
 const CARGO_WINDOWS_PATHS = [
 	path.join(process.env.USERPROFILE || "", ".cargo", "bin", "cargo.exe"),
-	"C:\\cargo\\bin\\cargo.exe",
+	path.join(process.env.SYSTEMDRIVE || "C:", "\\cargo", "bin", "cargo.exe"),
 	"cargo.exe", // PATH
 ];
 
@@ -209,7 +208,7 @@ export class RustClient {
 		if (!output.trim()) return [];
 
 		const diags: RustDiagnostic[] = [];
-		const lines = output.split("\n").filter((l) => l.trim());
+		const lines = output.split(/\r?\n/).filter((l) => l.trim());
 
 		for (const line of lines) {
 			try {

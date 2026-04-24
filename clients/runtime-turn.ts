@@ -1,13 +1,18 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { RUNTIME_CONFIG } from "./runtime-config.js";
-import { resolveRunnerPath, toRunnerDisplayPath } from "./dispatch/runner-context.js";
 import type { CacheManager } from "./cache-manager.js";
 import type { DependencyChecker } from "./dependency-checker.js";
+import {
+	resolveRunnerPath,
+	toRunnerDisplayPath,
+} from "./dispatch/runner-context.js";
+import { getKnipIgnorePatterns } from "./file-utils.js";
 import type { JscpdClient } from "./jscpd-client.js";
 import type { KnipClient, KnipIssue } from "./knip-client.js";
-import { getKnipIgnorePatterns } from "./file-utils.js";
+import { gatherCascadeDiagnostics } from "./pipeline.js";
+import { RUNTIME_CONFIG } from "./runtime-config.js";
 import type { RuntimeCoordinator } from "./runtime-coordinator.js";
+import type { TestRunnerClient } from "./test-runner-client.js";
 
 interface TurnEndDeps {
 	ctxCwd?: string;
@@ -18,8 +23,23 @@ interface TurnEndDeps {
 	jscpdClient: JscpdClient;
 	knipClient: KnipClient;
 	depChecker: DependencyChecker;
+	testRunnerClient: TestRunnerClient;
 	resetLSPService: () => void;
 	resetFormatService: () => void;
+}
+
+// LSP idle reset scheduling — prevents thrashing by delaying shutdown
+let lspIdleResetTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleLSPIdleReset(resetFn: () => void, delayMs: number): void {
+	// Clear any pending reset to avoid multiple timers
+	if (lspIdleResetTimeout) {
+		clearTimeout(lspIdleResetTimeout);
+	}
+	lspIdleResetTimeout = setTimeout(() => {
+		resetFn();
+		lspIdleResetTimeout = null;
+	}, delayMs);
 }
 
 function capTurnEndMessage(content: string): string {
@@ -48,6 +68,7 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 		jscpdClient,
 		knipClient,
 		depChecker,
+		testRunnerClient,
 		resetLSPService,
 		resetFormatService,
 	} = deps;
@@ -57,11 +78,19 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 	const files = Object.keys(turnState.files);
 
 	if (files.length === 0) {
-		if (getFlag("lens-lsp") && !getFlag("no-lsp")) {
-			resetLSPService();
+		dbg("turn_end: no modified files, scheduling LSP idle reset (240s)");
+		if (!getFlag("no-lsp")) {
+			scheduleLSPIdleReset(resetLSPService, 240_000);
 		}
 		resetFormatService();
 		return;
+	}
+
+	// Cancel any pending idle reset since we're actively working
+	if (lspIdleResetTimeout) {
+		clearTimeout(lspIdleResetTimeout);
+		lspIdleResetTimeout = null;
+		dbg("turn_end: cancelled pending LSP idle reset (active editing)");
 	}
 
 	dbg(
@@ -78,11 +107,22 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 
 	const blockerParts: string[] = [];
 
-	if (runtime.lastCascadeOutput) {
-		blockerParts.push(runtime.consumeLastCascadeOutput());
-	}
-	if (runtime.lastImpactCascadeOutput) {
-		blockerParts.push(runtime.consumeLastImpactCascadeOutput());
+	// Re-gather cascade fresh so turn_end reflects the current LSP state, not
+	// the stale output from the last individual edit's pipeline run.
+	runtime.consumeLastCascadeOutput();
+	runtime.consumeLastImpactCascadeOutput();
+	if (!getFlag("no-lsp")) {
+		const excludePaths = new Set(
+			files.map((f) => resolveRunnerPath(cwd, f)),
+		);
+		const freshCascade = await gatherCascadeDiagnostics(
+			excludePaths,
+			cwd,
+			"turn_end",
+			getFlag,
+			dbg,
+		);
+		if (freshCascade) blockerParts.push(freshCascade);
 	}
 
 	if (runtime.isStartupScanInFlight("jscpd")) {
@@ -108,12 +148,18 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 				const matchA =
 					jscpdFileSet.has(resolvedA) &&
 					!!stateA &&
-					cacheManager.isLineInModifiedRange(clone.startA, stateA.modifiedRanges);
+					cacheManager.isLineInModifiedRange(
+						clone.startA,
+						stateA.modifiedRanges,
+					);
 
 				const matchB =
 					jscpdFileSet.has(resolvedB) &&
 					!!stateB &&
-					cacheManager.isLineInModifiedRange(clone.startB, stateB.modifiedRanges);
+					cacheManager.isLineInModifiedRange(
+						clone.startB,
+						stateB.modifiedRanges,
+					);
 
 				return matchA || matchB;
 			});
@@ -131,10 +177,16 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 						const stateB = cacheManager.getTurnFileState(resolvedB, cwd);
 						const matchA =
 							!!stateA &&
-							cacheManager.isLineInModifiedRange(clone.startA, stateA.modifiedRanges);
+							cacheManager.isLineInModifiedRange(
+								clone.startA,
+								stateA.modifiedRanges,
+							);
 						const matchB =
 							!!stateB &&
-							cacheManager.isLineInModifiedRange(clone.startB, stateB.modifiedRanges);
+							cacheManager.isLineInModifiedRange(
+								clone.startB,
+								stateB.modifiedRanges,
+							);
 						firstPath = matchB && !matchA ? displayB : displayA;
 					}
 					report += `  ${displayA}:${clone.startA} ↔ ${displayB}:${clone.startB} (${clone.lines} lines)\n`;
@@ -175,7 +227,8 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 				(i) => i.type === "unlisted" || i.type === "bin",
 			);
 			if (blockerIssues.length > 0) {
-				let report = "🔴 New unresolved imports/deps in modified code (Knip):\n";
+				let report =
+					"🔴 New unresolved imports/deps in modified code (Knip):\n";
 				let firstPath: string | null = null;
 				for (const issue of blockerIssues.slice(0, 5)) {
 					const display = issue.file
@@ -216,6 +269,56 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 		}
 	}
 
+	// --- Test runner: fire once per turn after all edits are done ---
+	// Runs for each unique test target across modified files; results appear
+	// in the next turn's context injection alongside jscpd/madge findings.
+	if (!getFlag("no-tests") && files.length > 0) {
+		const seen = new Set<string>();
+		const targets: NonNullable<
+			ReturnType<TestRunnerClient["getTestRunTarget"]>
+		>[] = [];
+		for (const file of files) {
+			const abs = resolveRunnerPath(cwd, file);
+			const target = testRunnerClient.getTestRunTarget(abs, cwd);
+			if (target && !seen.has(target.testFile)) {
+				seen.add(target.testFile);
+				targets.push(target);
+			}
+		}
+		if (targets.length > 0) {
+			dbg(`turn_end: firing ${targets.length} test target(s) async (non-blocking)`);
+			const firedAtTurn = runtime.turnIndex;
+			Promise.allSettled(
+				targets.map((t) =>
+					testRunnerClient.runTestFileAsync(
+						t.testFile,
+						cwd,
+						t.runner,
+						t.config,
+					),
+				),
+			).then((results) => {
+				// Drop stale results if the agent has already started a new turn.
+				if (runtime.turnIndex !== firedAtTurn) {
+					dbg(`turn_end: discarding test results — turn advanced while tests ran`);
+					return;
+				}
+				const failures: string[] = [];
+				for (const r of results) {
+					if (r.status === "fulfilled" && r.value.failed > 0) {
+						const formatted = testRunnerClient.formatResult(r.value);
+						if (formatted) failures.push(formatted);
+					}
+				}
+				if (failures.length > 0) {
+					const content = failures.join("\n\n");
+					cacheManager.writeCache("test-runner-findings", { content }, cwd);
+					dbg(`turn_end: test failures cached for next context injection`);
+				}
+			}).catch(() => {});
+		}
+	}
+
 	if (runtime.errorDebtBaseline && files.length > 0) {
 		dbg("turn_end: marking error debt check for next session");
 		cacheManager.writeCache(
@@ -244,7 +347,9 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 			cwd,
 		);
 		if (last?.data?.signature === signature) {
-			dbg("turn_end: duplicate blocker findings detected, suppressing re-prompt");
+			dbg(
+				"turn_end: duplicate blocker findings detected, suppressing re-prompt",
+			);
 			cacheManager.clearTurnState(cwd);
 			runtime.fixedThisTurn.clear();
 			resetFormatService();

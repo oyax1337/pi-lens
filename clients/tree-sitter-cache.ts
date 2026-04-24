@@ -274,7 +274,7 @@ export class TreeCache {
 			this.debug(`Invalidated: ${key}`);
 		} else {
 			// Invalidate all entries for this file
-			for (const [key, value] of this.cache.entries()) {
+			for (const [key, _value] of this.cache.entries()) {
 				if (key.includes(filePath)) {
 					this.cache.delete(key);
 					this.debug(`Invalidated: ${key}`);

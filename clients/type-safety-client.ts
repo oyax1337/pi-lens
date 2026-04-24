@@ -191,5 +191,3 @@ export class TypeSafetyClient {
 }
 
 // --- Singleton ---
-
-const _instance: TypeSafetyClient | null = null;

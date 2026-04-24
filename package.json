@@ -1,6 +1,6 @@
 {
 	"name": "pi-lens",
-	"version": "3.8.28",
+	"version": "3.8.31",
 	"type": "module",
 	"description": "Real-time code feedback for pi — LSP, linters, formatters, type-checking, structural analysis & booboo",
 	"repository": {
@@ -74,7 +74,7 @@
 	},
 	"dependencies": {
 		"@ast-grep/napi": "^0.42.1",
-		"@sinclair/typebox": "^0.34.0",
+		"typebox": "^1.0.0",
 		"minimatch": "^10.2.5",
 		"typescript": "^5.0.0",
 		"vscode-jsonrpc": "^8.2.1"

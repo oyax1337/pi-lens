@@ -85,3 +85,4 @@ clients/lsp/.intelephense/
 AGENTS.md
 .npmignore
 .claude/settings.local.json
+autoresearch.jsonl

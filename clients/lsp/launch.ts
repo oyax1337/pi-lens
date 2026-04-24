@@ -27,7 +27,6 @@ export interface LSPProcess {
 
 const isWindows = process.platform === "win32";
 const DEFAULT_STARTUP_FAILURE_WINDOW_MS = 50;
-const WINDOWS_SHELL_STARTUP_FAILURE_WINDOW_MS = 250;
 const WINDOWS_NAV_STARTUP_FAILURE_WINDOW_MS = 500;
 const SESSIONSTART_LOG_DIR = path.join(os.homedir(), ".pi-lens");
 const SESSIONSTART_LOG = path.join(SESSIONSTART_LOG_DIR, "sessionstart.log");
@@ -60,7 +59,10 @@ function delimiterForPlatform(platform: NodeJS.Platform): string {
 	return platform === "win32" ? ";" : ":";
 }
 
-function splitPathEntries(value: string | undefined, delimiter: string): string[] {
+function splitPathEntries(
+	value: string | undefined,
+	delimiter: string,
+): string[] {
 	if (!value) return [];
 	return value
 		.split(delimiter)
@@ -100,11 +102,18 @@ function resolvePathValue(env: NodeJS.ProcessEnv): string {
 /** Read live system+user PATH from Windows registry (bypasses stale process.env.PATH). */
 function readWindowsRegistryPath(): string {
 	try {
-		const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-		const out = execFileSync("powershell.exe", [
-			"-NoProfile", "-NonInteractive", "-Command",
-			"[System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User')",
-		], { timeout: 3000, encoding: "utf8" });
+		const { execFileSync } =
+			require("node:child_process") as typeof import("node:child_process");
+		const out = execFileSync(
+			"powershell.exe",
+			[
+				"-NoProfile",
+				"-NonInteractive",
+				"-Command",
+				"[System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User')",
+			],
+			{ timeout: 3000, encoding: "utf8" },
+		);
 		return out.trim();
 	} catch {
 		return "";
@@ -127,18 +136,25 @@ function buildAugmentedPath(basePath?: string): string {
 	}
 
 	if (isWindows) {
-		const userProfile = process.env.USERPROFILE;
-		if (userProfile) {
-			candidates.push(path.join(userProfile, ".cargo", "bin"));
-			candidates.push(path.join(userProfile, "go", "bin"));
-			candidates.push(path.join(userProfile, ".dotnet", "tools"));
-		}
+		const home = os.homedir();
+		const driveRoot = path.parse(home).root; // e.g. "C:\"
+		candidates.push(path.join(home, ".cargo", "bin"));
+		candidates.push(path.join(home, "go", "bin"));
+		candidates.push(path.join(home, ".dotnet", "tools"));
 		candidates.push(PI_LENS_BIN_DIR);
 		candidates.push(PI_LENS_TOOLS_BIN_DIR);
-		candidates.push(path.join("C:\\", "Program Files", "Go", "bin"));
-		candidates.push(path.join("C:\\", "Go", "bin"));
-		candidates.push(path.join("C:\\", "Ruby34-x64", "bin"));
-		candidates.push(path.join("C:\\", "Ruby33-x64", "bin"));
+		candidates.push(path.join(driveRoot, "Program Files", "Go", "bin"));
+		candidates.push(path.join(driveRoot, "Go", "bin"));
+		// Ruby installer drops versioned dirs (e.g. Ruby34-x64) on the drive root — scan dynamically
+		try {
+			for (const entry of fs.readdirSync(driveRoot)) {
+				if (/^ruby\d/i.test(entry)) {
+					candidates.push(path.join(driveRoot, entry, "bin"));
+				}
+			}
+		} catch {
+			// drive root not readable — skip
+		}
 	}
 
 	// On Windows, merge the live registry PATH so newly installed tools are visible
@@ -189,15 +205,80 @@ function _findBinaryInNpmGlobal(command: string): string | undefined {
 				]
 			: [path.join(binDir, command)];
 
-	for (const candidate of candidates) {
-		if (fs.existsSync(candidate)) {
-			return candidate;
+		for (const candidate of candidates) {
+			if (fs.existsSync(candidate)) {
+				return candidate;
+			}
 		}
-	}
-	return undefined;
+		return undefined;
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * Validate that a .cmd shim's target JS/script exists before attempting to
+ * spawn it. npm-generated .cmd files reference the actual script via a path
+ * like `"%~dp0\..\yaml-language-server\bin\yaml-language-server"`. If that
+ * target is missing the shim will exit immediately with code 1 after a 500ms
+ * startup window — pre-checking avoids the delay.
+ * Returns true if the shim is valid (or we can't determine), false if the
+ * target is definitively missing.
+ */
+export function isCmdShimValid(cmdPath: string): boolean {
+	try {
+		const content = fs.readFileSync(cmdPath, "utf-8");
+		// npm cmd shim pattern: "%~dp0\..\<relpath>" or "%~dp0/<relpath>"
+		const match = content.match(/"%~dp0[/\\]\.\.[/\\]([\w./@\\-]+\.(?:mjs|cjs|js))"/i);
+		if (!match) return true; // non-npm shim — let it through
+		const relPath = match[1].replace(/[/\\]/g, path.sep);
+		const target = path.resolve(path.dirname(cmdPath), "..", relPath);
+		return fs.existsSync(target);
+	} catch {
+		return true; // can't read — be permissive
+	}
+}
+
+/**
+ * On Windows, npm creates .ps1 wrappers that hang indefinitely when PowerShell
+ * execution policy is Restricted or AllSigned. Bypass by preferring the .cmd
+ * sibling (runs under cmd.exe, no execution policy) or falling back to direct
+ * Node.js execution of the JS entry point extracted from the PS1 script.
+ * Returns undefined if no safe bypass is found.
+ */
+function bypassPs1OnWindows(
+	ps1Path: string,
+	args: string[],
+): { command: string; args: string[]; needsShell: boolean } | undefined {
+	// 1. Prefer the .cmd sibling — cmd.exe handles it without execution policy issues
+	const cmdPath = `${ps1Path.slice(0, -4)}.cmd`;
+	if (fs.existsSync(cmdPath)) {
+		return { command: cmdPath, args, needsShell: true };
+	}
+
+	// 2. Parse the .ps1 to find the JS entry point and invoke via node directly.
+	// npm-generated PS1 pattern: "$basedir/../<package>/bin/cli.js"
+	try {
+		const content = fs.readFileSync(ps1Path, "utf-8");
+		const match = content.match(
+			/"\$basedir[/\\]\.\.[/\\]([\w./@-]+\.(?:mjs|cjs|js))"/i,
+		);
+		if (match) {
+			const relPath = match[1].replace(/[/\\]/g, path.sep);
+			const jsPath = path.resolve(path.dirname(ps1Path), "..", relPath);
+			if (fs.existsSync(jsPath)) {
+				return {
+					command: process.execPath,
+					args: [jsPath, ...args],
+					needsShell: false,
+				};
+			}
+		}
+	} catch {
+		// Can't read PS1 — no bypass available
+	}
+
+	return undefined;
 }
 
 function findBinaryOnPath(
@@ -205,11 +286,14 @@ function findBinaryOnPath(
 	env: NodeJS.ProcessEnv,
 ): string | undefined {
 	try {
-		const result = execSync(isWindows ? `where ${command}` : `which ${command}`, {
-			encoding: "utf-8",
-			stdio: ["ignore", "pipe", "ignore"],
-			env,
-		})
+		const result = execSync(
+			isWindows ? `where ${command}` : `which ${command}`,
+			{
+				encoding: "utf-8",
+				stdio: ["ignore", "pipe", "ignore"],
+				env,
+			},
+		)
 			.split(/\r?\n/)
 			.map((line) => line.trim())
 			.filter(Boolean);
@@ -237,8 +321,16 @@ function trySpawn(
 	let proc: ChildProcess;
 
 	if (needsShell) {
-		// Use shell mode with quoted command
-		const shellCommand = `"${command}" ${args.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ")}`;
+		// Build a cmd.exe-safe command string: wrap in double quotes, escape internal
+		// quotes by doubling them, and escape cmd metacharacters (& | < > ^ ( ) !) with ^
+		const escapeCmdArg = (s: string): string => {
+			// Escape cmd.exe metacharacters first, then wrap in quotes if needed
+			const escaped = s.replace(/([&|<>^()!])/g, "^$1");
+			return /[\s"]/.test(escaped)
+				? `"${escaped.replace(/"/g, '""')}"`
+				: escaped;
+		};
+		const shellCommand = `"${command}" ${args.map(escapeCmdArg).join(" ")}`;
 		proc = nodeSpawn(shellCommand, [], {
 			cwd,
 			env,
@@ -407,6 +499,35 @@ export async function launchLSP(
 		}
 	}
 
+	// Pre-validate .cmd shims: if the underlying script is missing the shim will
+	// exit with code 1 after a 500ms wait. Catching this early avoids the delay.
+	if (isWindows && /\.(cmd|bat)$/i.test(spawnCommand) && !isCmdShimValid(spawnCommand)) {
+		logSessionStart(
+			`lsp cmd-shim-invalid: ${spawnCommand} target missing — skipping candidate`,
+		);
+		throw new Error(
+			`LSP .cmd shim target not found: ${spawnCommand}. The npm package may not be installed.`,
+		);
+	}
+
+	// P0 FIX: Never spawn .ps1 wrappers on Windows — they hang when PowerShell
+	// execution policy is Restricted/AllSigned. Prefer .cmd or direct node.
+	if (isWindows && /\.ps1$/i.test(spawnCommand)) {
+		const bypass = bypassPs1OnWindows(spawnCommand, args);
+		if (bypass) {
+			logSessionStart(
+				`lsp ps1-bypass: ${spawnCommand} → ${bypass.command} shell=${bypass.needsShell}`,
+			);
+			spawnCommand = bypass.command;
+			args = bypass.args;
+			needsShell = bypass.needsShell;
+		} else {
+			logSessionStart(
+				`lsp ps1-bypass: no .cmd or JS entry found for ${spawnCommand}, spawn may hang`,
+			);
+		}
+	}
+
 	let proc: ChildProcess;
 
 	try {
@@ -472,42 +593,48 @@ export async function launchLSP(
 	// We need to wait a small tick to catch immediate spawn failures
 	try {
 		await new Promise<void>((resolve, reject) => {
-		let settled = false;
+			let settled = false;
 
-		// Attach error handler that can reject for immediate errors
-		proc.on("error", (err: Error & { code?: string }) => {
-			if (!settled && (err.code === "ENOENT" || err.code === "EINVAL")) {
-				settled = true;
-				reject(
-					new Error(
-						`LSP server binary not found: ${command}. ` +
-							`Install it or check your PATH.${formatStartupStderr(startupStderr)}`,
-					),
-				);
-			}
-		});
+			// Attach error handler that can reject for immediate errors
+			proc.on("error", (err: Error & { code?: string }) => {
+				if (!settled && (err.code === "ENOENT" || err.code === "EINVAL")) {
+					settled = true;
+					reject(
+						new Error(
+							`LSP server binary not found: ${command}. ` +
+								`Install it or check your PATH.${formatStartupStderr(startupStderr)}`,
+						),
+					);
+				}
+			});
 
-		// Also listen for immediate exit
-		proc.on("exit", (code: number | null) => {
-			if (!settled && code !== null) {
-				settled = true;
-				reject(
-					new Error(
-						`LSP server ${command} exited immediately with code ${code}. ` +
-							`The binary may be missing or corrupted.${formatStartupStderr(startupStderr)}`,
-					),
-				);
-			}
-		});
+			// Also listen for immediate exit
+			proc.on("exit", (code: number | null) => {
+				if (!settled && code !== null) {
+					settled = true;
+					// On Windows, .cmd shims fail with code 1 when the underlying binary isn't installed
+					// This is different from ENOENT - the shim exists but can't find the binary
+					const isWindowsCmd = isWindows && command.endsWith(".cmd");
+					const errorMsg =
+						isWindowsCmd && code === 1
+							? `npm .cmd shim failed (underlying binary not installed). Run 'npm install' in this project or use a global installation.`
+							: `The binary may be missing or corrupted.`;
+					reject(
+						new Error(
+							`LSP server ${command} exited immediately with code ${code}. ${errorMsg}${formatStartupStderr(startupStderr)}`,
+						),
+					);
+				}
+			});
 
-		// Give shell-backed Windows launches a slightly longer window because
-		// npm/cmd shims can fail asynchronously after the initial spawn succeeds.
-		setTimeout(() => {
-			if (!settled) {
-				settled = true;
-				resolve();
-			}
-		}, startupFailureWindowMs);
+			// Give shell-backed Windows launches a slightly longer window because
+			// npm/cmd shims can fail asynchronously after the initial spawn succeeds.
+			setTimeout(() => {
+				if (!settled) {
+					settled = true;
+					resolve();
+				}
+			}, startupFailureWindowMs);
 		});
 	} finally {
 		proc.stderr?.off("data", onStartupStderr);
@@ -664,7 +791,20 @@ export async function stopLSP(handle: LSPProcess): Promise<void> {
 		// Force kill after timeout
 		const timeout = setTimeout(() => {
 			if (!handle.process.killed) {
-				handle.process.kill("SIGKILL");
+				if (isWindows && handle.pid > 0) {
+					// SIGKILL is unreliable for cmd.exe/PowerShell child trees on Windows.
+					// taskkill /F /T kills the process and all its children.
+					try {
+						nodeSpawn("taskkill", ["/F", "/T", "/PID", String(handle.pid)], {
+							shell: false,
+							windowsHide: true,
+						});
+					} catch {
+						handle.process.kill("SIGKILL");
+					}
+				} else {
+					handle.process.kill("SIGKILL");
+				}
 			}
 		}, 5000);
 

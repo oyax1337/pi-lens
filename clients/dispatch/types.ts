@@ -12,7 +12,16 @@
  */
 
 import type { FileKind } from "../file-kinds.js";
-import type { DefectClass } from "./diagnostic-taxonomy.js";
+
+export type DefectClass =
+	| "silent-error"
+	| "injection"
+	| "secrets"
+	| "async-misuse"
+	| "correctness"
+	| "safety"
+	| "style"
+	| "unknown";
 
 export interface ModifiedRange {
 	start: number;

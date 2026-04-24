@@ -1,14 +1,4 @@
-import type { Diagnostic } from "./types.js";
-
-export type DefectClass =
-	| "silent-error"
-	| "injection"
-	| "secrets"
-	| "async-misuse"
-	| "correctness"
-	| "safety"
-	| "style"
-	| "unknown";
+import type { DefectClass, Diagnostic } from "./types.js";
 
 const SILENT_ERROR_HINTS = [
 	"empty-catch",
@@ -20,9 +10,27 @@ const SILENT_ERROR_HINTS = [
 	"silent",
 ];
 
-const INJECTION_HINTS = ["sql-injection", "eval", "exec", "inner-html", "javascript-url"];
-const SECRET_HINTS = ["secret", "token", "password", "api-key", "hardcoded-secrets"];
-const ASYNC_HINTS = ["await-in-loop", "promise", "concurrency", "async", "then-catch"];
+const INJECTION_HINTS = [
+	"sql-injection",
+	"eval",
+	"exec",
+	"inner-html",
+	"javascript-url",
+];
+const SECRET_HINTS = [
+	"secret",
+	"token",
+	"password",
+	"api-key",
+	"hardcoded-secrets",
+];
+const ASYNC_HINTS = [
+	"await-in-loop",
+	"promise",
+	"concurrency",
+	"async",
+	"then-catch",
+];
 
 function hasAny(haystack: string, hints: string[]): boolean {
 	return hints.some((h) => haystack.includes(h));
@@ -40,7 +48,11 @@ export function classifyDefect(
 	if (hasAny(text, SECRET_HINTS)) return "secrets";
 	if (hasAny(text, ASYNC_HINTS)) return "async-misuse";
 
-	if (text.includes("no-") || text.includes("return") || text.includes("constructor")) {
+	if (
+		text.includes("no-") ||
+		text.includes("return") ||
+		text.includes("constructor")
+	) {
 		return "correctness";
 	}
 
@@ -50,6 +62,8 @@ export function classifyDefect(
 	return "unknown";
 }
 
-export function classifyDiagnostic(d: Pick<Diagnostic, "rule" | "tool" | "message">): DefectClass {
+export function classifyDiagnostic(
+	d: Pick<Diagnostic, "rule" | "tool" | "message">,
+): DefectClass {
 	return classifyDefect(d.rule, d.tool, d.message);
 }

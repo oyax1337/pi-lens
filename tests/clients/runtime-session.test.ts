@@ -24,7 +24,6 @@ async function runSessionStart(mode: "full" | "quick") {
 			getFlag: (name: string) => {
 				if (name === "lens-lsp") return true;
 				if (name === "no-lsp") return false;
-				if (name === "error-debt") return true;
 				return false;
 			},
 			notify,
@@ -109,7 +108,7 @@ afterEach(() => {
 });
 
 describe("runtime-session notifications", () => {
-	it("full mode emits build-cache and error-debt warnings while avoiding startup info noise", async () => {
+	it("full mode emits build-cache warning while avoiding startup info noise", async () => {
 		const { env, notify, scanDirectory, ensureTool } =
 			await runSessionStart("full");
 
@@ -122,11 +121,13 @@ describe("runtime-session notifications", () => {
 			);
 
 			expect(infoCalls).toHaveLength(0);
+			// TypeScript build cache warning still expected
 			expect(
 				warningCalls.some(([msg]) => msg.includes("TypeScript build cache")),
 			).toBe(true);
+			// ERROR DEBT feature removed - no longer expected
 			expect(warningCalls.some(([msg]) => msg.includes("ERROR DEBT"))).toBe(
-				true,
+				false,
 			);
 			expect(scanDirectory).not.toHaveBeenCalled();
 			expect(ensureTool).not.toHaveBeenCalled();

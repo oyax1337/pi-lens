@@ -2,6 +2,9 @@
  * Shared file path utilities for pi-lens
  */
 
+import * as fs from "node:fs";
+import { safeSpawnAsync } from "./safe-spawn.js";
+
 /**
  * Directories to exclude from all scans (build outputs, dependencies, caches).
  * Used consistently across all scanners to avoid noise from generated files.
@@ -109,6 +112,42 @@ export function getKnipIgnorePatterns(): string[] {
 		"**/__tests__/**",
 		"**/tests/**",
 	];
+}
+
+/**
+ * Spawn a command and detect whether it modified a file on disk.
+ * Returns 1 if the file content changed after the command ran, 0 otherwise.
+ * Useful for auto-fix tools (ESLint, Stylelint, RuboCop, etc.).
+ */
+export async function detectFileChangedAfterCommand(
+	filePath: string,
+	command: string,
+	args: string[],
+	cwd: string,
+	ignoreStatuses: number[] = [],
+): Promise<number> {
+	let before = "";
+	try {
+		before = fs.readFileSync(filePath, "utf-8");
+	} catch {
+		return 0;
+	}
+
+	const result = await safeSpawnAsync(command, args, {
+		timeout: 30000,
+		cwd,
+	});
+	if (result.error) return 0;
+	if (result.status !== 0 && !ignoreStatuses.includes(result.status ?? -1)) {
+		return 0;
+	}
+
+	try {
+		const after = fs.readFileSync(filePath, "utf-8");
+		return before !== after ? 1 : 0;
+	} catch {
+		return 0;
+	}
 }
 
 /**

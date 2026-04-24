@@ -1,9 +1,10 @@
 import * as path from "node:path";
 import type { FileComplexity } from "./complexity-client.js";
+import { normalizeMapKey } from "./path-utils.js";
+import type { ProjectIndex } from "./project-index.js";
+import { ReadGuard } from "./read-guard.js";
 import type { RuleScanResult } from "./rules-scanner.js";
 import { RUNTIME_CONFIG } from "./runtime-config.js";
-import type { ProjectIndex } from "./project-index.js";
-import { normalizeMapKey } from "./path-utils.js";
 
 export interface ErrorDebtBaseline {
 	testsPassed: boolean;
@@ -22,6 +23,7 @@ export class RuntimeCoordinator {
 	private _lastImpactCascadeOutput = "";
 	private _complexityBaselines = new Map<string, FileComplexity>();
 	private _fixedThisTurn = new Set<string>();
+	private _reportedThisTurn = new Set<string>();
 	private _projectRulesScan: RuleScanResult = {
 		rules: [],
 		hasCustomRules: false,
@@ -32,6 +34,7 @@ export class RuntimeCoordinator {
 	private _writeIndex = 0;
 	private _gitGuardHasBlockers = false;
 	private _gitGuardSummary = "";
+	private _readGuard: ReadGuard | null = null;
 
 	resetForSession(): void {
 		this._sessionGeneration += 1;
@@ -43,8 +46,8 @@ export class RuntimeCoordinator {
 		this._lastCascadeOutput = "";
 		this._lastImpactCascadeOutput = "";
 		this._fixedThisTurn.clear();
-		this._telemetrySessionId =
-			`lens-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+		this._reportedThisTurn.clear();
+		this._telemetrySessionId = `lens-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 		this._telemetryModel = "unknown";
 		this._turnIndex = 0;
 		this._writeIndex = 0;
@@ -81,6 +84,11 @@ export class RuntimeCoordinator {
 		this._lastImpactCascadeOutput = "";
 		this._turnIndex += 1;
 		this._writeIndex = 0;
+		this._reportedThisTurn.clear();
+	}
+
+	get reportedThisTurn(): Set<string> {
+		return this._reportedThisTurn;
 	}
 
 	nextWriteIndex(): number {
@@ -236,5 +244,12 @@ export class RuntimeCoordinator {
 
 	set projectRulesScan(value: RuleScanResult) {
 		this._projectRulesScan = value;
+	}
+
+	get readGuard(): ReadGuard {
+		if (!this._readGuard) {
+			this._readGuard = new ReadGuard(this._telemetrySessionId);
+		}
+		return this._readGuard;
 	}
 }

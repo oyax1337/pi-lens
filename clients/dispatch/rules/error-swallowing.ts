@@ -17,7 +17,7 @@ export const errorSwallowingRule: FactRule = {
 
     const diagnostics: Diagnostic[] = [];
     for (const s of summaries) {
-      if (s.isEmpty) {
+      if (s.isEmpty && !s.isDocumentedLocalFallback && s.boundaryCategory !== "fs") {
         diagnostics.push({
           id: `error-swallowing:${ctx.filePath}:${s.line}:${s.column}`,
           tool: "error-swallowing",

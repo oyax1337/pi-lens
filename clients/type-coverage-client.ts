@@ -9,7 +9,6 @@
  * Docs: https://github.com/plantain-00/type-coverage
  */
 
-import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 import { safeSpawn } from "./safe-spawn.js";
 

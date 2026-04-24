@@ -19,7 +19,10 @@ export interface LineParserConfig {
 	/** Generate diagnostic ID from match */
 	generateId: (match: RegExpMatchArray) => string;
 	/** Determine severity from line content or match (defaults to warning) */
-	getSeverity?: (line: string, match: RegExpMatchArray) => "error" | "warning" | "info";
+	getSeverity?: (
+		line: string,
+		match: RegExpMatchArray,
+	) => "error" | "warning" | "info";
 	/** Whether this diagnostic is fixable (defaults to false) */
 	fixable?: boolean | ((match: RegExpMatchArray) => boolean);
 	/** Strip ANSI escape codes before parsing (defaults to true) */
@@ -36,9 +39,7 @@ export function createLineParser(config: LineParserConfig) {
 
 		// Optionally strip ANSI codes (for tools that output colored text)
 		const clean =
-			config.stripAnsi !== false
-				? raw.replace(/\x1b\[[0-9;]*m/g, "")
-				: raw;
+			config.stripAnsi !== false ? raw.replace(/\x1b\[[0-9;]*m/g, "") : raw;
 
 		const lines = clean.split("\n").filter((l) => l.trim());
 
@@ -56,7 +57,7 @@ export function createLineParser(config: LineParserConfig) {
 			const fixable =
 				typeof config.fixable === "function"
 					? config.fixable(match)
-					: config.fixable ?? false;
+					: (config.fixable ?? false);
 
 			diagnostics.push({
 				id: config.generateId(match),
@@ -106,7 +107,7 @@ export const parseGoVetOutput = createLineParser({
  * Parse Biome output: file:line:col message (category)
  * With autofix support for fix suggestions
  */
-export function createBiomeParser(autofix: boolean = false) {
+export function createBiomeParser(_autofix: boolean = false) {
 	return createLineParser({
 		tool: "biome",
 		regex: /^(.+?):(\d+):(\d+)\s+(.+?)\s*\((.+?)\)/,
@@ -145,7 +146,9 @@ export function createSimpleParser(
 	// Build regex based on separator type
 	const escapedSep = sep === " " ? "\\s+" : escapeRegExp(sep);
 	const regex = options.includesFileName
-		? new RegExp(`^(.+?)${escapedSep}(\\d+)${escapedSep}(\\d+)${escapedSep}(.+)`)
+		? new RegExp(
+				`^(.+?)${escapedSep}(\\d+)${escapedSep}(\\d+)${escapedSep}(.+)`,
+			)
 		: new RegExp(`^(\\d+)${escapedSep}(\\d+)${escapedSep}(.+)`);
 
 	return (raw: string, filePath: string): Diagnostic[] => {

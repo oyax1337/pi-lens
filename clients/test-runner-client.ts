@@ -43,31 +43,6 @@ interface RunnerConfig {
 	parseJson: boolean;
 }
 
-// --- Test File Patterns ---
-
-const _TEST_FILE_PATTERNS: Array<{ lang: string; patterns: RegExp[] }> = [
-	{
-		lang: "typescript",
-		patterns: [
-			/^(.+)\.test\.tsx?$/,
-			/^(.+)\.spec\.tsx?$/,
-			/^(.+?)__tests__\/(.+)\.tsx?$/,
-		],
-	},
-	{
-		lang: "javascript",
-		patterns: [
-			/^(.+)\.test\.jsx?$/,
-			/^(.+)\.spec\.jsx?$/,
-			/^(.+?)__tests__\/(.+)\.jsx?$/,
-		],
-	},
-	{
-		lang: "python",
-		patterns: [/^(.+)\.py$/, /^(.+?)test_(.+)\.py$/],
-	},
-];
-
 // Source file → test file patterns (reverse lookup)
 const SOURCE_TO_TEST_PATTERNS: Array<{
 	ext: string;
@@ -107,11 +82,7 @@ const SOURCE_TO_TEST_PATTERNS: Array<{
 
 const RUNNERS: Record<string, RunnerConfig> = {
 	vitest: {
-		configFiles: [
-			"vitest.config.ts",
-			"vitest.config.js",
-			"vitest.config.mjs",
-		],
+		configFiles: ["vitest.config.ts", "vitest.config.js", "vitest.config.mjs"],
 		command: "npx",
 		args: (testFile, _cwd) => [
 			"vitest",
@@ -346,8 +317,6 @@ export class TestRunnerClient {
 		const ext = path.extname(sourceFilePath);
 		const basename = path.basename(sourceFilePath, ext);
 		const dir = path.dirname(sourceFilePath);
-		const _relativeDir = path.relative(cwd, dir);
-
 		const patterns = SOURCE_TO_TEST_PATTERNS.find((p) => p.ext === ext);
 		if (!patterns) return null;
 
@@ -868,7 +837,9 @@ export class TestRunnerClient {
 			passed = Math.max(0, total - failed - skipped);
 		}
 
-		const rspecSummary = output.match(/(\d+)\s+examples?,\s+(\d+)\s+failures?/i);
+		const rspecSummary = output.match(
+			/(\d+)\s+examples?,\s+(\d+)\s+failures?/i,
+		);
 		if (rspecSummary) {
 			const total = Number.parseInt(rspecSummary[1], 10);
 			failed = Number.parseInt(rspecSummary[2], 10);
@@ -886,7 +857,9 @@ export class TestRunnerClient {
 			passed = Math.max(0, total - failed);
 		}
 
-		const gradleSummary = output.match(/(\d+)\s+tests? completed,\s+(\d+)\s+failed/i);
+		const gradleSummary = output.match(
+			/(\d+)\s+tests? completed,\s+(\d+)\s+failed/i,
+		);
 		if (gradleSummary) {
 			const total = Number.parseInt(gradleSummary[1], 10);
 			failed = Number.parseInt(gradleSummary[2], 10);

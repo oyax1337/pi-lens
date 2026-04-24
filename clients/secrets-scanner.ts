@@ -58,6 +58,28 @@ function shouldIgnorePatternMatch(line: string, patternName: string): boolean {
 	return false;
 }
 
+/**
+ * Check if a string value looks like an environment variable name.
+ * Env var names typically use UPPERCASE_SNAKE_CASE.
+ * Used to filter false positives like: api_key = "FIREWORKS_API_KEY"
+ * where the value is just referencing the env var name, not a secret.
+ */
+function looksLikeEnvVarName(value: string): boolean {
+	// Must be all uppercase with underscores (no lowercase letters)
+	// Must start with a letter and contain at least one underscore
+	return /^[A-Z][A-Z0-9_]*$/.test(value) && value.includes("_");
+}
+
+/**
+ * Extract the quoted value from a hardcoded secret pattern match.
+ * Returns null if no quoted value found.
+ */
+function extractQuotedValue(line: string): string | null {
+	// Match content inside quotes after : or =
+	const match = line.match(/[:=]\s*["']([^"']+)["']/);
+	return match ? match[1] : null;
+}
+
 // Patterns ordered by specificity - first match wins per line
 const SECRET_PATTERNS: SecretPattern[] = [
 	// High-confidence: specific key prefixes
@@ -104,7 +126,7 @@ const SECRET_PATTERNS: SecretPattern[] = [
 	},
 	{
 		pattern:
-			/(?:secret|api_?key|token|access_?key)\s*[:=]\s*["'][a-zA-Z0-9_\-/.]{8,}["']/gi,
+			/\b(secret|api_?key|token|access_?key)\b\s*[:=]\s*["']([a-zA-Z0-9_\-/.]{8,})["']/gi,
 		name: "hardcoded-secret",
 		message: "Possible hardcoded secret or API key",
 	},
@@ -141,19 +163,26 @@ export function scanForSecrets(
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
-		let _matched = false;
 		for (const pattern of SECRET_PATTERNS) {
 			// Reset lastIndex before each test (important for global regex)
 			const regex = new RegExp(pattern.pattern.source, pattern.pattern.flags);
-			if (regex.test(line)) {
+			const match = regex.exec(line);
+			if (match) {
 				if (shouldIgnorePatternMatch(line, pattern.name)) {
 					continue;
+				}
+				// For hardcoded-secret pattern, check if the value looks like an env var name
+				// This prevents false positives like: api_key = "FIREWORKS_API_KEY"
+				if (pattern.name === "hardcoded-secret") {
+					const value = extractQuotedValue(line);
+					if (value && looksLikeEnvVarName(value)) {
+						continue; // Skip - just referencing env var name, not a secret
+					}
 				}
 				findings.push({
 					line: i + 1,
 					message: pattern.message,
 				});
-				_matched = true;
 				break; // One finding per line
 			}
 		}

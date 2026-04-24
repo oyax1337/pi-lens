@@ -7,17 +7,14 @@
  * - Platform-specific handling
  */
 
-import { mkdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { appendFile, mkdir, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { ensureTool, getToolEnvironment } from "../installer/index.js";
 import { logLatency } from "../latency-logger.js";
-import {
-	type LSPProcess,
-	launchLSP,
-} from "./launch.js";
+import { type LSPProcess, launchLSP } from "./launch.js";
 
 // --- Types ---
 
@@ -67,7 +64,11 @@ function canInstall(allowInstall?: boolean): boolean {
 
 function isCommandNotFoundError(error: unknown): boolean {
 	const msg = String(error);
-	return msg.includes("not found") || msg.includes("ENOENT") || msg.includes("not recognized");
+	return (
+		msg.includes("not found") ||
+		msg.includes("ENOENT") ||
+		msg.includes("not recognized")
+	);
 }
 
 const SESSIONSTART_LOG_DIR = path.join(os.homedir(), ".pi-lens");
@@ -82,7 +83,6 @@ function logSessionStart(message: string): void {
 			// best-effort logging
 		});
 }
-
 
 // ---------------------------------------------------------------------------
 // Unified binary resolution + launch
@@ -124,8 +124,14 @@ interface ResolveAndLaunchSpec {
 async function resolveAndLaunch(
 	spec: ResolveAndLaunchSpec,
 	allowInstall: boolean | undefined,
-): Promise<{ process: LSPProcess; source: "direct" | "managed" | "package-manager" } | undefined> {
-	const toolLabel = spec.managedToolId ?? spec.candidates[spec.candidates.length - 1] ?? "unknown";
+): Promise<
+	| { process: LSPProcess; source: "direct" | "managed" | "package-manager" }
+	| undefined
+> {
+	const toolLabel =
+		spec.managedToolId ??
+		spec.candidates[spec.candidates.length - 1] ??
+		"unknown";
 	let lastRuntimeFailure: Error | undefined;
 	const trackRuntimeFailure = (err: unknown): void => {
 		const message = err instanceof Error ? err.message : String(err);
@@ -153,7 +159,10 @@ async function resolveAndLaunch(
 			`lsp launch candidate attempt tool=${toolLabel} idx=${index}/${spec.candidates.length - 1} command=${command} cwd=${spec.cwd}`,
 		);
 		try {
-			const proc = await launchLSP(command, spec.args, { cwd: spec.cwd, env: spec.env });
+			const proc = await launchLSP(command, spec.args, {
+				cwd: spec.cwd,
+				env: spec.env,
+			});
 			logLatency({
 				type: "phase",
 				phase: "lsp_launch_candidate_success",
@@ -212,7 +221,9 @@ async function resolveAndLaunch(
 
 	// Step 3 — managed install via installer registry
 	if (spec.managedToolId) {
-		logSessionStart(`lsp launch ensure-tool start tool=${spec.managedToolId} cwd=${spec.cwd}`);
+		logSessionStart(
+			`lsp launch ensure-tool start tool=${spec.managedToolId} cwd=${spec.cwd}`,
+		);
 		const installed = await ensureTool(spec.managedToolId);
 		logSessionStart(
 			`lsp launch ensure-tool result tool=${spec.managedToolId} installed=${installed ? "yes" : "no"} path=${installed ?? ""}`,
@@ -230,7 +241,10 @@ async function resolveAndLaunch(
 		});
 		if (installed) {
 			try {
-				const proc = await launchLSP(installed, spec.args, { cwd: spec.cwd, env: spec.env });
+				const proc = await launchLSP(installed, spec.args, {
+					cwd: spec.cwd,
+					env: spec.env,
+				});
 				logSessionStart(
 					`lsp launch managed success tool=${spec.managedToolId} command=${installed} source=managed`,
 				);
@@ -274,7 +288,10 @@ async function resolveAndLaunch(
 			const retry = spec.runtimeInstall.retryCandidates ?? spec.candidates;
 			for (const command of retry) {
 				try {
-					const proc = await launchLSP(command, spec.args, { cwd: spec.cwd, env: spec.env });
+					const proc = await launchLSP(command, spec.args, {
+						cwd: spec.cwd,
+						env: spec.env,
+					});
 					return { process: proc, source: "managed" };
 				} catch (err) {
 					trackRuntimeFailure(err);
@@ -294,11 +311,7 @@ async function resolveAndLaunch(
 function nodeBinCandidates(root: string, baseName: string): string[] {
 	const localBase = path.join(root, "node_modules", ".bin", baseName);
 	if (process.platform === "win32") {
-		return [
-			`${localBase}.cmd`,
-			`${localBase}.exe`,
-			baseName,
-		];
+		return [`${localBase}.cmd`, `${localBase}.exe`, baseName];
 	}
 	return [localBase, baseName];
 }
@@ -320,33 +333,46 @@ function IgnoreHomeRoot(primary: RootFunction): RootFunction {
 
 function rubyBinCandidates(baseName: string): string[] {
 	const candidates: string[] = [];
-	const userProfile = process.env.USERPROFILE;
-	if (userProfile) {
-		candidates.push(
-			path.join(
-				userProfile,
-				".local",
-				"share",
-				"mise",
-				"installs",
-				"ruby",
-				"bin",
-				`${baseName}.bat`,
-			),
-		);
-		candidates.push(
-			path.join(
-				userProfile,
-				".asdf",
-				"installs",
-				"ruby",
-				"bin",
-				`${baseName}.bat`,
-			),
-		);
+	const home = os.homedir();
+	const isWin = process.platform === "win32";
+	const ext = isWin ? ".bat" : "";
+
+	// mise and asdf version managers — same layout on all platforms
+	candidates.push(
+		path.join(
+			home,
+			".local",
+			"share",
+			"mise",
+			"installs",
+			"ruby",
+			"bin",
+			`${baseName}${ext}`,
+		),
+	);
+	candidates.push(
+		path.join(home, ".asdf", "installs", "ruby", "bin", `${baseName}${ext}`),
+	);
+
+	if (isWin) {
+		// Ruby installer drops versioned dirs on C: by convention, but the drive
+		// and version suffix vary — scan what's actually present instead of hardcoding
+		const driveRoot = path.parse(home).root; // e.g. "C:\"
+		try {
+			const entries = readdirSync(driveRoot);
+			for (const entry of entries) {
+				if (/^ruby\d/i.test(entry)) {
+					candidates.push(
+						path.join(driveRoot, entry, "bin", `${baseName}.bat`),
+					);
+					candidates.push(path.join(driveRoot, entry, "bin", baseName));
+				}
+			}
+		} catch {
+			// drive root not readable — skip
+		}
 	}
-	candidates.push(path.join("C:\\Ruby34-x64", "bin", `${baseName}.bat`));
-	candidates.push(path.join("C:\\Ruby33-x64", "bin", `${baseName}.bat`));
+
 	return candidates;
 }
 
@@ -360,7 +386,9 @@ interface InteractiveServerSpec {
 	language: string;
 	command: string | ((root: string) => string);
 	args?: string[] | ((root: string) => string[]);
-	initialization?: InitializationConfig | ((root: string) => InitializationConfig);
+	initialization?:
+		| InitializationConfig
+		| ((root: string) => InitializationConfig);
 }
 
 function createInteractiveServer(spec: InteractiveServerSpec): LSPServerInfo {
@@ -373,9 +401,7 @@ function createInteractiveServer(spec: InteractiveServerSpec): LSPServerInfo {
 			const command =
 				typeof spec.command === "function" ? spec.command(root) : spec.command;
 			const args =
-				typeof spec.args === "function"
-					? spec.args(root)
-					: spec.args || [];
+				typeof spec.args === "function" ? spec.args(root) : spec.args || [];
 			// Try to launch directly — no auto-install for language-runtime tools
 			// (C#, Java, Swift, etc. require their SDK; cannot npm/pip install them)
 			try {
@@ -433,14 +459,7 @@ export function WorkspacePriorityRoot(
 
 // --- Root Detection Helpers ---
 
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
 // --- Interactive Install Helper ---
-
 
 /**
  * Walk up the directory tree looking for project root markers.
@@ -549,30 +568,98 @@ function tryDotnetToolInstall(tool: string): Promise<boolean> {
 		const proc = spawnSync(
 			"dotnet",
 			["tool", "install", "--tool-path", PI_LENS_BIN_DIR, tool],
-			{ stdio: "ignore", shell: false },
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], shell: false },
 		);
 		if (proc.status === 0) {
 			resolve(true);
 			return;
 		}
 
+		const stderr = proc.stderr ?? "";
+		if (stderr.includes("No NuGet sources are defined or enabled")) {
+			logSessionStart(
+				`lsp dotnet-install: NuGet sources missing — cannot install ${tool}. ` +
+					`Run: dotnet nuget add source https://api.nuget.org/v3/index.json -n nuget.org`,
+			);
+			resolve(false);
+			return;
+		}
+
 		const updateProc = spawnSync(
 			"dotnet",
 			["tool", "update", "--tool-path", PI_LENS_BIN_DIR, tool],
-			{ stdio: "ignore", shell: false },
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], shell: false },
 		);
 		resolve(updateProc.status === 0);
 	});
 }
 
+/**
+ * Locate tsserver.js — tries local project, then pi-lens managed TypeScript.
+ * Returns the path to tsserver.js, or undefined if not found.
+ */
+async function findTsserverPath(
+	root: string,
+	allowInstall: boolean | undefined,
+): Promise<string | undefined> {
+	const fs = await import("node:fs/promises");
+	const candidates = [
+		path.join(root, "node_modules", "typescript", "lib", "tsserver.js"),
+		path.join(
+			process.cwd(),
+			"node_modules",
+			"typescript",
+			"lib",
+			"tsserver.js",
+		),
+	];
+	for (const p of candidates) {
+		try {
+			await fs.access(p);
+			return p;
+		} catch {
+			/* not found */
+		}
+	}
+	if (canInstall(allowInstall)) {
+		const tscPath = await ensureTool("typescript");
+		if (tscPath) {
+			for (const p of [
+				path.join(
+					path.dirname(tscPath),
+					"..",
+					"typescript",
+					"lib",
+					"tsserver.js",
+				),
+				path.join(
+					path.dirname(tscPath),
+					"..",
+					"..",
+					"typescript",
+					"lib",
+					"tsserver.js",
+				),
+			]) {
+				try {
+					await fs.access(p);
+					return p;
+				} catch {
+					/* not found */
+				}
+			}
+		}
+	}
+	return undefined;
+}
+
 function dotnetToolCandidates(tool: string): string[] {
-	const userProfile = process.env.USERPROFILE;
+	const home = os.homedir();
 	return [
 		path.join(PI_LENS_BIN_DIR, `${tool}.exe`),
-		path.join(PI_LENS_BIN_DIR, `${tool}.cmd`),
 		path.join(PI_LENS_BIN_DIR, tool),
-		userProfile ? path.join(userProfile, ".dotnet", "tools", `${tool}.exe`) : "",
-		userProfile ? path.join(userProfile, ".dotnet", "tools", tool) : "",
+		path.join(home, ".dotnet", "tools", `${tool}.exe`),
+		path.join(home, ".dotnet", "tools", tool),
 		tool,
 	].filter(Boolean);
 }
@@ -610,14 +697,18 @@ export const TypeScriptServer: LSPServerInfo = {
 	id: "typescript",
 	name: "TypeScript Language Server",
 	extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"],
-	root: createRootDetector([
-		"package-lock.json",
-		"bun.lockb",
-		"bun.lock",
-		"pnpm-lock.yaml",
-		"yarn.lock",
-		"package.json",
-	]),
+	root: RootWithFallback(
+		IgnoreHomeRoot(
+			createRootDetector([
+				"package-lock.json",
+				"bun.lockb",
+				"bun.lock",
+				"pnpm-lock.yaml",
+				"yarn.lock",
+				"package.json",
+			]),
+		),
+	),
 	async spawn(root, options) {
 		const path = await import("node:path");
 		const fs = await import("node:fs/promises");
@@ -660,59 +751,24 @@ export const TypeScriptServer: LSPServerInfo = {
 			}
 		}
 
-		// Find tsserver.js path (needed for TypeScript LSP initialization)
-		// Check relative to the LSP path first, then project root
-		let tsserverPath: string | undefined;
-		const tsserverCandidates = [
-			// Relative to LSP binary (for locally installed)
-			path.join(
+		// Find tsserver.js — also try relative to the LSP binary for local installs
+		let tsserverPath = await findTsserverPath(root, options?.allowInstall);
+		if (!tsserverPath) {
+			const localCandidate = path.join(
 				path.dirname(lspPath),
 				"..",
 				"typescript",
 				"lib",
 				"tsserver.js",
-			),
-			// Project root
-			path.join(root, "node_modules", "typescript", "lib", "tsserver.js"),
-			// Current working directory
-			path.join(
-				process.cwd(),
-				"node_modules",
-				"typescript",
-				"lib",
-				"tsserver.js",
-			),
-		];
-
-		for (const checkPath of tsserverCandidates) {
+			);
 			try {
-				await fs.access(checkPath);
-				tsserverPath = checkPath;
-				break;
+				await fs.access(localCandidate);
+				tsserverPath = localCandidate;
 			} catch {
 				/* not found */
 			}
 		}
-
-		if (!tsserverPath && canInstall(options?.allowInstall)) {
-			const tscPath = await ensureTool("typescript");
-			if (tscPath) {
-				const managedTsserverCandidates = [
-					path.join(path.dirname(tscPath), "..", "typescript", "lib", "tsserver.js"),
-					path.join(path.dirname(tscPath), "..", "..", "typescript", "lib", "tsserver.js"),
-				];
-				for (const checkPath of managedTsserverCandidates) {
-					try {
-						await fs.access(checkPath);
-						tsserverPath = checkPath;
-						source = "managed";
-						break;
-					} catch {
-						/* not found */
-					}
-				}
-			}
-		}
+		if (tsserverPath) source = "managed";
 
 		// Use absolute path and proper environment
 		const env = await getToolEnvironment();
@@ -818,7 +874,6 @@ export const PythonServer: LSPServerInfo = {
 		const managedCandidates = isWindows
 			? [
 					path.join(binDir, "pyright-langserver.cmd"),
-					path.join(binDir, "pyright-langserver.ps1"),
 					path.join(binDir, "pyright-langserver"),
 					"pyright-langserver",
 				]
@@ -910,15 +965,50 @@ export const GoServer: LSPServerInfo = {
 	},
 };
 
+async function hasWorkspaceSection(cargoPath: string): Promise<boolean> {
+	try {
+		const { readFile } = await import("node:fs/promises");
+		const content = await readFile(cargoPath, "utf-8");
+		return /^\s*\[workspace\]/m.test(content);
+	} catch {
+		return false;
+	}
+}
+
+function RustWorkspaceRoot(): RootFunction {
+	const crateRoot = createRootDetector(["Cargo.toml", "Cargo.lock"]);
+	return async (file: string): Promise<string | undefined> => {
+		const root = await crateRoot(file);
+		if (!root) return undefined;
+		let current = root;
+		const fsRoot = path.parse(current).root;
+		while (true) {
+			const parent = path.dirname(current);
+			if (parent === current || parent === fsRoot) break;
+			const parentCargo = path.join(parent, "Cargo.toml");
+			if (await hasWorkspaceSection(parentCargo)) {
+				return parent;
+			}
+			current = parent;
+		}
+		return root;
+	};
+}
+
 export const RustServer: LSPServerInfo = {
 	id: "rust",
 	name: "rust-analyzer",
 	extensions: [".rs"],
-	root: RootWithFallback(createRootDetector(["Cargo.toml", "Cargo.lock"])),
+	root: RootWithFallback(RustWorkspaceRoot()),
 	async spawn(root, options) {
 		// Prefer rustup-installed rust-analyzer; fall back to GitHub-downloaded managed copy
 		const result = await resolveAndLaunch(
-			{ candidates: ["rust-analyzer"], args: [], cwd: root, managedToolId: "rust-analyzer" },
+			{
+				candidates: ["rust-analyzer"],
+				args: [],
+				cwd: root,
+				managedToolId: "rust-analyzer",
+			},
 			options?.allowInstall,
 		);
 		if (!result) return undefined;
@@ -937,7 +1027,9 @@ export const RubyServer: LSPServerInfo = {
 	id: "ruby",
 	name: "Ruby LSP",
 	extensions: [".rb", ".rake", ".gemspec", ".ru"],
-	root: RootWithFallback(PriorityRoot([["Gemfile", ".ruby-version"], [".git"]])),
+	root: RootWithFallback(
+		PriorityRoot([["Gemfile", ".ruby-version"], [".git"]]),
+	),
 	// Ruby LSP may need extra time to finish composed-bundle setup before it can
 	// answer initialize/documentSymbol on cold start.
 	initializeTimeoutMs: 30_000,
@@ -962,14 +1054,22 @@ export const RubyServer: LSPServerInfo = {
 
 		// Solargraph fallback
 		const solargraph = await resolveAndLaunch(
-			{ candidates: ["solargraph", ...rubyBinCandidates("solargraph")], args: ["stdio"], cwd: root },
+			{
+				candidates: ["solargraph", ...rubyBinCandidates("solargraph")],
+				args: ["stdio"],
+				cwd: root,
+			},
 			false, // don't install solargraph — already tried gem install above
 		);
 		if (solargraph) return solargraph;
 
 		// rubocop --lsp fallback
 		return resolveAndLaunch(
-			{ candidates: ["rubocop", ...rubyBinCandidates("rubocop")], args: ["--lsp"], cwd: root },
+			{
+				candidates: ["rubocop", ...rubyBinCandidates("rubocop")],
+				args: ["--lsp"],
+				cwd: root,
+			},
 			false,
 		);
 	},
@@ -979,7 +1079,9 @@ export const RubySolargraphServer: LSPServerInfo = {
 	id: "ruby-solargraph",
 	name: "Solargraph",
 	extensions: [".rb", ".rake", ".gemspec", ".ru"],
-	root: RootWithFallback(PriorityRoot([["Gemfile", ".ruby-version"], [".git"]])),
+	root: RootWithFallback(
+		PriorityRoot([["Gemfile", ".ruby-version"], [".git"]]),
+	),
 	async spawn(root) {
 		for (const command of ["solargraph", ...rubyBinCandidates("solargraph")]) {
 			try {
@@ -997,14 +1099,26 @@ export const PHPServer: LSPServerInfo = {
 	id: "php",
 	name: "Intelephense",
 	extensions: [".php"],
-	root: RootWithFallback(createRootDetector(["composer.json", "composer.lock"])),
+	root: RootWithFallback(
+		createRootDetector(["composer.json", "composer.lock"]),
+	),
 	async spawn(root, options) {
 		const result = await resolveAndLaunch(
-			{ candidates: nodeBinCandidates(root, "intelephense"), args: ["--stdio"], cwd: root, managedToolId: "intelephense" },
+			{
+				candidates: nodeBinCandidates(root, "intelephense"),
+				args: ["--stdio"],
+				cwd: root,
+				managedToolId: "intelephense",
+			},
 			options?.allowInstall,
 		);
 		if (!result) return undefined;
-		return { ...result, initialization: { storagePath: path.join(__dirname, ".intelephense") } };
+		return {
+			...result,
+			initialization: {
+				storagePath: path.join(os.homedir(), ".pi-lens", "intelephense"),
+			},
+		};
 	},
 };
 
@@ -1055,7 +1169,9 @@ export const JavaServer = createInteractiveServer({
 	id: "java",
 	name: "JDT Language Server",
 	extensions: [".java"],
-	root: RootWithFallback(createRootDetector(["pom.xml", "build.gradle", ".classpath"])),
+	root: RootWithFallback(
+		createRootDetector(["pom.xml", "build.gradle", ".classpath"]),
+	),
 	language: "java",
 	command: () => process.env.JDTLS_PATH || "jdtls",
 });
@@ -1064,7 +1180,9 @@ export const KotlinServer: LSPServerInfo = {
 	id: "kotlin",
 	name: "Kotlin Language Server",
 	extensions: [".kt", ".kts"],
-	root: RootWithFallback(createRootDetector(["build.gradle.kts", "build.gradle", "pom.xml"])),
+	root: RootWithFallback(
+		createRootDetector(["build.gradle.kts", "build.gradle", "pom.xml"]),
+	),
 	async spawn(root, options) {
 		// Prefer the newer official Kotlin LSP CLI when available, but keep
 		// compatibility with the older fwcd kotlin-language-server command.
@@ -1111,12 +1229,14 @@ export const CppServer = createInteractiveServer({
 	id: "cpp",
 	name: "clangd",
 	extensions: [".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"],
-	root: RootWithFallback(createRootDetector([
-		"compile_commands.json",
-		".clangd",
-		"CMakeLists.txt",
-		"Makefile",
-	])),
+	root: RootWithFallback(
+		createRootDetector([
+			"compile_commands.json",
+			".clangd",
+			"CMakeLists.txt",
+			"Makefile",
+		]),
+	),
 	language: "cpp",
 	command: "clangd",
 	args: ["--background-index"],
@@ -1191,7 +1311,9 @@ export const TerraformServer: LSPServerInfo = {
 	id: "terraform",
 	name: "Terraform LSP",
 	extensions: [".tf", ".tfvars"],
-	root: RootWithFallback(createRootDetector([".terraform.lock.hcl", ".terraform"])),
+	root: RootWithFallback(
+		createRootDetector([".terraform.lock.hcl", ".terraform"]),
+	),
 	spawn(root, options) {
 		return resolveAndLaunch(
 			{
@@ -1221,7 +1343,12 @@ export const BashServer: LSPServerInfo = {
 	root: FileDirRoot,
 	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: nodeBinCandidates(root, "bash-language-server"), args: ["start"], cwd: root, managedToolId: "bash-language-server" },
+			{
+				candidates: nodeBinCandidates(root, "bash-language-server"),
+				args: ["start"],
+				cwd: root,
+				managedToolId: "bash-language-server",
+			},
 			options?.allowInstall,
 		);
 	},
@@ -1232,11 +1359,24 @@ export const DockerServer: LSPServerInfo = {
 	name: "Dockerfile Language Server",
 	extensions: [".dockerfile", "Dockerfile"],
 	root: RootWithFallback(
-		PriorityRoot([["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"], [".git"]]),
+		PriorityRoot([
+			[
+				"docker-compose.yml",
+				"docker-compose.yaml",
+				"compose.yml",
+				"compose.yaml",
+			],
+			[".git"],
+		]),
 	),
 	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: nodeBinCandidates(root, "docker-langserver"), args: ["--stdio"], cwd: root, managedToolId: "dockerfile-language-server-nodejs" },
+			{
+				candidates: nodeBinCandidates(root, "docker-langserver"),
+				args: ["--stdio"],
+				cwd: root,
+				managedToolId: "dockerfile-language-server-nodejs",
+			},
 			options?.allowInstall,
 		);
 	},
@@ -1247,7 +1387,10 @@ export const YamlServer: LSPServerInfo = {
 	name: "YAML Language Server",
 	extensions: [".yaml", ".yml"],
 	root: RootWithFallback(
-		PriorityRoot([[".yamllint", "yamllint.yml", "yamllint.yaml", "pyproject.toml"], [".git"]]),
+		PriorityRoot([
+			[".yamllint", "yamllint.yml", "yamllint.yaml", "pyproject.toml"],
+			[".git"],
+		]),
 	),
 	spawn(root, options) {
 		return resolveAndLaunch(
@@ -1267,11 +1410,19 @@ export const JsonServer: LSPServerInfo = {
 	name: "VSCode JSON Language Server",
 	extensions: [".json", ".jsonc"],
 	root: RootWithFallback(
-		WorkspacePriorityRoot([["package.json", "tsconfig.json", "jsconfig.json"], [".git"]]),
+		WorkspacePriorityRoot([
+			["package.json", "tsconfig.json", "jsconfig.json"],
+			[".git"],
+		]),
 	),
 	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: ["vscode-json-language-server"], args: ["--stdio"], cwd: root, managedToolId: "vscode-json-language-server" },
+			{
+				candidates: ["vscode-json-language-server"],
+				args: ["--stdio"],
+				cwd: root,
+				managedToolId: "vscode-json-language-server",
+			},
 			options?.allowInstall,
 		);
 	},
@@ -1282,11 +1433,18 @@ export const HtmlServer: LSPServerInfo = {
 	name: "VSCode HTML Language Server",
 	extensions: [".html", ".htm"],
 	root: RootWithFallback(
-		IgnoreHomeRoot(PriorityRoot([["package.json", "index.html", "vite.config.ts"]])),
+		IgnoreHomeRoot(
+			PriorityRoot([["package.json", "index.html", "vite.config.ts"]]),
+		),
 	),
 	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: nodeBinCandidates(root, "vscode-html-language-server"), args: ["--stdio"], cwd: root, managedToolId: "vscode-html-languageserver-bin" },
+			{
+				candidates: nodeBinCandidates(root, "vscode-html-language-server"),
+				args: ["--stdio"],
+				cwd: root,
+				managedToolId: "vscode-html-languageserver-bin",
+			},
 			options?.allowInstall,
 		);
 	},
@@ -1296,7 +1454,9 @@ export const TomlServer: LSPServerInfo = {
 	id: "toml",
 	name: "Taplo",
 	extensions: [".toml"],
-	root: RootWithFallback(PriorityRoot([["pyproject.toml", "Cargo.toml", "taplo.toml"], [".git"]])),
+	root: RootWithFallback(
+		PriorityRoot([["pyproject.toml", "Cargo.toml", "taplo.toml"], [".git"]]),
+	),
 	spawn(root, options) {
 		return resolveAndLaunch(
 			{
@@ -1314,10 +1474,17 @@ export const PrismaServer: LSPServerInfo = {
 	id: "prisma",
 	name: "Prisma Language Server",
 	extensions: [".prisma"],
-	root: RootWithFallback(createRootDetector(["prisma/schema.prisma", "schema.prisma"])),
+	root: RootWithFallback(
+		createRootDetector(["prisma/schema.prisma", "schema.prisma"]),
+	),
 	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: nodeBinCandidates(root, "prisma-language-server"), args: ["--stdio"], cwd: root, managedToolId: "@prisma/language-server" },
+			{
+				candidates: nodeBinCandidates(root, "prisma-language-server"),
+				args: ["--stdio"],
+				cwd: root,
+				managedToolId: "@prisma/language-server",
+			},
 			options?.allowInstall,
 		);
 	},
@@ -1329,18 +1496,49 @@ export const VueServer: LSPServerInfo = {
 	id: "vue",
 	name: "Vue Language Server",
 	extensions: [".vue"],
-	root: createRootDetector([
-		"package-lock.json",
-		"bun.lockb",
-		"bun.lock",
-		"pnpm-lock.yaml",
-		"yarn.lock",
-	]),
-	spawn(root, options) {
-		return resolveAndLaunch(
-			{ candidates: nodeBinCandidates(root, "vue-language-server"), args: ["--stdio"], cwd: root, managedToolId: "@vue/language-server" },
+	root: RootWithFallback(
+		IgnoreHomeRoot(
+			createRootDetector([
+				"package.json",
+				"package-lock.json",
+				"bun.lockb",
+				"bun.lock",
+				"pnpm-lock.yaml",
+				"yarn.lock",
+			]),
+		),
+	),
+	async spawn(root, options) {
+		const tsserverPath = await findTsserverPath(root, options?.allowInstall);
+
+		// Vue Language Server needs Vue dependencies installed to resolve types.
+		// Without node_modules, navigation requests will timeout or return empty.
+		const hasPackageJson = existsSync(path.join(root, "package.json"));
+		const hasNodeModules = existsSync(path.join(root, "node_modules"));
+		if (hasPackageJson && !hasNodeModules) {
+			logSessionStart(
+				`lsp vue: node_modules missing in ${root} — Vue navigation may be limited. ` +
+					`Run: npm install (or pnpm/yarn install) in this project.`,
+			);
+		}
+
+		const proc = await resolveAndLaunch(
+			{
+				candidates: nodeBinCandidates(root, "vue-language-server"),
+				args: ["--stdio"],
+				cwd: root,
+				managedToolId: "@vue/language-server",
+			},
 			options?.allowInstall,
 		);
+		if (!proc) return undefined;
+		return {
+			process: proc.process,
+			source: proc.source,
+			initialization: tsserverPath
+				? { typescript: { tsdk: path.dirname(tsserverPath) } }
+				: undefined,
+		};
 	},
 };
 
@@ -1348,18 +1546,40 @@ export const SvelteServer: LSPServerInfo = {
 	id: "svelte",
 	name: "Svelte Language Server",
 	extensions: [".svelte"],
-	root: createRootDetector([
-		"package-lock.json",
-		"bun.lockb",
-		"bun.lock",
-		"pnpm-lock.yaml",
-		"yarn.lock",
-	]),
-	spawn(root, options) {
-		return resolveAndLaunch(
-			{ candidates: [...nodeBinCandidates(root, "svelteserver"), ...nodeBinCandidates(root, "svelte-language-server")], args: ["--stdio"], cwd: root, managedToolId: "svelte-language-server" },
+	root: RootWithFallback(
+		IgnoreHomeRoot(
+			createRootDetector([
+				"package.json",
+				"package-lock.json",
+				"bun.lockb",
+				"bun.lock",
+				"pnpm-lock.yaml",
+				"yarn.lock",
+			]),
+		),
+	),
+	async spawn(root, options) {
+		const tsserverPath = await findTsserverPath(root, options?.allowInstall);
+		const proc = await resolveAndLaunch(
+			{
+				candidates: [
+					...nodeBinCandidates(root, "svelteserver"),
+					...nodeBinCandidates(root, "svelte-language-server"),
+				],
+				args: ["--stdio"],
+				cwd: root,
+				managedToolId: "svelte-language-server",
+			},
 			options?.allowInstall,
 		);
+		if (!proc) return undefined;
+		return {
+			process: proc.process,
+			source: proc.source,
+			initialization: tsserverPath
+				? { typescript: { tsdk: path.dirname(tsserverPath) } }
+				: undefined,
+		};
 	},
 };
 
@@ -1367,17 +1587,24 @@ export const ESLintServer: LSPServerInfo = {
 	id: "eslint",
 	name: "ESLint Language Server",
 	extensions: [".js", ".jsx", ".vue", ".svelte"], // Note: .ts/.tsx handled by TypeScript LSP + Biome
-	root: createRootDetector([
-		".eslintrc",
-		".eslintrc.json",
-		".eslintrc.js",
-		"eslint.config.js",
-		"eslint.config.mjs",
-		"package.json",
-	]),
+	root: IgnoreHomeRoot(
+		createRootDetector([
+			".eslintrc",
+			".eslintrc.json",
+			".eslintrc.js",
+			"eslint.config.js",
+			"eslint.config.mjs",
+			"package.json",
+		]),
+	),
 	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: nodeBinCandidates(root, "vscode-eslint-language-server"), args: ["--stdio"], cwd: root, managedToolId: "vscode-langservers-extracted" },
+			{
+				candidates: nodeBinCandidates(root, "vscode-eslint-language-server"),
+				args: ["--stdio"],
+				cwd: root,
+				managedToolId: "vscode-langservers-extracted",
+			},
 			options?.allowInstall,
 		);
 	},
@@ -1389,12 +1616,24 @@ export const CssServer: LSPServerInfo = {
 	extensions: [".css", ".scss", ".sass", ".less"],
 	root: RootWithFallback(
 		IgnoreHomeRoot(
-			PriorityRoot([["package.json", "postcss.config.js", "tailwind.config.js", "vite.config.ts"]]),
+			PriorityRoot([
+				[
+					"package.json",
+					"postcss.config.js",
+					"tailwind.config.js",
+					"vite.config.ts",
+				],
+			]),
 		),
 	),
 	spawn(root, options) {
 		return resolveAndLaunch(
-			{ candidates: nodeBinCandidates(root, "vscode-css-language-server"), args: ["--stdio"], cwd: root, managedToolId: "vscode-css-languageserver" },
+			{
+				candidates: nodeBinCandidates(root, "vscode-css-language-server"),
+				args: ["--stdio"],
+				cwd: root,
+				managedToolId: "vscode-css-languageserver",
+			},
 			options?.allowInstall,
 		);
 	},

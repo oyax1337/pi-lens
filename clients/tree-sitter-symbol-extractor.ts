@@ -356,9 +356,18 @@ export class TreeSitterSymbolExtractor {
 	}
 
 	// biome-ignore lint/suspicious/noExplicitAny: Node type
-	private hasExportModifier(_node: any, _content: string): boolean {
-		// TODO: Implement proper export modifier detection
-		// For now, use simple line-based check
+	private hasExportModifier(node: any, _content: string): boolean {
+		// Walk up the tree to find if this node is inside an export statement
+		let current = node.parent;
+		while (current) {
+			if (
+				current.type === "export_statement" ||
+				current.type === "export_declaration"
+			) {
+				return true;
+			}
+			current = current.parent;
+		}
 		return false;
 	}
 

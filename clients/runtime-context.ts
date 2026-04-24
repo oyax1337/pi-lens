@@ -26,6 +26,32 @@ export function consumeTurnEndFindings(
 	};
 }
 
+export function consumeTestFindings(
+	cacheManager: CacheManager,
+	cwd: string,
+): { messages: Array<{ role: "user"; content: string }> } | undefined {
+	const findings = cacheManager.readCache<{ content: string }>(
+		"test-runner-findings",
+		cwd,
+	);
+	if (!findings?.data?.content) return;
+
+	cacheManager.writeCache(
+		"test-runner-findings",
+		null as unknown as { content: string },
+		cwd,
+	);
+
+	return {
+		messages: [
+			{
+				role: "user",
+				content: `[pi-lens] Test failures from last turn:\n\n${findings.data.content}`,
+			},
+		],
+	};
+}
+
 export function consumeSessionStartGuidance(
 	cacheManager: CacheManager,
 	cwd: string,

@@ -1,7 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { detectFileKind, type FileKind } from "./file-kinds.js";
-import { getStartupDefaultsForProfile } from "./language-policy.js";
+import {
+	LANGUAGE_POLICY,
+	type ProjectLanguageProfile,
+} from "./language-policy.js";
 import { getSourceFiles } from "./scan-utils.js";
 
 export const SUPPORTED_FILE_KINDS: readonly FileKind[] = [
@@ -63,8 +66,19 @@ const PROJECT_MARKERS_BY_KIND: Partial<Record<FileKind, readonly string[]>> = {
 };
 
 const ROOT_MARKERS_BY_KIND: Partial<Record<FileKind, readonly string[]>> = {
-	jsts: ["package.json", "tsconfig.json", "jsconfig.json", "pnpm-workspace.yaml"],
-	python: ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg", "Pipfile"],
+	jsts: [
+		"package.json",
+		"tsconfig.json",
+		"jsconfig.json",
+		"pnpm-workspace.yaml",
+	],
+	python: [
+		"pyproject.toml",
+		"requirements.txt",
+		"setup.py",
+		"setup.cfg",
+		"Pipfile",
+	],
 	go: ["go.work", "go.mod", "go.sum"],
 	rust: ["Cargo.toml"],
 	ruby: ["Gemfile", "Rakefile"],
@@ -83,14 +97,10 @@ const ROOT_MARKERS_BY_KIND: Partial<Record<FileKind, readonly string[]>> = {
 	toml: ["pyproject.toml", "Cargo.toml", "taplo.toml"],
 };
 
-export interface ProjectLanguageProfile {
-	present: Record<FileKind, boolean>;
-	configured: Partial<Record<FileKind, boolean>>;
-	counts: Partial<Record<FileKind, number>>;
-	detectedKinds: FileKind[];
-}
-
-function nearestRoot(start: string, markers: readonly string[]): string | undefined {
+function nearestRoot(
+	start: string,
+	markers: readonly string[],
+): string | undefined {
 	let dir = path.resolve(start);
 	const { root } = path.parse(dir);
 
@@ -180,7 +190,23 @@ export function isLanguageConfigured(
 export function getDefaultStartupTools(
 	profile: ProjectLanguageProfile,
 ): string[] {
-	return getStartupDefaultsForProfile(profile);
+	const tools = new Set<string>();
+
+	for (const kind of Object.keys(LANGUAGE_POLICY) as FileKind[]) {
+		if (!profile.present[kind]) continue;
+		const defaults = LANGUAGE_POLICY[kind].startup?.defaults ?? [];
+		for (const tool of defaults) {
+			if (
+				LANGUAGE_POLICY[kind].startup?.heavyScansRequireConfig &&
+				!profile.configured[kind]
+			) {
+				continue;
+			}
+			tools.add(tool);
+		}
+	}
+
+	return [...tools];
 }
 
 export function resolveLanguageRootForFile(

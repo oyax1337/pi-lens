@@ -88,9 +88,9 @@ const allRuleFiles = readdirSync(rulesDir).filter((f) => f.endsWith(".yml"));
 
 const rules = [];
 for (const file of allRuleFiles) {
-  // Skip -js variants — we'll run TS variants against .ts and JS variants against .js
+  if (file.endsWith("-js.yml")) continue; // skip JS variants — we scan .ts files only
   const id = file.replace(/\.yml$/, "");
-  const baseId = id.replace(/-js$/, "");
+  const baseId = id;
   if (!activeIds.has(baseId)) continue;
 
   const raw = readFileSync(join(rulesDir, file), "utf-8");
@@ -136,7 +136,7 @@ function* walkFiles(dir) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       yield* walkFiles(full);
-    } else if (/\.(ts|tsx|js|jsx)$/.test(entry.name)) {
+    } else if (/\.tsx?$/.test(entry.name)) {
       yield full;
     }
   }
@@ -152,28 +152,14 @@ function matchPattern(sgRoot, pattern) {
   }
 }
 
-function matchRule(sgRoot, ruleSpec) {
-  // Handle `any:` top-level
-  if (ruleSpec.any) {
-    const results = [];
-    for (const sub of ruleSpec.any) {
-      results.push(...matchRule(sgRoot, sub));
-    }
-    return results;
+function matchRule(sgRoot, ruleSpec, constraints) {
+  try {
+    const config = { rule: ruleSpec };
+    if (constraints && Object.keys(constraints).length) config.constraints = constraints;
+    return sgRoot.findAll(config);
+  } catch {
+    return [];
   }
-  // Handle `pattern:`
-  if (ruleSpec.pattern) {
-    return matchPattern(sgRoot, ruleSpec.pattern);
-  }
-  // Handle `kind:` with optional `has:` / `regex:`
-  if (ruleSpec.kind) {
-    try {
-      return sgRoot.findAll({ rule: ruleSpec });
-    } catch {
-      return [];
-    }
-  }
-  return [];
 }
 
 // ── Main scan ────────────────────────────────────────────────────────────────
@@ -196,7 +182,7 @@ for (const filePath of walkFiles(scanDir)) {
 
   let sgRoot;
   try {
-    sgRoot = sg.parse(lang, content).root();
+    sgRoot = lang.parse(content).root();
   } catch {
     continue;
   }
@@ -206,7 +192,7 @@ for (const filePath of walkFiles(scanDir)) {
 
     let matches;
     try {
-      matches = matchRule(sgRoot, rule.parsed?.rule ?? {});
+      matches = matchRule(sgRoot, rule.parsed?.rule ?? {}, rule.parsed?.constraints);
     } catch {
       continue;
     }

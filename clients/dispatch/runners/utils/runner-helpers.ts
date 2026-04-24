@@ -8,8 +8,38 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { safeSpawn } from "../../../safe-spawn.js";
+
+/**
+ * Walk up from startDir until we find a directory containing node_modules/.bin.
+ * Returns all such roots found up to the filesystem root — not just the nearest —
+ * so callers can search them all for a specific binary.
+ */
+function findNodeBinRoots(startDir: string): string[] {
+	const roots: string[] = [];
+	let current = startDir;
+	const fsRoot = path.parse(current).root;
+	while (current !== fsRoot) {
+		if (fs.existsSync(path.join(current, "node_modules", ".bin"))) {
+			roots.push(current);
+		}
+		const parent = path.dirname(current);
+		if (parent === current) break;
+		current = parent;
+	}
+	return roots;
+}
+
+const _thisDir =
+	typeof __dirname !== "undefined"
+		? __dirname
+		: path.dirname(fileURLToPath(import.meta.url));
+
+// Managed tools directory (~/.pi-lens/tools) — where ensureTool() installs binaries
+const _managedToolsDir = path.join(os.homedir(), ".pi-lens", "tools");
 
 // =============================================================================
 // VENV-AWARE COMMAND FINDER
@@ -159,20 +189,32 @@ let sgCmdArgs: string[] = [];
 export function isSgAvailable(): boolean {
 	if (sgAvailable !== null) return sgAvailable;
 
-	// 1. Local node_modules/.bin/sg
+	// 1. Local node_modules/.bin/sg — walk up from this file's dir, then cwd,
+	//    then the managed tools dir. Works regardless of install depth or layout.
 	const isWin = process.platform === "win32";
+	// On Windows with Git Bash, prefer the bare 'sg' shim (bash-compatible) over
+	// .cmd/.ps1 which bash cannot execute. In plain cmd/PowerShell, .cmd is fine.
+	const hasBash = !!(process.env.MSYSTEM || process.env.GIT_SHELL || process.env.BASH);
 	const sgCandidates = isWin
-		? ["sg.cmd", "sg.ps1", "sg.exe", "sg"]
+		? (hasBash ? ["sg", "sg.exe", "sg.cmd"] : ["sg.cmd", "sg.exe", "sg"])
 		: ["sg"];
-	for (const candidate of sgCandidates) {
-		const localSg = path.join(process.cwd(), "node_modules", ".bin", candidate);
-		if (!fs.existsSync(localSg)) continue;
-		const check = safeSpawn(localSg, ["--version"], { timeout: 5000 });
-		if (!check.error && check.status === 0) {
-			sgCmd = localSg;
-			sgCmdArgs = [];
-			sgAvailable = true;
-			return true;
+
+	const binRoots = [
+		...findNodeBinRoots(_thisDir),
+		...findNodeBinRoots(process.cwd()),
+		_managedToolsDir,
+	];
+	for (const root of binRoots) {
+		for (const candidate of sgCandidates) {
+			const localSg = path.join(root, "node_modules", ".bin", candidate);
+			if (!fs.existsSync(localSg)) continue;
+			const check = safeSpawn(localSg, ["--version"], { timeout: 5000 });
+			if (!check.error && check.status === 0) {
+				sgCmd = localSg;
+				sgCmdArgs = [];
+				sgAvailable = true;
+				return true;
+			}
 		}
 	}
 

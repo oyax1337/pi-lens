@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { isToolCallEventType } from "@mariozechner/pi-coding-agent";
 import { AstGrepClient } from "./clients/ast-grep-client.js";
-import { CacheManager } from "./clients/cache-manager.js";
 import { loadBootstrapClients } from "./clients/bootstrap.js";
+import { CacheManager } from "./clients/cache-manager.js";
 import { getDiagnosticTracker } from "./clients/diagnostic-tracker.js";
 import {
 	getDispatchSlopScoreLine,
@@ -14,36 +14,36 @@ import {
 	resetDispatchBaselines,
 } from "./clients/dispatch/integration.js";
 import { resetFormatService } from "./clients/format-service.js";
-import { evaluateGitGuard, isGitCommitOrPushAttempt } from "./clients/git-guard.js";
-import { ensureTool } from "./clients/installer/index.js";
+import {
+	evaluateGitGuard,
+	isGitCommitOrPushAttempt,
+} from "./clients/git-guard.js";
+import { getAllToolStatuses } from "./clients/installer/index.js";
+import { logLatency } from "./clients/latency-logger.js";
+import type { LSPSymbol } from "./clients/lsp/client.js";
 import { initLSPConfig } from "./clients/lsp/config.js";
 import { getLSPService, resetLSPService } from "./clients/lsp/index.js";
-import { captureSnapshot } from "./clients/metrics-history.js";
-import { findSimilarFunctions } from "./clients/project-index.js";
-import { RuntimeCoordinator } from "./clients/runtime-coordinator.js";
 import {
 	consumeSessionStartGuidance,
+	consumeTestFindings,
 	consumeTurnEndFindings,
 } from "./clients/runtime-context.js";
+import { RuntimeCoordinator } from "./clients/runtime-coordinator.js";
 import { handleSessionStart } from "./clients/runtime-session.js";
 import { handleToolResult } from "./clients/runtime-tool-result.js";
 import { handleTurnEnd } from "./clients/runtime-turn.js";
-import { formatRulesForPrompt } from "./clients/rules-scanner.js";
 import { handleBooboo } from "./commands/booboo.js";
 import { createAstGrepReplaceTool } from "./tools/ast-grep-replace.js";
 import { createAstGrepSearchTool } from "./tools/ast-grep-search.js";
 import { createLspNavigationTool } from "./tools/lsp-navigation.js";
 
-const _getExtensionDir = () => {
-	if (typeof __dirname !== "undefined") {
-		return __dirname;
-	}
-	return ".";
-};
-
 const DEBUG_LOG_DIR = path.join(os.homedir(), ".pi-lens");
 const DEBUG_LOG = path.join(DEBUG_LOG_DIR, "sessionstart.log");
 function dbg(msg: string) {
+	// Skip file logging during tests to isolate test output from production logs
+	if (process.env.PI_LENS_TEST_MODE === "1" || process.env.VITEST) {
+		return;
+	}
 	const line = `[${new Date().toISOString()}] ${msg}\n`;
 	try {
 		nodeFs.mkdirSync(DEBUG_LOG_DIR, { recursive: true });
@@ -54,9 +54,13 @@ function dbg(msg: string) {
 	}
 }
 
+// No-op log function (verbose console logging was removed with lens-verbose flag)
+function log(_msg: string) {
+	// Previously tied to --lens-verbose flag, now disabled
+}
+
 // --- State ---
 
-let _verbose = false;
 const runtime = new RuntimeCoordinator();
 const _lspConfigInitializedCwds = new Set<string>();
 const LSP_TOOLCALL_NAV_TOUCH_BUDGET_MS = Math.max(
@@ -68,10 +72,6 @@ const LSP_TOOLCALL_NAV_TOUCH_BUDGET_MS = Math.max(
 		10,
 	) || 1500,
 );
-
-function log(msg: string) {
-	if (_verbose) console.error(`[pi-lens] ${msg}`);
-}
 
 async function ensureLSPConfigInitialized(cwd: string): Promise<void> {
 	const normalizedCwd = path.resolve(cwd);
@@ -103,8 +103,42 @@ function updateRuntimeIdentityFromEvent(event: unknown): void {
  * on startup and will report phantom "Cannot find module" errors for
  * every deleted file until the cache is cleared.
  *
- * Only called when --lens-lsp is active (that’s when tsserver runs).
+ * Only called when LSP is active (that's when tsserver runs).
  */
+function findSymbolAtLine(
+	symbols: LSPSymbol[],
+	line1: number,
+):
+	| {
+			name: string;
+			kind: number;
+			range: { start: { line: number }; end: { line: number } };
+	  }
+	| undefined {
+	const targetLine = line1 - 1;
+	function search(items: LSPSymbol[]): LSPSymbol | undefined {
+		for (const s of items) {
+			const start = s.range?.start?.line ?? 0;
+			const end = s.range?.end?.line ?? start;
+			if (targetLine >= start && targetLine <= end) {
+				if (s.children && s.children.length > 0) {
+					const child = search(s.children);
+					if (child) return child;
+				}
+				return s;
+			}
+		}
+		return undefined;
+	}
+	const match = search(symbols);
+	if (!match?.range) return undefined;
+	return {
+		name: match.name ?? "(unknown)",
+		kind: match.kind ?? 0,
+		range: match.range,
+	};
+}
+
 function cleanStaleTsBuildInfo(cwd: string): string[] {
 	const cleaned: string[] = [];
 	try {
@@ -127,11 +161,11 @@ function cleanStaleTsBuildInfo(cwd: string): string[] {
 					cleaned.push(infoPath);
 				}
 			} catch {
-				// Malformed or unreadable — skip
+				// Malformed or unreadable - skip
 			}
 		}
 	} catch {
-		// readdirSync failed — skip
+		// readdirSync failed - skip
 	}
 	return cleaned;
 }
@@ -142,54 +176,30 @@ export default function (pi: ExtensionAPI) {
 	const astGrepClient = new AstGrepClient();
 	const cacheManager = new CacheManager();
 
+	function updateLspStatus(
+		setStatus: (id: string, text: string | undefined) => void,
+		theme: {
+			fg: (color: "accent" | "success" | "error", text: string) => string;
+		},
+	) {
+		try {
+			const count = getLSPService().getAliveClientCount();
+			if (count > 0) {
+				setStatus("pi-lens-lsp", theme.fg("success", `LSP Active (${count})`));
+			} else {
+				setStatus("pi-lens-lsp", theme.fg("error", "LSP Inactive"));
+			}
+		} catch {
+			// Theme may not be fully initialized during early session startup.
+			// Skip the status update rather than crashing the event handler.
+		}
+	}
 
 	// --- Flags ---
-
-	pi.registerFlag("lens-verbose", {
-		description: "Enable verbose pi-lens logging",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("no-biome", {
-		description: "Disable Biome linting/formatting",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("no-oxlint", {
-		description: "Disable Oxlint fast JS/TS linter",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("no-ast-grep", {
-		description: "Disable ast-grep structural analysis",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("no-ruff", {
-		description: "Disable Ruff Python linting",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("no-shellcheck", {
-		description: "Disable shellcheck for shell scripts",
-		type: "boolean",
-		default: false,
-	});
 
 	pi.registerFlag("no-lsp", {
 		description:
 			"Disable unified LSP diagnostics and use language-specific fallbacks (for example ts-lsp, pyright)",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("no-madge", {
-		description: "Disable circular dependency checking via madge",
 		type: "boolean",
 		default: false,
 	});
@@ -202,22 +212,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerFlag("no-autofix", {
-		description:
-			"Disable auto-fixing of lint issues (Biome, Ruff). Use --no-autofix-biome or --no-autofix-ruff for individual control.",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("no-autofix-biome", {
-		description:
-			"Disable Biome auto-fix on write (Biome autofix is enabled by default)",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("no-autofix-ruff", {
-		description:
-			"Disable Ruff auto-fix on write (Ruff autofix is enabled by default)",
+		description: "Disable auto-fixing of lint issues (Biome, Ruff, ESLint)",
 		type: "boolean",
 		default: false,
 	});
@@ -228,50 +223,8 @@ export default function (pi: ExtensionAPI) {
 		default: false,
 	});
 
-	pi.registerFlag("error-debt", {
-		description:
-			"Track test failures and block if tests start failing (error debt tracker)",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("no-go", {
-		description: "Disable Go linting (go vet)",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("no-rust", {
-		description: "Disable Rust linting (cargo check)",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("lens-lsp", {
-		description:
-			"Enable LSP (Language Server Protocol) for semantic analysis (Phase 3)",
-		type: "boolean",
-		default: true,
-	});
-
-	pi.registerFlag("auto-install", {
-		description:
-			"Auto-install missing LSP servers without prompting (for Go, Rust, YAML, JSON, Bash)",
-		type: "boolean",
-		default: false,
-	});
-
-	// Internal flag for running only blocking rules on file write (performance)
-	pi.registerFlag("lens-blocking-only", {
-		description:
-			"[Internal] Only run BLOCKING rules (severity: error) for fast feedback",
-		type: "boolean",
-		default: false,
-	});
-
-	pi.registerFlag("lens-eslint-core", {
-		description:
-			"Use bundled ESLint core rules when project has no ESLint config (JS-only fallback)",
+	pi.registerFlag("no-delta", {
+		description: "Disable delta mode (show all diagnostics, not just new ones)",
 		type: "boolean",
 		default: false,
 	});
@@ -283,13 +236,26 @@ export default function (pi: ExtensionAPI) {
 		default: false,
 	});
 
+	pi.registerFlag("no-read-guard", {
+		description: "Disable read-before-edit behavior monitor",
+		type: "boolean",
+		default: false,
+	});
+
 	// --- Commands ---
 
 	pi.registerCommand("lens-booboo", {
 		description:
 			"Full codebase review: design smells, complexity, AI slop detection, TODOs, dead code, duplicates, type coverage. Results saved to .pi-lens/reviews/. Usage: /lens-booboo [path]",
 		handler: async (args, ctx) => {
-			const { complexityClient, todoScanner, knipClient, jscpdClient, typeCoverageClient, depChecker, architectClient } = await loadBootstrapClients();
+			const {
+				complexityClient,
+				todoScanner,
+				knipClient,
+				jscpdClient,
+				typeCoverageClient,
+				depChecker,
+			} = await loadBootstrapClients();
 			return handleBooboo(
 				args,
 				ctx,
@@ -301,7 +267,6 @@ export default function (pi: ExtensionAPI) {
 					jscpd: jscpdClient,
 					typeCoverage: typeCoverageClient,
 					depChecker,
-					architect: architectClient,
 				},
 				pi,
 			);
@@ -338,8 +303,8 @@ export default function (pi: ExtensionAPI) {
 				tdi.score <= 30
 					? "✅ Codebase is healthy!"
 					: tdi.score <= 60
-						? "⚠️ Moderate debt — consider refactoring"
-						: "🔴 High debt — run /lens-booboo-refactor",
+						? "⚠️ Moderate debt - consider refactoring"
+						: "🔴 High debt - run /lens-booboo-refactor",
 			];
 
 			ctx.ui.notify(lines.join("\n"), "info");
@@ -350,10 +315,13 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Show pi-lens runtime health: pipeline crashes, slow runners, and last dispatch latency. Usage: /lens-health",
 		handler: async (_args, ctx) => {
-			const crashEntries = runtime.getCrashEntries().sort(
-				(a, b) => b[1] - a[1],
+			const crashEntries = runtime
+				.getCrashEntries()
+				.sort((a, b) => b[1] - a[1]);
+			const totalCrashes = crashEntries.reduce(
+				(sum, [, count]) => sum + count,
+				0,
 			);
-			const totalCrashes = crashEntries.reduce((sum, [, count]) => sum + count, 0);
 
 			const reports = getLatencyReports();
 			const last = reports.length > 0 ? reports[reports.length - 1] : undefined;
@@ -418,7 +386,9 @@ export default function (pi: ExtensionAPI) {
 				for (const v of diagStats.topViolations.slice(0, 5)) {
 					const samplePath =
 						v.samplePaths.length > 0
-							? path.relative(runtime.projectRoot, v.samplePaths[0]).replace(/\\/g, "/")
+							? path
+									.relative(runtime.projectRoot, v.samplePaths[0])
+									.replace(/\\/g, "/")
 							: "";
 					const pathSuffix = samplePath ? ` (e.g. ${samplePath})` : "";
 					lines.push(`  ${v.ruleId}: ${v.count}${pathSuffix}`);
@@ -433,6 +403,105 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	pi.registerCommand("lens-tools", {
+		description:
+			"Show pi-lens tool installation status: globally installed, auto-installed, or npx fallback. Usage: /lens-tools",
+		handler: async (_args, ctx) => {
+			const statuses = await getAllToolStatuses();
+
+			const bySource = {
+				"global-path": statuses.filter((s) => s.source === "global-path"),
+				"npm-global": statuses.filter((s) => s.source === "npm-global"),
+				"pip-user": statuses.filter((s) => s.source === "pip-user"),
+				"pi-lens-auto": statuses.filter((s) => s.source === "pi-lens-auto"),
+				"github-release": statuses.filter((s) => s.source === "github-release"),
+				"npx-fallback": statuses.filter((s) => s.source === "npx-fallback"),
+				"not-installed": statuses.filter((s) => s.source === "not-installed"),
+			};
+
+			const lines: string[] = [
+				"🔧 PI-LENS TOOLS STATUS",
+				"",
+				`Installed: ${statuses.filter((s) => s.installed).length}/${statuses.length}`,
+			];
+
+			// Global PATH tools
+			if (bySource["global-path"].length > 0) {
+				lines.push("", `📍 Global PATH (${bySource["global-path"].length}):`);
+				for (const tool of bySource["global-path"]) {
+					const version = tool.version ? ` (${tool.version})` : "";
+					lines.push(`  ✓ ${tool.name}${version}`);
+				}
+			}
+
+			// npm global tools
+			if (bySource["npm-global"].length > 0) {
+				lines.push("", `📦 npm global (${bySource["npm-global"].length}):`);
+				for (const tool of bySource["npm-global"]) {
+					lines.push(`  ✓ ${tool.name}`);
+				}
+			}
+
+			// pip user tools
+			if (bySource["pip-user"].length > 0) {
+				lines.push("", `🐍 pip user (${bySource["pip-user"].length}):`);
+				for (const tool of bySource["pip-user"]) {
+					lines.push(`  ✓ ${tool.name}`);
+				}
+			}
+
+			// GitHub releases
+			if (bySource["github-release"].length > 0) {
+				lines.push(
+					"",
+					`⬇️ GitHub releases (${bySource["github-release"].length}):`,
+				);
+				for (const tool of bySource["github-release"]) {
+					lines.push(`  ✓ ${tool.name}`);
+				}
+			}
+
+			// pi-lens auto-installed
+			if (bySource["pi-lens-auto"].length > 0) {
+				lines.push(
+					"",
+					`🤖 Auto-installed (${bySource["pi-lens-auto"].length}):`,
+				);
+				for (const tool of bySource["pi-lens-auto"]) {
+					lines.push(`  ✓ ${tool.name}`);
+				}
+			}
+
+			// npx fallback
+			if (bySource["npx-fallback"].length > 0) {
+				lines.push(
+					"",
+					`📦 npx fallback (${bySource["npx-fallback"].length} - on-demand install):`,
+				);
+				for (const tool of bySource["npx-fallback"]) {
+					lines.push(`  ⬜ ${tool.name}`);
+				}
+			}
+
+			// Not installed (should be empty for npm tools, they'll use npx)
+			const trulyMissing = bySource["not-installed"].filter(
+				(s) => s.strategy !== "npm",
+			);
+			if (trulyMissing.length > 0) {
+				lines.push("", `❌ Missing (${trulyMissing.length}):`);
+				for (const tool of trulyMissing) {
+					lines.push(`  ✗ ${tool.name} (${tool.strategy})`);
+				}
+				lines.push(
+					"",
+					"Note: GitHub-release tools auto-install when you open files of those languages",
+				);
+			}
+
+			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+
 	// --- Tools (extracted to tools/) ---
 	pi.registerTool(createAstGrepSearchTool(astGrepClient) as any);
 	pi.registerTool(createAstGrepReplaceTool(astGrepClient) as any);
@@ -441,411 +510,535 @@ export default function (pi: ExtensionAPI) {
 	// REMOVED: ~450 lines of inline tool definitions moved to tools/
 	// See tools/ast-grep-search.ts, tools/ast-grep-replace.ts, tools/lsp-navigation.ts
 
-// Runtime state is managed by RuntimeCoordinator.
+	// Runtime state is managed by RuntimeCoordinator.
 
-// Delta baselines: store pre-write diagnostics to diff against post-write
-const _astGrepBaselines = new Map<
-	string,
-	import("./clients/ast-grep-types.js").AstGrepDiagnostic[]
->();
-const _biomeBaselines = new Map<
-	string,
-	import("./clients/biome-client.js").BiomeDiagnostic[]
->();
+	// Project rules scan result and per-turn state live in RuntimeCoordinator.
 
-// Project rules scan result and per-turn state live in RuntimeCoordinator.
+	// --- Register skills with pi ---
+	pi.on("resources_discover", async (_event, _ctx) => {
+		// Get the extension directory (where this file is located)
+		const extensionDir = path.dirname(fileURLToPath(import.meta.url));
+		const skillsDir = path.join(extensionDir, "skills");
 
-// --- Register skills with pi ---
-pi.on("resources_discover", async (_event, _ctx) => {
-	// Get the extension directory (where this file is located)
-	const extensionDir = path.dirname(fileURLToPath(import.meta.url));
-	const skillsDir = path.join(extensionDir, "skills");
+		return {
+			skillPaths: [skillsDir],
+		};
+	});
 
-	return {
-		skillPaths: [skillsDir],
-	};
-});
+	// --- Events ---
 
-// --- Events ---
-
-pi.on("session_start", async (event, ctx) => {
-	try {
-		_verbose = !!pi.getFlag("lens-verbose");
-		dbg("session_start fired");
-		updateRuntimeIdentityFromEvent(event);
+	pi.on("session_start", async (event, ctx) => {
 		try {
-			await ensureLSPConfigInitialized(ctx.cwd ?? process.cwd());
-		} catch (cfgErr) {
-			dbg(`lsp config init failed: ${cfgErr}`);
-		}
-
-		const {
-			metricsClient,
-			todoScanner,
-			biomeClient,
-			ruffClient,
-			knipClient,
-			jscpdClient,
-			typeCoverageClient,
-			depChecker,
-			architectClient,
-			testRunnerClient,
-			goClient,
-			rustClient,
-		} = await loadBootstrapClients();
-		await handleSessionStart({
-			ctxCwd: ctx.cwd,
-			getFlag: (name: string) => pi.getFlag(name),
-			notify: (msg, level) => ctx.ui.notify(msg, level),
-			dbg,
-			log,
-			runtime,
-			metricsClient,
-			cacheManager,
-			todoScanner,
-			astGrepClient,
-			biomeClient,
-			ruffClient,
-			knipClient,
-			jscpdClient,
-			typeCoverageClient,
-			depChecker,
-			architectClient,
-			testRunnerClient,
-			goClient,
-			rustClient,
-			ensureTool: async (name: string) =>
-				(await import("./clients/installer/index.js")).ensureTool(name),
-			cleanStaleTsBuildInfo,
-			resetDispatchBaselines,
-			resetLSPService,
-		});
-	} catch (sessionErr) {
-		dbg(`session_start crashed: ${sessionErr}`);
-		dbg(`session_start crash stack: ${(sessionErr as Error).stack}`);
-	}
-});
-
-pi.on("tool_call", async (event, ctx) => {
-	const toolName = (event as { toolName?: string }).toolName ?? "";
-	if (pi.getFlag("lens-guard") && isGitCommitOrPushAttempt(toolName, event.input)) {
-		const guard = evaluateGitGuard(
-			runtime,
-			cacheManager,
-			ctx.cwd ?? runtime.projectRoot,
-		);
-		if (guard.block) {
-			return {
-				block: true,
-				reason: guard.reason,
-			};
-		}
-	}
-
-	const inputObj = (event.input ?? {}) as Record<string, unknown>;
-	const rawFilePath =
-		isToolCallEventType("write", event) || isToolCallEventType("edit", event)
-			? (event.input as { path: string }).path
-			: toolName === "read" || toolName === "lsp_navigation"
-				? typeof inputObj.filePath === "string"
-					? inputObj.filePath
-					: undefined
-				: undefined;
-	const filePath = rawFilePath
-		? path.isAbsolute(rawFilePath)
-			? rawFilePath
-			: path.resolve(ctx.cwd ?? runtime.projectRoot, rawFilePath)
-		: undefined;
-
-	if (pi.getFlag("lens-lsp") && !pi.getFlag("no-lsp")) {
-		try {
-			const configCwd = filePath
-				? path.dirname(filePath)
-				: (ctx.cwd ?? runtime.projectRoot ?? process.cwd());
-			await ensureLSPConfigInitialized(configCwd);
-		} catch (cfgErr) {
-			dbg(`lsp config init failed during tool_call: ${cfgErr}`);
-		}
-	}
-
-	if (!filePath) return;
-
-	dbg(
-		`tool_call fired for: ${filePath} (exists: ${nodeFs.existsSync(filePath)})`,
-	);
-	if (!nodeFs.existsSync(filePath)) return;
-
-	// Only pre-touch LSP for read and lsp_navigation — these need the server
-	// warmed up before the tool executes.  Do NOT pre-touch for write/edit:
-	// the file hasn't been modified yet, so we'd send stale content to the LS
-	// which caches stale diagnostics that the pipeline then returns immediately.
-	// The pipeline's own syncLspFile step handles write/edit with correct content.
-	const shouldAutoTouch =
-		(toolName === "read" ||
-			toolName === "lsp_navigation") &&
-		!!pi.getFlag("lens-lsp") &&
-		!pi.getFlag("no-lsp");
-	if (shouldAutoTouch) {
-		try {
-			const fileContent = nodeFs.readFileSync(filePath, "utf-8");
-			const maxClientWaitMs =
-				toolName === "lsp_navigation" ? LSP_TOOLCALL_NAV_TOUCH_BUDGET_MS : undefined;
-			void getLSPService()
-				.touchFile(
-					filePath,
-					fileContent,
-					false,
-					`tool_call:${toolName}`,
-					false,
-					maxClientWaitMs,
-				)
-				.catch((err) => dbg(`lsp auto-touch failed for ${filePath}: ${err}`));
-		} catch {
-			// Best effort only; never block tool calls.
-		}
-	}
-
-	const { complexityClient } = await loadBootstrapClients();
-	// Record complexity baseline for historical tracking (booboo/tdi).
-	// Not shown inline — just captured for delta analysis.
-	if (
-		complexityClient.isSupportedFile(filePath) &&
-		!runtime.complexityBaselines.has(filePath)
-	) {
-		const baseline = complexityClient.analyzeFile(filePath);
-		if (baseline) {
-			runtime.complexityBaselines.set(filePath, baseline);
-			const { captureSnapshot } = await import(
-				"./clients/metrics-history.js"
-			);
-			captureSnapshot(filePath, {
-				maintainabilityIndex: baseline.maintainabilityIndex,
-				cognitiveComplexity: baseline.cognitiveComplexity,
-				maxNestingDepth: baseline.maxNestingDepth,
-				linesOfCode: baseline.linesOfCode,
-				maxCyclomatic: baseline.maxCyclomaticComplexity,
-				entropy: baseline.codeEntropy,
-			});
-		}
-	}
-
-	// --- Pre-write duplicate detection ---
-	// Check if new content redefines functions that already exist elsewhere.
-	// Uses cachedExports (populated at session_start via ast-grep scan).
-	const isWriteOrEdit =
-		isToolCallEventType("write", event) || isToolCallEventType("edit", event);
-	if (isWriteOrEdit && runtime.cachedExports.size > 0) {
-		const newContent = isToolCallEventType("write", event)
-			? (event.input as { content?: string }).content
-			: (event.input as { edits?: Array<{ newText?: string }> }).edits
-					?.map((e) => e.newText ?? "")
-					.join("\n");
-		if (newContent) {
-			const INLINE_SIMILARITY_THRESHOLD = 0.9;
-			const INLINE_SIMILARITY_MAX_HINTS = 3;
-			const INLINE_SIMILARITY_MAX_CHARS = 700;
-			const dupeWarnings: string[] = [];
-			const exportRe =
-				/export\s+(?:async\s+)?(?:function|class|const|let|type|interface)\s+(\w+)/g;
-			let m: RegExpExecArray | null;
-			while ((m = exportRe.exec(newContent))) {
-				const name = m[1];
-				const existingFile = runtime.cachedExports.get(name);
-				if (
-					existingFile &&
-					path.resolve(existingFile) !== path.resolve(filePath)
-				) {
-					dupeWarnings.push(
-						`\`${name}\` already exists in ${path.relative(runtime.projectRoot, existingFile)}`,
-					);
-				}
+			dbg("session_start fired");
+			updateRuntimeIdentityFromEvent(event);
+			try {
+				await ensureLSPConfigInitialized(ctx.cwd ?? process.cwd());
+			} catch (cfgErr) {
+				dbg(`lsp config init failed: ${cfgErr}`);
 			}
-			if (dupeWarnings.length > 0) {
+
+			const {
+				metricsClient,
+				todoScanner,
+				biomeClient,
+				ruffClient,
+				knipClient,
+				jscpdClient,
+				typeCoverageClient,
+				depChecker,
+				testRunnerClient,
+				goClient,
+				rustClient,
+			} = await loadBootstrapClients();
+			await handleSessionStart({
+				ctxCwd: ctx.cwd,
+				getFlag: (name: string) => pi.getFlag(name),
+				notify: (msg, level) => ctx.ui.notify(msg, level),
+				dbg,
+				log,
+				runtime,
+				metricsClient,
+				cacheManager,
+				todoScanner,
+				astGrepClient,
+				biomeClient,
+				ruffClient,
+				knipClient,
+				jscpdClient,
+				typeCoverageClient,
+				depChecker,
+				testRunnerClient,
+				goClient,
+				rustClient,
+				ensureTool: async (name: string) =>
+					(await import("./clients/installer/index.js")).ensureTool(name),
+				cleanStaleTsBuildInfo,
+				resetDispatchBaselines,
+				resetLSPService,
+			});
+			ctx.ui && updateLspStatus(ctx.ui.setStatus, ctx.ui.theme);
+		} catch (sessionErr) {
+			dbg(`session_start crashed: ${sessionErr}`);
+			dbg(`session_start crash stack: ${(sessionErr as Error).stack}`);
+		}
+	});
+
+	pi.on("tool_call", async (event, ctx) => {
+		const toolName = (event as { toolName?: string }).toolName ?? "";
+		if (
+			pi.getFlag("lens-guard") &&
+			isGitCommitOrPushAttempt(toolName, event.input)
+		) {
+			const guard = evaluateGitGuard(
+				runtime,
+				cacheManager,
+				ctx.cwd ?? runtime.projectRoot,
+			);
+			if (guard.block) {
 				return {
 					block: true,
-					reason: `🔴 STOP — Redefining existing export(s). Import instead:\n${dupeWarnings.map((w) => `  • ${w}`).join("\n")}`,
+					reason: guard.reason,
 				};
 			}
+		}
 
-			// --- Structural similarity check (Phase 7b) ---
-			// If the project index was built at session_start, check new
-			// functions against it for structural clones (~50ms).
-			if (
-				runtime.cachedProjectIndex &&
-				runtime.cachedProjectIndex.entries.size > 0 &&
-				/\.(ts|tsx)$/.test(filePath)
-			) {
-				try {
-					const ts = await import("typescript");
-					const sourceFile = ts.createSourceFile(
+		const inputObj = (event.input ?? {}) as Record<string, unknown>;
+		const rawFilePath =
+			isToolCallEventType("write", event) || isToolCallEventType("edit", event)
+				? (event.input as { path: string }).path
+				: toolName === "read" || toolName === "lsp_navigation"
+					? typeof inputObj.filePath === "string"
+						? inputObj.filePath
+						: undefined
+					: undefined;
+		const filePath = rawFilePath
+			? path.isAbsolute(rawFilePath)
+				? rawFilePath
+				: path.resolve(ctx.cwd ?? runtime.projectRoot, rawFilePath)
+			: undefined;
+
+		if (!pi.getFlag("no-lsp")) {
+			try {
+				const configCwd = filePath
+					? path.dirname(filePath)
+					: (ctx.cwd ?? runtime.projectRoot ?? process.cwd());
+				await ensureLSPConfigInitialized(configCwd);
+			} catch (cfgErr) {
+				dbg(`lsp config init failed during tool_call: ${cfgErr}`);
+			}
+		}
+
+		if (!filePath) return;
+
+		dbg(
+			`tool_call fired for: ${filePath} (exists: ${nodeFs.existsSync(filePath)})`,
+		);
+		if (!nodeFs.existsSync(filePath)) return;
+
+		// Only pre-touch LSP for read and lsp_navigation — these need the server
+		// warmed up before the tool executes.  Do NOT pre-touch for write/edit:
+		// the file hasn't been modified yet, so we'd send stale content to the LS
+		// which caches stale diagnostics that the pipeline then returns immediately.
+		// The pipeline's own syncLspFile step handles write/edit with correct content.
+		const shouldAutoTouch =
+			(toolName === "read" || toolName === "lsp_navigation") &&
+			!pi.getFlag("no-lsp");
+		if (shouldAutoTouch) {
+			try {
+				const fileContent = nodeFs.readFileSync(filePath, "utf-8");
+				const maxClientWaitMs =
+					toolName === "lsp_navigation"
+						? LSP_TOOLCALL_NAV_TOUCH_BUDGET_MS
+						: undefined;
+				void getLSPService()
+					.touchFile(
 						filePath,
-						newContent,
-						ts.ScriptTarget.Latest,
-						true,
-					);
-					const { extractFunctions } = await import("./clients/dispatch/runners/similarity.js");
-					const { findSimilarFunctions } = await import("./clients/project-index.js");
-					const newFunctions = extractFunctions(ts, sourceFile, newContent);
-					const simWarnings: string[] = [];
-					let simHintsTruncated = false;
-					const relPath = path.relative(runtime.projectRoot, filePath);
-
-					for (const func of newFunctions) {
-						if (simWarnings.length >= INLINE_SIMILARITY_MAX_HINTS) {
-							simHintsTruncated = true;
-							break;
+						fileContent,
+						false,
+						`tool_call:${toolName}`,
+						false,
+						maxClientWaitMs,
+					)
+					.then(() => {
+						if (ctx.ui) {
+							ctx.ui && updateLspStatus(ctx.ui.setStatus, ctx.ui.theme);
 						}
-						if (func.transitionCount < 20) continue;
-						const matches = findSimilarFunctions(
-							func.matrix,
-							runtime.cachedProjectIndex,
-							INLINE_SIMILARITY_THRESHOLD,
-							1,
+					})
+					.catch((err) => dbg(`lsp auto-touch failed for ${filePath}: ${err}`));
+			} catch {
+				// Best effort only; never block tool calls.
+			}
+		}
+
+		// --- Read-Before-Edit Guard: record reads ---
+		if (toolName === "read" && filePath) {
+			const readInput = event.input as {
+				filePath?: string;
+				offset?: number;
+				limit?: number;
+			};
+			const rawOffset = readInput.offset ?? 1;
+			const rawLimit = readInput.limit ?? 1;
+
+			// Record read immediately (before LSP expansion);
+			// LSP expansion data is captured below
+			runtime.readGuard.recordRead({
+				filePath,
+				requestedOffset: rawOffset,
+				requestedLimit: rawLimit,
+				effectiveOffset: rawOffset,
+				effectiveLimit: rawLimit,
+				expandedByLsp: false,
+				turnIndex: runtime.turnIndex,
+				writeIndex: runtime.nextWriteIndex(),
+				timestamp: Date.now(),
+			});
+		}
+
+		// --- Opportunistic LSP range expansion for single-line reads ---
+		if (toolName === "read" && !pi.getFlag("no-lsp") && filePath) {
+			const readInput = event.input as {
+				filePath?: string;
+				offset?: number;
+				limit?: number;
+			};
+			const isSingleLine =
+				readInput.offset != null &&
+				(readInput.limit == null || readInput.limit <= 1);
+			if (isSingleLine) {
+				const lsp = getLSPService();
+				const startedAt = Date.now();
+				lsp
+					.getWarmClientForFile(filePath)
+					.then((spawned) => {
+						if (!spawned?.client.isAlive()) return;
+						return spawned.client.documentSymbol(filePath).then((symbols) => {
+							const match = findSymbolAtLine(symbols, readInput.offset!);
+							if (match) {
+								const newOffset = match.range.start.line + 1;
+								const endLine = match.range.end.line + 1;
+								readInput.offset = newOffset;
+								readInput.limit = endLine - newOffset + 1;
+
+								// Update read guard with expanded range
+								const reads = runtime.readGuard.getReadHistory(filePath);
+								const lastRead = reads[reads.length - 1];
+								if (lastRead) {
+									lastRead.effectiveOffset = newOffset;
+									lastRead.effectiveLimit = endLine - newOffset + 1;
+									lastRead.expandedByLsp = true;
+									lastRead.enclosingSymbol = {
+										name: match.name,
+										kind: String(match.kind),
+										startLine: match.range.start.line + 1,
+										endLine: match.range.end.line + 1,
+									};
+								}
+
+								logLatency({
+									type: "phase",
+									phase: "lsp_read_range_expansion",
+									filePath,
+									durationMs: Date.now() - startedAt,
+									metadata: {
+										symbol: match.name,
+										kind: match.kind,
+										fromLine: readInput.offset,
+										toRange: `${newOffset}-${endLine}`,
+										serverId: spawned.info.id,
+									},
+								});
+								dbg(
+									`lsp expanded read range: ${path.basename(filePath)} line ${readInput.offset} → ${match.name} (${newOffset}-${endLine})`,
+								);
+							}
+						});
+					})
+					.catch(() => {
+						/* silent fallback */
+					});
+			}
+		}
+
+		const { complexityClient } = await loadBootstrapClients();
+		// Record complexity baseline for historical tracking (booboo/tdi).
+		// Not shown inline - just captured for delta analysis.
+		if (
+			complexityClient.isSupportedFile(filePath) &&
+			!runtime.complexityBaselines.has(filePath)
+		) {
+			const baseline = complexityClient.analyzeFile(filePath);
+			if (baseline) {
+				runtime.complexityBaselines.set(filePath, baseline);
+				const { captureSnapshot } = await import(
+					"./clients/metrics-history.js"
+				);
+				captureSnapshot(filePath, {
+					maintainabilityIndex: baseline.maintainabilityIndex,
+					cognitiveComplexity: baseline.cognitiveComplexity,
+					maxNestingDepth: baseline.maxNestingDepth,
+					linesOfCode: baseline.linesOfCode,
+					maxCyclomatic: baseline.maxCyclomaticComplexity,
+					entropy: baseline.codeEntropy,
+				});
+			}
+		}
+
+		// --- Read-Before-Edit Guard: check edits ---
+		const isWriteOrEdit =
+			isToolCallEventType("write", event) || isToolCallEventType("edit", event);
+		if (isWriteOrEdit && filePath && !pi.getFlag("no-read-guard")) {
+			const isNewFile = runtime.readGuard.isNewFile(filePath);
+			if (!isNewFile) {
+				// Compute touched lines for the edit
+				let touchedLines: [number, number] | undefined;
+				if (isToolCallEventType("edit", event)) {
+					const editInput = event.input as {
+						oldRange?: { start: { line: number }; end: { line: number } };
+						edits?: Array<{
+							range?: { start: { line: number }; end: { line: number } };
+						}>;
+					};
+					if (editInput.oldRange) {
+						touchedLines = [
+							editInput.oldRange.start.line,
+							editInput.oldRange.end.line,
+						];
+					} else if (editInput.edits?.length) {
+						// Find min/max line from all edits
+						const lines = editInput.edits.flatMap((e) => [
+							e.range?.start?.line ?? 1,
+							e.range?.end?.line ?? 1,
+						]);
+						touchedLines = [Math.min(...lines), Math.max(...lines)];
+					}
+				} else if (isToolCallEventType("write", event)) {
+					// For write, we consider the whole file
+					// This will be checked against any previous read of the file
+					// If the file was never read, it will be blocked by zero-read check
+					touchedLines = [1, Number.MAX_SAFE_INTEGER];
+				}
+
+				const verdict = runtime.readGuard.checkEdit(filePath, touchedLines);
+				if (verdict.action === "block") {
+					return {
+						block: true,
+						reason: verdict.reason,
+					};
+				}
+			}
+		}
+
+		// --- Pre-write duplicate detection ---
+		// Check if new content redefines functions that already exist elsewhere.
+		// Uses cachedExports (populated at session_start via ast-grep scan).
+		if (isWriteOrEdit && runtime.cachedExports.size > 0) {
+			const newContent = isToolCallEventType("write", event)
+				? (event.input as { content?: string }).content
+				: (event.input as { edits?: Array<{ newText?: string }> }).edits
+						?.map((e) => e.newText ?? "")
+						.join("\n");
+			if (newContent) {
+				const INLINE_SIMILARITY_THRESHOLD = 0.9;
+				const INLINE_SIMILARITY_MAX_HINTS = 3;
+				const INLINE_SIMILARITY_MAX_CHARS = 700;
+				const dupeWarnings: string[] = [];
+				const exportRe =
+					/export\s+(?:async\s+)?(?:function|class|const|let|type|interface)\s+(\w+)/g;
+				let m: RegExpExecArray | null;
+				while ((m = exportRe.exec(newContent))) {
+					const name = m[1];
+					const existingFile = runtime.cachedExports.get(name);
+					if (
+						existingFile &&
+						path.resolve(existingFile) !== path.resolve(filePath)
+					) {
+						dupeWarnings.push(
+							`\`${name}\` already exists in ${path.relative(runtime.projectRoot, existingFile)}`,
 						);
-						for (const match of matches) {
+					}
+				}
+				if (dupeWarnings.length > 0) {
+					return {
+						block: true,
+						reason: `🔴 STOP - Redefining existing export(s). Import instead:\n${dupeWarnings.map((w) => `  • ${w}`).join("\n")}`,
+					};
+				}
+
+				// --- Structural similarity check (Phase 7b) ---
+				// If the project index was built at session_start, check new
+				// functions against it for structural clones (~50ms).
+				if (
+					runtime.cachedProjectIndex &&
+					runtime.cachedProjectIndex.entries.size > 0 &&
+					/\.(ts|tsx)$/.test(filePath)
+				) {
+					try {
+						const ts = await import("typescript");
+						const sourceFile = ts.createSourceFile(
+							filePath,
+							newContent,
+							ts.ScriptTarget.Latest,
+							true,
+						);
+						const { extractFunctions } = await import(
+							"./clients/dispatch/runners/similarity.js"
+						);
+						const { findSimilarFunctions } = await import(
+							"./clients/project-index.js"
+						);
+						const newFunctions = extractFunctions(ts, sourceFile, newContent);
+						const simWarnings: string[] = [];
+						let simHintsTruncated = false;
+						const relPath = path.relative(runtime.projectRoot, filePath);
+
+						for (const func of newFunctions) {
 							if (simWarnings.length >= INLINE_SIMILARITY_MAX_HINTS) {
 								simHintsTruncated = true;
 								break;
 							}
-							const targetPathMatch = String(match.targetLocation).match(
-								/^(.*):\d+$/,
+							if (func.transitionCount < 20) continue;
+							const matches = findSimilarFunctions(
+								func.matrix,
+								runtime.cachedProjectIndex,
+								INLINE_SIMILARITY_THRESHOLD,
+								1,
 							);
-							const targetPath = targetPathMatch?.[1] ?? String(match.targetLocation);
-							const resolvedTarget = path.isAbsolute(targetPath)
-								? targetPath
-								: path.join(runtime.projectRoot, targetPath);
-							if (!nodeFs.existsSync(resolvedTarget)) continue;
+							for (const match of matches) {
+								if (simWarnings.length >= INLINE_SIMILARITY_MAX_HINTS) {
+									simHintsTruncated = true;
+									break;
+								}
+								const targetPathMatch = String(match.targetLocation).match(
+									/^(.*):\d+$/,
+								);
+								const targetPath =
+									targetPathMatch?.[1] ?? String(match.targetLocation);
+								const resolvedTarget = path.isAbsolute(targetPath)
+									? targetPath
+									: path.join(runtime.projectRoot, targetPath);
+								if (!nodeFs.existsSync(resolvedTarget)) continue;
 
-							// Skip self-matches
-							if (match.targetId === `${relPath}:${func.name}`) continue;
-							const pct = Math.round(match.similarity * 100);
-							simWarnings.push(
-								`\`${func.name}\` is ${pct}% similar to \`${match.targetName}\` at \`${String(match.targetLocation).replace(/\\/g, "/")}\``,
-							);
+								// Skip self-matches
+								if (match.targetId === `${relPath}:${func.name}`) continue;
+								const pct = Math.round(match.similarity * 100);
+								simWarnings.push(
+									`\`${func.name}\` is ${pct}% similar to \`${match.targetName}\` at \`${String(match.targetLocation).replace(/\\/g, "/")}\``,
+								);
+							}
 						}
-					}
 
-					if (simWarnings.length > 0) {
-						let reason = `⚠️ Potential structural similarity (advisory):\n${simWarnings.map((w) => `  • ${w}`).join("\n")}`;
-						if (simHintsTruncated) {
-							reason += "\n  • ... additional similar candidates omitted";
+						if (simWarnings.length > 0) {
+							let reason = `⚠️ Potential structural similarity (advisory):\n${simWarnings.map((w) => `  • ${w}`).join("\n")}`;
+							if (simHintsTruncated) {
+								reason += "\n  • ... additional similar candidates omitted";
+							}
+							reason +=
+								"\nUse this only as a hint; verify behavior before refactoring.";
+							if (reason.length > INLINE_SIMILARITY_MAX_CHARS) {
+								reason = `${reason.slice(0, INLINE_SIMILARITY_MAX_CHARS)}\n... (truncated)`;
+							}
+							return {
+								block: false,
+								reason,
+							};
 						}
-						reason += "\nUse this only as a hint; verify behavior before refactoring.";
-						if (reason.length > INLINE_SIMILARITY_MAX_CHARS) {
-							reason = `${reason.slice(0, INLINE_SIMILARITY_MAX_CHARS)}\n... (truncated)`;
-						}
-						return {
-							block: false,
-							reason,
-						};
+					} catch {
+						// Parsing failed - skip similarity check silently
 					}
-				} catch {
-					// Parsing failed — skip similarity check silently
 				}
 			}
 		}
-	}
-});
-
-// Real-time feedback on file writes/edits
-// biome-ignore lint/suspicious/noExplicitAny: pi.on overload mismatch for tool_result event type
-(pi as any).on("tool_result", async (event: any) => {
-	updateRuntimeIdentityFromEvent(event);
-	const {
-		biomeClient,
-		ruffClient,
-		testRunnerClient,
-		metricsClient,
-		agentBehaviorClient,
-	} = await loadBootstrapClients();
-	return handleToolResult({
-		event: event as any,
-		getFlag: (name: string) => pi.getFlag(name),
-		dbg,
-		runtime,
-		cacheManager,
-		biomeClient,
-		ruffClient,
-		testRunnerClient,
-		metricsClient,
-		resetLSPService,
-		agentBehaviorRecord: (toolName, filePath) =>
-			agentBehaviorClient.recordToolCall(toolName, filePath),
-		formatBehaviorWarnings: (warnings) =>
-			agentBehaviorClient.formatWarnings(warnings as any),
 	});
-});
-// --- Inject project rules into system prompt ---
-pi.on("before_agent_start", async (event) => {
-	updateRuntimeIdentityFromEvent(event);
-	if (!runtime.projectRulesScan.hasCustomRules) return;
 
-	const rulesSection = formatRulesForPrompt(runtime.projectRulesScan);
-	return {
-		systemPrompt: `${event.systemPrompt}\n\n## Project Rules\nRead these files only when relevant:\n${rulesSection}\n`,
-	};
-});
-
-// --- Turn end: batch jscpd/madge on collected files, then clear state ---
-// Clear cascade snapshot at start of each new turn so stale data never leaks
-pi.on("turn_start", () => {
-	runtime.beginTurn();
-});
-
-pi.on("turn_end", async (_event, ctx) => {
-	try {
-		const { jscpdClient, knipClient, depChecker } = await loadBootstrapClients();
-		await handleTurnEnd({
-			ctxCwd: ctx.cwd,
+	// Real-time feedback on file writes/edits
+	// biome-ignore lint/suspicious/noExplicitAny: pi.on overload mismatch for tool_result event type
+	(pi as any).on("tool_result", async (event: any) => {
+		updateRuntimeIdentityFromEvent(event);
+		const { biomeClient, ruffClient, metricsClient, agentBehaviorClient } =
+			await loadBootstrapClients();
+		return handleToolResult({
+			event: event as any,
 			getFlag: (name: string) => pi.getFlag(name),
 			dbg,
 			runtime,
 			cacheManager,
-			jscpdClient,
-			knipClient,
-			depChecker,
+			biomeClient,
+			ruffClient,
+			metricsClient,
 			resetLSPService,
-			resetFormatService,
+			agentBehaviorRecord: (toolName, filePath) =>
+				agentBehaviorClient.recordToolCall(toolName, filePath),
+			formatBehaviorWarnings: (warnings) =>
+				agentBehaviorClient.formatWarnings(warnings as any),
 		});
-	} catch (turnEndErr) {
-		dbg(`turn_end crashed: ${turnEndErr}`);
-		dbg(`turn_end crash stack: ${(turnEndErr as Error).stack}`);
-	}
-});
+	});
 
-// --- Inject turn-end findings into next agent turn ---
-// jscpd, madge, and turn-end delta results are cached at turn_end and consumed here
-// via the context event, which fires before each provider request.
-// Important: context handlers must APPEND to the existing message list, not replace it.
-// Replacing `event.messages` can drop the user's first prompt entirely, which causes
-// OpenAI Responses requests to fail with: "One of input/previous_response_id/prompt/conversation_id must be provided."
-// biome-ignore lint/suspicious/noExplicitAny: pi.on("context") overload has TS resolution bug
-(pi as any).on(
-	"context",
-	async (
-		event: { messages?: Array<{ role: string; content: unknown }> } | unknown,
-		ctx: { cwd?: string },
-	) => {
+	// --- Turn end: batch jscpd/madge on collected files, then clear state ---
+	// Clear cascade snapshot at start of each new turn so stale data never leaks
+	pi.on("turn_start", () => {
+		runtime.beginTurn();
+	});
+
+	pi.on("turn_end", async (_event, ctx) => {
 		try {
-			const cwd = ctx.cwd ?? process.cwd();
-			const turnEndFindings = consumeTurnEndFindings(cacheManager, cwd);
-			const sessionGuidance = consumeSessionStartGuidance(cacheManager, cwd);
-			const injectedMessages = [
-				...(sessionGuidance?.messages ?? []),
-				...(turnEndFindings?.messages ?? []),
-			];
-			if (injectedMessages.length === 0) return;
-
-			const existingMessages =
-				(event as { messages?: Array<{ role: string; content: unknown }> })
-					?.messages ?? [];
-
-			return {
-				messages: [...existingMessages, ...injectedMessages],
-			};
-		} catch (err) {
-			dbg(`context event error: ${err}`);
+			const { jscpdClient, knipClient, depChecker, testRunnerClient } =
+				await loadBootstrapClients();
+			await handleTurnEnd({
+				ctxCwd: ctx.cwd,
+				getFlag: (name: string) => pi.getFlag(name),
+				dbg,
+				runtime,
+				cacheManager,
+				jscpdClient,
+				knipClient,
+				depChecker,
+				testRunnerClient,
+				resetLSPService,
+				resetFormatService,
+			});
+			ctx.ui && updateLspStatus(ctx.ui.setStatus, ctx.ui.theme);
+		} catch (turnEndErr) {
+			dbg(`turn_end crashed: ${turnEndErr}`);
+			dbg(`turn_end crash stack: ${(turnEndErr as Error).stack}`);
 		}
-	},
-);
+	});
+
+	// --- Inject turn-end findings into next agent turn ---
+	// jscpd, madge, and turn-end delta results are cached at turn_end and consumed here
+	// via the context event, which fires before each provider request.
+	// Important: context handlers must APPEND to the existing message list, not replace it.
+	// Replacing `event.messages` can drop the user's first prompt entirely, which causes
+	// OpenAI Responses requests to fail with: "One of input/previous_response_id/prompt/conversation_id must be provided."
+	// biome-ignore lint/suspicious/noExplicitAny: pi.on("context") overload has TS resolution bug
+	(pi as any).on(
+		"context",
+		async (
+			event: { messages?: Array<{ role: string; content: unknown }> } | unknown,
+			ctx: { cwd?: string },
+		) => {
+			try {
+				const cwd = ctx.cwd ?? process.cwd();
+				const turnEndFindings = consumeTurnEndFindings(cacheManager, cwd);
+				const sessionGuidance = consumeSessionStartGuidance(cacheManager, cwd);
+				const testFindings = consumeTestFindings(cacheManager, cwd);
+				const injectedMessages = [
+					...(sessionGuidance?.messages ?? []),
+					...(turnEndFindings?.messages ?? []),
+					...(testFindings?.messages ?? []),
+				];
+				if (injectedMessages.length === 0) return;
+
+				const existingMessages =
+					(event as { messages?: Array<{ role: string; content: unknown }> })
+						?.messages ?? [];
+
+				return {
+					messages: [...existingMessages, ...injectedMessages],
+				};
+			} catch (err) {
+				dbg(`context event error: ${err}`);
+			}
+		},
+	);
 }

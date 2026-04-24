@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { getExcludedDirGlobs, isExcludedDirName } from "./file-utils.js";
-import { safeSpawn } from "./safe-spawn.js";
+import { safeSpawn, safeSpawnAsync } from "./safe-spawn.js";
 
 // --- Types ---
 
@@ -37,6 +37,7 @@ export interface JscpdResult {
 
 export class JscpdClient {
 	private available: boolean | null = null;
+	private ensureInFlight: Promise<boolean> | null = null;
 	private log: (msg: string) => void;
 
 	constructor(verbose = false) {
@@ -89,12 +90,47 @@ export class JscpdClient {
 		// Fast path: already checked
 		if (this.available !== null) return this.available;
 
-		// Check if available in PATH
-		const result = safeSpawn("jscpd", ["--version"], {
-			timeout: 5000,
+		// Deduplicate concurrent calls
+		if (this.ensureInFlight) return this.ensureInFlight;
+
+		this.ensureInFlight = this.doEnsureAvailable();
+		try {
+			return await this.ensureInFlight;
+		} finally {
+			this.ensureInFlight = null;
+		}
+	}
+
+	private async doEnsureAvailable(): Promise<boolean> {
+		// Fast path: check local install before any spawn
+		const isWin = process.platform === "win32";
+		const localBase = path.join(
+			os.homedir(),
+			".pi-lens",
+			"tools",
+			"node_modules",
+			".bin",
+			"jscpd",
+		);
+		const localCandidates = isWin
+			? [`${localBase}.cmd`, `${localBase}.exe`, localBase]
+			: [localBase];
+		for (const candidate of localCandidates) {
+			try {
+				if (fs.existsSync(candidate)) {
+					this.available = true;
+					return true;
+				}
+			} catch {
+				// continue
+			}
+		}
+
+		// Check if available in PATH (short timeout — if not instantly available, it's not in PATH)
+		const result = await safeSpawnAsync("jscpd", ["--version"], {
+			timeout: 1500,
 		});
 		this.available = !result.error && result.status === 0;
-
 		if (this.available) {
 			return true;
 		}
@@ -108,6 +144,7 @@ export class JscpdClient {
 			return true;
 		}
 
+		this.available = false;
 		return false;
 	}
 

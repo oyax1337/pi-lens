@@ -18,6 +18,7 @@ vi.mock("../../clients/pipeline.js", () => ({
 		cascadeOutput: "cascade from edited file",
 		impactCascadeOutput: "impact cascade from edited file",
 	})),
+	gatherCascadeDiagnostics: vi.fn(async () => "cascade from turn_end"),
 }));
 
 describe("runtime event flow", () => {
@@ -55,8 +56,14 @@ describe("runtime event flow", () => {
 					isAvailable: () => false,
 					ensureAvailable: async () => false,
 				},
-				knipClient: { isAvailable: () => false, ensureAvailable: async () => false },
-				jscpdClient: { isAvailable: () => false, ensureAvailable: async () => false },
+				knipClient: {
+					isAvailable: () => false,
+					ensureAvailable: async () => false,
+				},
+				jscpdClient: {
+					isAvailable: () => false,
+					ensureAvailable: async () => false,
+				},
 				typeCoverageClient: { isAvailable: () => false },
 				depChecker: {
 					isAvailable: () => false,
@@ -92,7 +99,12 @@ describe("runtime event flow", () => {
 				formatBehaviorWarnings: () => "",
 			} as any);
 
-			cacheManager.addModifiedRange(filePath, { start: 1, end: 1 }, false, env.tmpDir);
+			cacheManager.addModifiedRange(
+				filePath,
+				{ start: 1, end: 1 },
+				false,
+				env.tmpDir,
+			);
 
 			expect(runtime.lastCascadeOutput).toContain("cascade from edited file");
 			expect(runtime.lastImpactCascadeOutput).toContain(
@@ -108,6 +120,7 @@ describe("runtime event flow", () => {
 				jscpdClient: { ensureAvailable: async () => false },
 				knipClient: { ensureAvailable: async () => false },
 				depChecker: { ensureAvailable: async () => false },
+				testRunnerClient: { getTestRunTarget: () => null },
 				resetLSPService: () => {},
 				resetFormatService: () => {},
 			} as any);
@@ -119,10 +132,10 @@ describe("runtime event flow", () => {
 			expect(firstContext?.messages[0]?.content).toContain(
 				"[pi-lens] End-of-turn findings:",
 			);
-			expect(firstContext?.messages[0]?.content).toContain("cascade from edited file");
 			expect(firstContext?.messages[0]?.content).toContain(
-				"impact cascade from edited file",
+				"cascade from turn_end",
 			);
+			// impact cascade is consumed but not re-gathered at turn_end
 
 			const secondContext = consumeTurnEndFindings(cacheManager, env.tmpDir);
 			expect(secondContext).toBeUndefined();

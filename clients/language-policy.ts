@@ -1,6 +1,12 @@
-import type { FileKind } from "./file-kinds.js";
-import type { ProjectLanguageProfile } from "./language-profile.js";
 import type { RunnerGroup } from "./dispatch/types.js";
+import type { FileKind } from "./file-kinds.js";
+
+export interface ProjectLanguageProfile {
+	present: Record<FileKind, boolean>;
+	configured: Partial<Record<FileKind, boolean>>;
+	counts: Partial<Record<FileKind, number>>;
+	detectedKinds: FileKind[];
+}
 
 interface StartupPolicy {
 	defaults?: string[];
@@ -73,7 +79,11 @@ export const LANGUAGE_POLICY: Record<FileKind, LanguagePolicy> = {
 };
 
 const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
-	jsts: { mode: "fallback", runnerIds: ["lsp", "ts-lsp"], filterKinds: ["jsts"] },
+	jsts: {
+		mode: "fallback",
+		runnerIds: ["lsp", "ts-lsp"],
+		filterKinds: ["jsts"],
+	},
 	python: {
 		mode: "fallback",
 		runnerIds: ["lsp", "pyright"],
@@ -90,7 +100,11 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 		runnerIds: ["lsp", "rubocop"],
 		filterKinds: ["ruby"],
 	},
-	cxx: { mode: "fallback", runnerIds: ["lsp", "cpp-check"], filterKinds: ["cxx"] },
+	cxx: {
+		mode: "fallback",
+		runnerIds: ["lsp", "cpp-check"],
+		filterKinds: ["cxx"],
+	},
 	cmake: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["cmake"] },
 	shell: {
 		mode: "fallback",
@@ -103,7 +117,11 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 		runnerIds: ["spellcheck"],
 		filterKinds: ["markdown"],
 	},
-	css: { mode: "fallback", runnerIds: ["lsp", "stylelint", "prettier-check"], filterKinds: ["css"] },
+	css: {
+		mode: "fallback",
+		runnerIds: ["lsp", "stylelint", "prettier-check"],
+		filterKinds: ["css"],
+	},
 	yaml: {
 		mode: "fallback",
 		runnerIds: ["lsp", "yamllint"],
@@ -150,19 +168,43 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 		runnerIds: ["lsp", "javac"],
 		filterKinds: ["java"],
 	},
-	kotlin: { mode: "fallback", runnerIds: ["lsp", "ktlint"], filterKinds: ["kotlin"] },
+	kotlin: {
+		mode: "fallback",
+		runnerIds: ["lsp", "ktlint"],
+		filterKinds: ["kotlin"],
+	},
 	swift: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["swift"] },
-	dart: { mode: "fallback", runnerIds: ["lsp", "dart-analyze"], filterKinds: ["dart"] },
+	dart: {
+		mode: "fallback",
+		runnerIds: ["lsp", "dart-analyze"],
+		filterKinds: ["dart"],
+	},
 	lua: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["lua"] },
 	zig: { mode: "all", runnerIds: ["lsp", "zig-check"], filterKinds: ["zig"] },
 	haskell: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["haskell"] },
-	elixir: { mode: "fallback", runnerIds: ["lsp", "elixir-check", "credo"], filterKinds: ["elixir"] },
-	gleam: { mode: "fallback", runnerIds: ["lsp", "gleam-check"], filterKinds: ["gleam"] },
+	elixir: {
+		mode: "fallback",
+		runnerIds: ["lsp", "elixir-check", "credo"],
+		filterKinds: ["elixir"],
+	},
+	gleam: {
+		mode: "fallback",
+		runnerIds: ["lsp", "gleam-check"],
+		filterKinds: ["gleam"],
+	},
 	ocaml: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["ocaml"] },
 	clojure: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["clojure"] },
-	terraform: { mode: "fallback", runnerIds: ["lsp", "tflint"], filterKinds: ["terraform"] },
+	terraform: {
+		mode: "fallback",
+		runnerIds: ["lsp", "tflint"],
+		filterKinds: ["terraform"],
+	},
 	nix: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["nix"] },
-	toml: { mode: "fallback", runnerIds: ["lsp", "taplo"], filterKinds: ["toml"] },
+	toml: {
+		mode: "fallback",
+		runnerIds: ["lsp", "taplo"],
+		filterKinds: ["toml"],
+	},
 };
 
 export function getLspCapableKinds(): FileKind[] {
@@ -191,27 +233,8 @@ export function getPrimaryDispatchGroup(
 	};
 }
 
-export function getStartupDefaultsForProfile(
-	profile: ProjectLanguageProfile,
-): string[] {
-	const tools = new Set<string>();
-
-	for (const kind of Object.keys(LANGUAGE_POLICY) as FileKind[]) {
-		if (!profile.present[kind]) continue;
-		const defaults = LANGUAGE_POLICY[kind].startup?.defaults ?? [];
-		for (const tool of defaults) {
-			if (
-				LANGUAGE_POLICY[kind].startup?.heavyScansRequireConfig &&
-				!profile.configured[kind]
-			) {
-				continue;
-			}
-			tools.add(tool);
-		}
-	}
-
-	return [...tools];
-}
+// Note: getStartupDefaultsForProfile has been moved to language-profile.ts as getDefaultStartupTools
+// Import from there if needed: import { getDefaultStartupTools } from "./language-profile.js"
 
 export function canRunStartupHeavyScans(
 	profile: ProjectLanguageProfile,

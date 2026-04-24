@@ -2,6 +2,204 @@
 
 All notable changes to pi-lens will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **LSP race condition in `initLSPConfig`** — `configInFlight` Map deduplicates concurrent initialization calls for the same workspace; parallel session starts no longer double-initialize and race on `workspaceConfigs`
+- **`LSPService` use-after-shutdown** — `isDestroyed` flag added; all public methods (`getClientForFile`, `openFile`, `updateFile`, `waitForDiagnostics`, `getDiagnostics`, `shutdown`) return early once the service has been shut down
+- **`theme.fg` crash during session start** — `updateLspStatus` wraps theme calls in try/catch; theme may not be fully initialized during early session startup events
+- **`isCommandAvailable` hangs on slow tools** — added 5s timeout with `proc.kill()` and a double-resolve guard; probe commands that stall no longer block session startup indefinitely
+- **Tree-sitter `client_unavailable` log spam** — `TreeSitterClient.isAvailable()` now re-evaluates `grammarsDir` when the cached path goes missing, instead of caching an empty string forever. Added `resolveWebTreeSitterAsset()` helper with three strategies: (1) `createRequire` module resolution (hoisted installs — issue #20), (2) `resolvePackagePath(import.meta.url)` fallback (on-the-fly TS compilation by pi), (3) `process.cwd()` fallback. Fixes 108 skipped-runner log lines when the initial grammar probe failed transiently.
+- **Pipeline test assertion drift** — updated `tests/clients/pipeline.test.ts` to match the current auto-format warning text (`File was modified by auto-format/fix...`)
+
+### Added
+- **LSP footer status indicator** — session start and turn end now show `LSP Active (N)` in green or `LSP Inactive` in red; count reflects alive (connected + initialized) clients via `getAliveClientCount()`
+- **Rust monorepo workspace root detection** — `RustServer` walks up from the detected crate root checking parent `Cargo.toml` files for a `[workspace]` section; rust-analyzer now resolves correctly in Cargo workspaces
+- **Opportunistic LSP read range expansion** — single-line `read` tool calls are silently expanded to the full enclosing symbol when a warm LSP client is available; best-effort, no-op if LSP is cold or the lookup doesn't resolve in time
+- **`workspaceSymbol` result filtering and cap** — `lsp_navigation` now filters and caps workspace symbol results at 15 entries to avoid overwhelming the context window
+
+### Performance
+- **Tool path resolution fast path** — `getToolPath` checks the local managed install (`~/.pi-lens/tools/node_modules/.bin/`) before global PATH probes, npm/pip/GitHub lookups; eliminates 2–5s overhead per tool on session start
+- **`jscpd` availability fast path** — `ensureAvailable()` probes the local install with `fs.existsSync` before spawning a process, and deduplicates concurrent calls via `ensureInFlight`
+- **Concurrent project indexing** — `buildProjectIndex` processes files in batches of 8 with `Promise.all` instead of sequentially; large projects index significantly faster
+- **`buildFunctionMatrixFromNode` avoids re-parse** — walks the existing TypeScript AST directly instead of extracting function source text and creating a new `SourceFile`; removes per-function re-parse overhead from similarity indexing
+
+### Removed
+- **Worthless `diagnostic-logger` tests** — deleted `tests/clients/diagnostic-logger.test.ts` (5 tests that only asserted mock objects equaled what was just assigned; zero behavior coverage)
+- **Redundant circular-dependency regression tests** — removed 3 no-op import tests from `tests/clients/circular-deps-regression.test.ts` (`expect(module).toBeDefined()` after `await import(...)` adds no value; import failure throws before the assertion)
+
+### Changed
+- **Test runner moved to turn_end (non-blocking)** — previously fired inline on every write, blocking the pipeline for up to 60s mid-refactor and producing false failures while the codebase was in an inconsistent state. Tests now run once per turn after all edits complete: unique test targets are collected from modified files, fired concurrently as a fire-and-forget `Promise.allSettled`, and failures are written to cache for injection into the next turn's context. Results are discarded if the agent starts a new turn before tests finish, preventing stale failures from clobbering newer results.
+- **Similarity runner skips small edits** — when `modifiedRanges` total lines is below `MIN_FUNCTION_LINES` (8), the similarity runner exits early; a new function can't fit in fewer lines than that, so the ~1100ms scan is wasted on targeted fixes
+- **Stronger auto-format/fix re-read warning** — message now explicitly tells the agent it MUST re-read the file before any further edits, listing what may have changed (whitespace, indentation, quotes, code)
+- **Turn-end findings cap tightened** — reduced `maxLines` from 24 → 20 and `maxChars` from 1600 → 1000 to stay conservative with context budget
+
+### Tests
+- **LSP integration tests** — added `tests/clients/lsp/integration.test.ts` with a fake JSON-RPC server (`tests/fixtures/fake-lsp-server.mjs`) covering LSP client lifecycle: initialize handshake, file open/change notifications, diagnostics, and graceful shutdown
+- **Tree-sitter resolution regression tests** — added 3 tests to `tests/clients/tree-sitter-client-init.test.ts`:
+  - `TreeSitterClient.isAvailable returns true when grammars are installed` (smoke test)
+  - `falls back to resolvePackagePath when require.resolve fails` (on-the-fly compilation scenario)
+  - `re-evaluates grammarsDir when isAvailable is called after initial miss` (prevents cached-empty-string bug)
+
+## [3.8.31] - 2026-04-23
+
+### Fixed
+- **Duplicate inline feedback on edit arrays** — `tool_result` calls for the same file are now deduplicated within a turn using a `reportedThisTurn` set on `RuntimeCoordinator`, cleared on each `turn_start`; previously pi's sequential per-hunk `tool_result` firing caused the pipeline to re-run and feedback to repeat N times per edit array
+- **Double latency logging on pipeline completion** — removed redundant `logLatency` call in `pipeline.ts`; `runtime-tool-result.ts` already logs the outer `tool_result completed` with full duration including format, autofix, and cascade phases
+- **Modified range tracking broken for 3-digit+ line numbers** — `parseDiffRanges` regex changed from `\s+` to `\s*` to handle unpadded line numbers; the diff format right-pads to the file's max digit width so e.g. line 613 in a <1000-line file has no leading space and was silently dropped
+- **Stale gleam grammar entries** — removed dead `LANGUAGE_TO_GRAMMAR` and `getExtensionsForLanguage` entries for gleam; `tree-sitter-gleam.wasm` was never published in `tree-sitter-wasms@0.1.13`
+
+### Changed
+- **TypeBox 0.34.x → 1.x migration** — updated `package.json` dependency from `@sinclair/typebox` to `typebox ^1.0.0` and updated imports in `tools/lsp-navigation.ts`, `tools/ast-grep-search.ts`, and `tools/ast-grep-replace.ts` to match pi-mono 0.69.0
+
+## [3.8.30] - 2026-04-22
+
+### Fixed
+- **lsp_navigation permanently disabled** — removed stale `lens-lsp` flag check (flag was removed in 3.8.29) that caused every `lsp_navigation` call to short-circuit with `lsp_disabled`; tool now only gates on `--no-lsp`
+- **ast_grep_search / ast_grep_replace auto-install** — switched availability check from sync `isAvailable()` to async `ensureAvailable()` so the auto-installer triggers when `sg` is missing
+- **@ast-grep/cli postinstall skipped** — added `@ast-grep/cli` to `NEEDS_POSTINSTALL`; without it `--ignore-scripts` left ASCII stubs in place of `sg.exe` / `ast-grep.exe` on Windows
+- **Windows .exe binary lookup** — `getToolPath` now also probes the `.exe` extension on Windows, covering packages (like `@ast-grep/cli`) that place a `.exe` directly without a `.cmd` wrapper
+- **jscpd broken on Node 24** — pinned `jscpd` to `3.5.10`; v4 introduced a `reprism` dependency whose `lib/languages/` directory is absent from the published package
+- **TypeScript LSP using home dir as workspace root** — wrapped `TypeScriptServer` and `ESLintServer` roots with `IgnoreHomeRoot` so a `package.json` / eslint config in `~` can no longer hijacks the workspace root; fallback is the file's own directory
+- **CI npm publish runs without token** — gated `publish-npm` job and dry-run step on `NPM_TOKEN` secret being set
+- **Stale compiled .js triggered test failures** — rebuilt project; `secrets-scanner.js` and `project-index.js` were from before the env-var-name false-positive fix and line-number capture fix respectively
+- **ast_grep_search test mock** — updated test mock from `isAvailable` to `ensureAvailable` to match the new async availability check
+- **Stale LSP diagnostics in cascade** — cascade diagnostics now skip entries older than 240s, preventing false positives from earlier test injections bleeding across turns
+- **Biome check on Vue/Svelte** — biome-check-json was briefly skipped on `.vue`/`.svelte` but restored after confirming Biome 2.x has native support; the 3 blocking diagnostics were real lint findings, not parse errors
+- **Vue/Svelte TypeScript SDK** — extracted `findTsserverPath` helper and wired it into `VueServer` and `SvelteServer` `initializationOptions` so Vue/Svelte LSP servers find the correct `typescript.tsdk`
+- **Broken npm .cmd shims on Windows** — `launch.ts` now validates npm `.cmd` shims before spawning; if the target JS file doesn't exist the shim exits with code 1 after a 500ms startup window, pre-checking avoids the delay for all LSP servers on Windows
+- **Tree-sitter WASM path in hoisted installs** — `tree-sitter-client.ts` now resolves `web-tree-sitter/tree-sitter.wasm` via `createRequire` so Node walks `node_modules` ancestors correctly; fixes `ENOENT` crash in pnpm/monorepo layouts where the wasm is not nested under pi-lens's own `node_modules`
+- **Grammar directory lookups in hoisted installs** — `findGrammarsDir` uses the same `createRequire` fix to anchor `web-tree-sitter/grammars` and `tree-sitter-wasms/out` paths correctly in pnpm/monorepo layouts
+- **tree-sitter-gleam download 404** — removed `tree-sitter-gleam.wasm` from grammar downloads; the file was never published in `tree-sitter-wasms@0.1.13`
+- **Pipeline deduplication** — `handleToolResult` now deduplicates concurrent pipeline calls for the same file; the pi framework fires `tool_result` once per hunk in an Edit array, causing duplicate pipeline runs and doubled agent output
+
+### Changed
+- **Tuned false-positive thresholds across all runners** — reduced noise in `lens-booboo` and dispatch for all users:
+  - Added `FACT_SEVERITY_FILTER` (`error`/`warning` only) and `MIN_TREE_SITTER_HITS_PER_RULE = 3`
+  - Filtered entropy/AI-style warnings from complexity metrics
+  - Aligned complexity markdown headers with actual thresholds (`MI < 20`, `cognitive > 80`, `nesting > 8`)
+  - Raised `SEMANTIC_SIMILARITY_THRESHOLD` from `0.96` → `0.98` (aligned with dispatch similarity runner)
+  - Raised duplicate-string-literal `MIN_DUPLICATES` from `4` → `10`
+  - Unregistered `no-magic-numbers` and `high-entropy-string` fact rules globally
+
+### Removed
+- **Dead code across 32 files** — removed 51 sites of unused imports, locals, and parameters flagged by `tsc --noUnusedLocals --noUnusedParameters`:
+  - `clients/architect-client.ts`, `ast-grep-client.ts`, `biome-client.ts`, `complexity-client.ts`, `go-client.ts`, `rust-client.ts`, `scan-utils.ts`, `secrets-scanner.ts`, `subprocess-client.ts`, `test-runner-client.ts`, `tool-availability.ts`, `tree-sitter-cache.ts`, `tree-sitter-client.ts`, `type-coverage-client.ts`, `type-safety-client.ts`
+  - `clients/dispatch/dispatcher.ts`, `runners/ast-grep-napi.ts`, `runners/golangci-lint.ts`, `runners/index.ts`, `runners/python-slop.ts`, `runners/ts-lsp.ts`, `runners/utils/diagnostic-parsers.ts`
+  - `clients/lsp/client.ts`, `config.ts`, `interactive-install.ts`, `launch.ts`, `server.ts`
+  - `clients/pipeline.ts`, `review-graph/builder.ts`, `runner-tracker.ts`
+  - `commands/booboo.ts`, `index.ts`
+
+### Tests
+- **Pipeline regression tests** — `tests/clients/pipeline.test.ts` (11 tests): secrets blocking, format modification, LSP sync, dispatch blockers, autofix output, test runner skip, all-clear output
+- **Autofix helper tests** — `tests/clients/autofix-helpers.test.ts` (12 tests): config detection (eslint, stylelint, sqlfluff), malformed JSON handling, file change detection after command
+- **LSP lifecycle tests** — `tests/clients/lsp/lifecycle.test.ts` (4 tests): missing binary error, process spawn, immediate exit detection, process kill
+- **FormatService tests** — `tests/clients/format-service.test.ts` (11 tests): disabled/skip mode, no matching formatters, successful run with change detection, formatter failure, external modification detection, singleton behavior, state clearing, file tracking
+- **Dispatch integration tests** — `tests/clients/dispatch/integration.test.ts` (11 tests): `dispatchLintWithResult` empty results, result propagation, warnings-only; `shouldDispatch` for supported/unsupported; `getAvailableRunners` for supported/unsupported
+- **LSP client internals tests** — `tests/clients/lsp/client-internals.test.ts` (13 tests): `handleNotifyOpen` (first open, re-open, pending opens, clear diagnostics, skip when not alive), `handleNotifyChange` (didChange when open, fallback to didOpen, clear stale diagnostics, skip when not alive), `clientWaitForDiagnostics` (immediate resolve if cached, resolve via emitter, timeout, ignore other files)
+- **Runtime event flow test fix** — added missing `gatherCascadeDiagnostics` mock export to `tests/clients/runtime-event-flow.test.ts`
+- **LSP launch tests** — `tests/clients/lsp/launch.test.ts` (8 new tests): `isCmdShimValid` unit tests (target exists/missing, non-npm shim, unreadable file, `.mjs` extension), early `.cmd` shim rejection without spawning, `.ps1` bypass to `.cmd` sibling, `.ps1` fallback to direct `node <js>` execution
+- **Tree-sitter hoisted-install tests** — `tests/clients/tree-sitter-client-init.test.ts` (3 tests): wasm resolution via `require.resolve`, `locateFile` directory derivation, `findGrammarsDir` external package resolution
+
+### Refactored
+- **Extract `detectFileChangedAfterCommand`** — moved from `clients/pipeline.ts` to `clients/file-utils.ts` and exported for reuse/testing; imported back into `pipeline.ts`; `tests/clients/autofix-helpers.test.ts` now imports the real function instead of reimplementing a copy
+- **Export testable pipeline helpers** — exported `hasEslintConfig`, `hasStylelintConfig`, `hasSqlfluffConfig` from `clients/pipeline.ts` so config detection is testable
+- **Export LSP client internals** — exported `clientWaitForDiagnostics`, `handleNotifyOpen`, `handleNotifyChange`, and `LSPClientState` from `clients/lsp/client.ts` for direct testing with mocks
+- **Export `isCmdShimValid`** — exported from `clients/lsp/launch.ts` so the npm `.cmd` shim validator is unit-testable
+
+### CI
+- **Dead-code gate** — `lint-and-typecheck` job now runs `tsc --noUnusedLocals --noUnusedParameters --noEmit` alongside `--noEmit` so dead code regressions fail CI immediately
+
+## [3.8.29] - 2026-04-21
+
+### Added
+- **New diagnostic commands** — added `/lens-tools` and `/lens-health` for system visibility:
+  - `/lens-tools` — shows tool installation status: globally installed, pi-lens auto-installed, or npx fallback
+  - `/lens-health` — shows runtime health: pipeline crashes, slow runners, diagnostic stats
+  - Both provide actionable visibility into the pi-lens toolchain
+- **Streamlined ast-grep skill** — reduced skill from 7,759 bytes to 2,313 bytes (~70% reduction):
+  - Removed verbose CLI tips and YAML rule authoring sections (agent uses tools, not CLI)
+  - Removed redundant testing documentation
+  - Kept essential: Golden Rules, Quick Reference, Common Gotchas
+- **Configurable log cleanup** — automatic retention and rotation for `~/.pi-lens/*.log` files:
+  - Environment variable `PI_LENS_LOG_RETENTION_DAYS` (default: 7) — days to keep log files
+  - Environment variable `PI_LENS_MAX_LOG_SIZE_MB` (default: 10) — max size before rotation
+  - Runs automatically on session start, notifies when cleanup occurs
+  - Rotated backups (`.log.*`) cleaned after retention period
+  - Project-level logs (`{cwd}/.pi-lens/*`) intentionally excluded from cleanup
+
+### Changed
+- **`/lens-tools` output improved** — added explanatory note when GitHub-release tools are shown as missing: "GitHub-release tools auto-install when you open files of those languages"
+- **Simplified agent prompts** — removed verbose prompt sections to reduce token burn:
+  - Removed startup notes about project rules count (now just logged, not shown)
+  - Removed tooling hints for missing language tools (Go/Rust/Ruby install suggestions)
+  - Removed project rules section from system prompt (no longer injects `## Project Rules` block)
+  - Updated core guidance to clarify: automated checks run on edits/writes, blocking errors shown inline must be fixed
+- **Simplified CLI flags** — removed 16 flags to reduce surface area and cognitive load:
+  - Removed per-tool disable flags: `--no-biome`, `--no-ast-grep`, `--no-shellcheck`, `--no-madge`, `--no-oxlint`, `--no-ruff`, `--no-go`, `--no-rust`
+  - Removed per-tool autofix flags: `--no-autofix-biome`, `--no-autofix-ruff`
+  - Removed feature flags: `--lens-verbose`, `--error-debt`, `--auto-install`, `--lens-eslint-core`
+  - Removed redundant `--lens-lsp` flag (LSP is default-on; use `--no-lsp` to disable)
+  - Removed internal dead flag: `--lens-blocking-only`
+  - **Removed `--no-lsp-install` flag** — LSP servers now always auto-install when needed (no manual opt-out)
+  - New minimal flag set: `--no-lsp`, `--no-autoformat`, `--no-autofix`, `--no-tests`, `--no-delta`, `--lens-guard`
+- **Cross-platform line ending handling** — all `.split("\n")` changed to `.split(/\r?\n/)` for Windows CRLF compatibility (11 files updated)
+
+### Fixed
+- **Biome VCS/ignore file errors eliminated** — disabled VCS integration in biome config to prevent "ignore file not found" errors:
+  - Changed `vcs.enabled: true` → `vcs.enabled: false` in `config/biome/core.jsonc`
+  - Biome was searching for `.gitignore` files that don't exist when running on arbitrary projects via pi-lens
+  - Eliminates biome:parse-error spam in logs when biome runs outside its config directory
+- **LSP server thrashing eliminated** — added 240s idle timeout to prevent repeated LSP shutdown/startup cycles:
+  - New `scheduleLSPIdleReset()` in `runtime-turn.ts` defers server reset when no files modified
+  - Cancel pending reset when active editing resumes (avoids interrupting workflows)
+  - Eliminates ~1-2s cold-start penalty during active development sessions
+  - Debug logging added for scheduling and cancellation events
+- **Biome check runner JSON parsing** — fixed error where biome's stderr warnings broke JSON parsing:
+  - Changed from parsing `stdout || stderr` to parsing `stdout` only
+  - Biome outputs text warnings (e.g., "couldn't find ignore file") to stderr which broke the JSON parser
+  - Fixes biome-check-json runner failing with parse errors instead of providing lint diagnostics
+- **Auto-install verification gap** — `getToolPath()` now verifies tool binaries actually work before using them:
+  - Runs `--version` check on local npm tools (not just file existence)
+  - Detects broken/corrupted installations (e.g., wrapper exists but package missing)
+  - Triggers automatic reinstall when binary verification fails
+  - Fixes case where `@biomejs/biome` package deleted but `.cmd` wrapper remained
+- **Error swallowing in tool availability checks** — `runtime-session.ts` now logs errors when biome/ast-grep/ruff/knip/dep/jscpd availability checks fail (was silently returning `false`)
+- **Biome check runner reliability** — fixed path resolution and configuration issues causing "skipped" status and parse errors:
+  - Fixed biome flag: `--output-format=json` → `--reporter=json`
+  - Fixed `findBiome()` to check `~/.pi-lens/tools/` directory (was falling back to bare "biome" not in PATH)
+  - Fixed `findBiome()` to return `{cmd, argsPrefix}` object for proper npx fallback with `@biomejs/biome` prefix
+  - Added `vcs.root: "."` to `config/biome/core.jsonc` to respect project `.gitignore`
+- **LSP error messaging** — improved error messages for Windows .cmd shim failures to distinguish "npm .cmd shim failed (underlying binary not installed)" from "may be missing or corrupted"
+- **Windows installer improvements** — multiple fixes for Windows tool discovery and LSP stability:
+  - Prefer `.cmd` over extensionless in local TOOLS_DIR path lookup on Windows
+  - Bypass PS1 hangs in LSP initialization with hard-kill on timeout
+  - Remove `.ps1` from pyright managed candidates and ast-grep discovery on Windows
+  - Use `SYSTEMDRIVE` env var instead of hardcoded `C:` for cargo fallback path
+- **Rust LSP** — exponential backoff circuit breaker for failing LSP connections
+- **Installer reliability** — remove `console.error` verbosity, route all events to `sessionstart.log`
+- **Circular dependencies** — fixed circular dependencies identified in code review
+- **Knip race condition** — fixed race condition in knip tool discovery
+- **Non-blocking tool availability checks** — changed all `ensureAvailable()` methods to use async `safeSpawnAsync` instead of sync `safeSpawn`, completing the startup unblocking work:
+  - `ruff-client.ts`, `biome-client.ts`, `sg-runner.ts` (first batch)
+  - `knip-client.ts`, `dependency-checker.ts`, `jscpd-client.ts` (second batch)
+  - `sg-runner.ts` — added missing `safeSpawnAsync` import
+- **Secrets scanner false positives** — fixed incorrect flagging of environment variable name references (e.g., `"FIREWORKS_API_KEY"`, `"AWS_ACCESS_KEY_ID"`) as hardcoded secrets:
+  - Added word boundaries to `hardcoded-secret` regex pattern
+  - Added `looksLikeEnvVarName()` filter to skip UPPERCASE_SNAKE_CASE values
+  - Prevents false positives when env var names are used as placeholder strings
+
+### Changed
+- **Biome check performance** — reduced lint latency from ~1.4s to ~100ms per file (92% improvement):
+  - Removed redundant `--version` pre-check spawn (~200ms saved)
+  - Switched from `biome check` to `biome lint` command (skip format validation)
+  - Added binary path caching per cwd to avoid repeated fs checks
+  - Benchmark: 107ms average vs 1400ms baseline
+- **Tree-sitter performance** — reduced structural analysis latency by 30-50%:
+  - Execute queries in parallel with concurrency limit of 6 (was sequential)
+  - Skip entity snapshot extraction for changes under 5 lines (~500-800ms saved for trivial edits)
+  - Reduces tree-sitter latency from ~3s to ~1-2s for typical files
+
 ## [3.8.28] - 2026-04-19
 
 ### Fixed

@@ -53,7 +53,6 @@ export interface FileArchitectResult {
 export class ArchitectClient {
 	private config: ArchitectConfig | null = null;
 	private isUserConfig: boolean = false;
-	private configPath: string | undefined;
 	private log: (msg: string) => void;
 
 	constructor(verbose = false) {
@@ -78,7 +77,6 @@ export class ArchitectClient {
 			try {
 				const content = fs.readFileSync(configPath, "utf-8");
 				this.config = this.parseYaml(content);
-				this.configPath = configPath;
 				this.isUserConfig = true;
 				this.log(`Loaded user architect config from ${configPath}`);
 				return true;
@@ -112,7 +110,6 @@ export class ArchitectClient {
 				try {
 					const content = fs.readFileSync(defaultPath, "utf-8");
 					this.config = this.parseYaml(content);
-					this.configPath = defaultPath;
 					this.isUserConfig = false;
 					this.log(
 						"Using default architect rules (create .pi-lens/architect.yaml to customize)",
@@ -187,7 +184,7 @@ export class ArchitectClient {
 				// biome-ignore lint/suspicious/noAssignInExpressions: RegExp.exec iteration
 				while ((match = regex.exec(content)) !== null) {
 					// Convert index to line number
-					const lineNum = content.slice(0, match.index).split("\n").length;
+					const lineNum = content.slice(0, match.index).split(/\r?\n/).length;
 					violations.push({
 						pattern: rule.pattern,
 						message: check.message,
@@ -263,7 +260,7 @@ export class ArchitectClient {
 		const ruleBlocks = content.split(/(?=^ {2}- pattern:)/m);
 
 		for (const block of ruleBlocks) {
-			const lines = block.split("\n");
+			const lines = block.split(/\r?\n/);
 			let rule: ArchitectRule | null = null;
 			let section: "must_not" | "must" | null = null;
 			let violation: {
@@ -387,5 +384,3 @@ export class ArchitectClient {
 }
 
 // --- Singleton ---
-
-const _instance: ArchitectClient | null = null;

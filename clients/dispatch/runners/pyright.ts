@@ -10,13 +10,13 @@
 import { ensureTool } from "../../installer/index.js";
 import { getLSPService } from "../../lsp/index.js";
 import { safeSpawnAsync } from "../../safe-spawn.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
 import { createAvailabilityChecker } from "./utils/runner-helpers.js";
 
 const pyright = createAvailabilityChecker("pyright", ".exe");
@@ -31,7 +31,8 @@ const pyrightRunner: RunnerDefinition = {
 		// Always allow pyright CLI fallback even when LSP is enabled.
 		// LSP can be present but still fail transiently for a file; in that case,
 		// pyright provides a resilient second signal path.
-		if (ctx.pi.getFlag("lens-lsp") && !ctx.pi.getFlag("no-lsp")) {
+		// When LSP is enabled (not disabled via --no-lsp), connect to the LSP service for this file
+		if (!ctx.pi.getFlag("no-lsp")) {
 			const lspService = getLSPService();
 			await lspService.getClientForFile(ctx.filePath);
 		}
@@ -99,7 +100,9 @@ const pyrightRunner: RunnerDefinition = {
 						: "none",
 			};
 		} catch {
-			console.error(`[runner:pyright] JSON parse failed for ${ctx.filePath} — raw output: ${output.slice(0, 200)}`);
+			console.error(
+				`[runner:pyright] JSON parse failed for ${ctx.filePath} — raw output: ${output.slice(0, 200)}`,
+			);
 			return {
 				status: "failed",
 				diagnostics: [],

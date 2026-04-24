@@ -79,7 +79,7 @@ export function readWorklog(cwd: string): WorklogEntry[] {
 	try {
 		const raw = fs.readFileSync(worklogPath, "utf8");
 		return raw
-			.split("\n")
+			.split(/\r?\n/)
 			.filter(Boolean)
 			.map((line) => JSON.parse(line) as WorklogEntry);
 	} catch {
@@ -102,7 +102,10 @@ export function summarizeWorklog(cwd: string): WorklogStats {
 	for (const e of entries) {
 		const r = byRule.get(e.rule) ?? { count: 0, autoFixed: 0 };
 		r.count++;
-		if (e.autoFixed) { r.autoFixed++; totalAutoFixed++; }
+		if (e.autoFixed) {
+			r.autoFixed++;
+			totalAutoFixed++;
+		}
 		if (e.fixable) totalFixable++;
 		byRule.set(e.rule, r);
 	}

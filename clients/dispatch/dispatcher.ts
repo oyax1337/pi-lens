@@ -17,15 +17,15 @@
 import * as path from "node:path";
 import type { FileKind } from "../file-kinds.js";
 import { detectFileKind } from "../file-kinds.js";
+import { isTestFile } from "../file-utils.js";
 import { getPrimaryDispatchGroup } from "../language-policy.js";
 import { resolveLanguageRootForFile } from "../language-profile.js";
-import { isTestFile } from "../file-utils.js";
 import { logLatency } from "../latency-logger.js";
 import { normalizeMapKey } from "../path-utils.js";
 import { RUNTIME_CONFIG } from "../runtime-config.js";
 import { safeSpawnAsync } from "../safe-spawn.js";
 import { classifyDiagnostic } from "./diagnostic-taxonomy.js";
-import { FactStore } from "./fact-store.js";
+import type { FactStore } from "./fact-store.js";
 import { getToolPlan } from "./plan.js";
 import { resolveRunnerPath } from "./runner-context.js";
 import { getToolProfile } from "./tool-profile.js";
@@ -135,7 +135,7 @@ export function createDispatchContext(
 		cwd: normalizedCwd,
 		kind,
 		pi,
-		autofix: !!(pi.getFlag("autofix-biome") || pi.getFlag("autofix-ruff")),
+		autofix: false,
 		deltaMode: !pi.getFlag("no-delta"),
 		facts,
 		blockingOnly,
@@ -215,7 +215,10 @@ function dedupeOverlappingDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
  * Syntax: `// pi-lens-ignore: rule-id` (JS/TS) or `# pi-lens-ignore: rule-id` (Python/Ruby/etc.)
  * Place on the same line as the diagnostic or the line immediately above it.
  */
-function applyInlineSuppressions(diagnostics: Diagnostic[], content: string): Diagnostic[] {
+function applyInlineSuppressions(
+	diagnostics: Diagnostic[],
+	content: string,
+): Diagnostic[] {
 	if (!content || !diagnostics.length) return diagnostics;
 
 	// Build a set of (line, ruleId) pairs that are suppressed.
@@ -226,9 +229,12 @@ function applyInlineSuppressions(diagnostics: Diagnostic[], content: string): Di
 	for (let i = 0; i < lines.length; i++) {
 		const m = SUPPRESS_RE.exec(lines[i]);
 		if (!m) continue;
-		const rules = m[1].split(",").map((r) => r.trim()).filter(Boolean);
+		const rules = m[1]
+			.split(",")
+			.map((r) => r.trim())
+			.filter(Boolean);
 		const suppressedLine = i + 1; // same line (1-based)
-		const nextLine = i + 2;      // next line (1-based)
+		const nextLine = i + 2; // next line (1-based)
 		for (const ruleId of rules) {
 			suppressed.add(`${suppressedLine}:${ruleId}`);
 			suppressed.add(`${nextLine}:${ruleId}`);
@@ -342,7 +348,7 @@ function buildCoverageNotice(
 	runnerLatencies: RunnerLatency[],
 ): Diagnostic | undefined {
 	if (!ctx.kind) return undefined;
-	const lspEnabled = !!ctx.pi.getFlag("lens-lsp") && !ctx.pi.getFlag("no-lsp");
+	const lspEnabled = !ctx.pi.getFlag("no-lsp");
 	const primary = getPrimaryDispatchGroup(ctx.kind, lspEnabled);
 	if (!primary || primary.runnerIds.length === 0) return undefined;
 
@@ -367,7 +373,9 @@ function buildCoverageNotice(
 		(plan?.groups ?? [])
 			.filter(
 				(group) =>
-					!group.runnerIds.every((runnerId) => primary.runnerIds.includes(runnerId)),
+					!group.runnerIds.every((runnerId) =>
+						primary.runnerIds.includes(runnerId),
+					),
 			)
 			.flatMap((group) => group.runnerIds)
 			.filter((runnerId) => !primary.runnerIds.includes(runnerId)),
@@ -376,7 +384,11 @@ function buildCoverageNotice(
 	// Structural-only runners (tree-sitter, ast-grep, similarity) are not
 	// substitutes for real linters — don't suppress the notice if only they ran.
 	const STRUCTURAL_RUNNERS = new Set([
-		"tree-sitter", "ast-grep-napi", "similarity", "spellcheck", "architect", "fact-rules",
+		"tree-sitter",
+		"ast-grep-napi",
+		"similarity",
+		"spellcheck",
+		"fact-rules",
 	]);
 	const anyLinterHasCoverage = runnerLatencies.some(
 		(r) =>
@@ -499,7 +511,7 @@ async function runGroup(
 		? group.runnerIds.filter((id) => {
 				const runner = registry.get(id);
 				return runner && ctx.kind && group.filterKinds?.includes(ctx.kind);
-		  })
+			})
 		: group.runnerIds;
 
 	const semantic = group.semantic ?? "warning";
@@ -614,7 +626,6 @@ export async function dispatchForFile(
 ): Promise<DispatchResult> {
 	const _overallStart = Date.now();
 	const allDiagnostics: Diagnostic[] = [];
-	const _fixed: Diagnostic[] = [];
 	let stopped = false;
 	const runnerLatencies: RunnerLatency[] = [];
 
@@ -668,12 +679,20 @@ export async function dispatchForFile(
 	// This avoids partial-baseline corruption when processing multiple groups.
 	const dedupedDiagnostics = dedupeOverlappingDiagnostics(allDiagnostics);
 	const overlapSuppressed = suppressLintOverlapsWithLsp(dedupedDiagnostics);
-	const fileContent = ctx.facts.getFileFact<string>(ctx.filePath, "file.content") ?? "";
-	const inlineSuppressed = applyInlineSuppressions(overlapSuppressed, fileContent);
+	const fileContent =
+		ctx.facts.getFileFact<string>(ctx.filePath, "file.content") ?? "";
+	const inlineSuppressed = applyInlineSuppressions(
+		overlapSuppressed,
+		fileContent,
+	);
 	let visibleDiagnostics = inlineSuppressed;
 	let resolvedCount = 0;
 	if (ctx.deltaMode && previousBaseline) {
-		const filtered = filterDelta(visibleDiagnostics, previousBaseline, (d) => d.id);
+		const filtered = filterDelta(
+			visibleDiagnostics,
+			previousBaseline,
+			(d) => d.id,
+		);
 		visibleDiagnostics = promoteDeltaUnusedToBlockers(filtered.new);
 		resolvedCount = filtered.fixed.length;
 	}
@@ -693,15 +712,19 @@ export async function dispatchForFile(
 
 	// Append fixed and fixable diagnostics to the persistent worklog
 	if (fixedItems.length > 0) {
-		import("../fix-worklog.js").then(({ appendToWorklog }) => {
-			appendToWorklog(ctx.cwd, fixedItems, true);
-		}).catch(() => {});
+		import("../fix-worklog.js")
+			.then(({ appendToWorklog }) => {
+				appendToWorklog(ctx.cwd, fixedItems, true);
+			})
+			.catch(() => {});
 	}
 	const fixableWarnings = warnings.filter((d) => d.fixable);
 	if (fixableWarnings.length > 0) {
-		import("../fix-worklog.js").then(({ appendToWorklog }) => {
-			appendToWorklog(ctx.cwd, fixableWarnings, false);
-		}).catch(() => {});
+		import("../fix-worklog.js")
+			.then(({ appendToWorklog }) => {
+				appendToWorklog(ctx.cwd, fixableWarnings, false);
+			})
+			.catch(() => {});
 	}
 
 	const inlineBlockers = blockers.filter((d) => d.tool !== "similarity");
@@ -804,7 +827,10 @@ function looksLikeDiagnosticCodePath(value: string): boolean {
 	return false;
 }
 
-function normalizeDiagnosticFilePath(ctx: DispatchContext, rawPath?: string): string {
+function normalizeDiagnosticFilePath(
+	ctx: DispatchContext,
+	rawPath?: string,
+): string {
 	if (typeof rawPath === "string" && looksLikeDiagnosticCodePath(rawPath)) {
 		ctx.log(
 			`runner path normalization: ignored diagnostic code-like path '${rawPath}', using current file`,

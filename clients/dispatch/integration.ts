@@ -5,9 +5,9 @@
  * with the existing index.ts tool_result handler.
  */
 
-import { detectFileKind } from "../file-kinds.js";
-import type { FileKind } from "../file-kinds.js";
 import { getDiagnosticLogger, type LogContext } from "../diagnostic-logger.js";
+import type { FileKind } from "../file-kinds.js";
+import { detectFileKind } from "../file-kinds.js";
 import {
 	getLspCapableKinds,
 	getPrimaryDispatchGroup,
@@ -16,18 +16,18 @@ import {
 	formatSlopScoreSummary,
 	type SlopScoreSummary,
 } from "../session-summary.js";
-import { FactStore } from "./fact-store.js";
 import {
-	clearLatencyReports,
 	clearCoverageNoticeState,
+	clearLatencyReports,
 	createDispatchContext,
-	RunnerRegistry,
 	type DispatchLatencyReport,
 	dispatchForFile,
 	formatLatencyReport,
 	getLatencyReports,
 	type RunnerLatency,
+	RunnerRegistry,
 } from "./dispatcher.js";
+import { FactStore } from "./fact-store.js";
 import { TOOL_PLANS } from "./plan.js";
 import type {
 	DispatchResult,
@@ -40,57 +40,63 @@ export type { DispatchLatencyReport, RunnerLatency };
 // Re-export latency tracking types and functions
 export { clearLatencyReports, formatLatencyReport, getLatencyReports };
 
-import { registerDefaultRunners } from "./runners/index.js";
 import {
 	buildOrUpdateGraph,
 	computeImpactCascade,
 	formatImpactCascade,
 } from "../review-graph/service.js";
-import { resolveRunnerPath } from "./runner-context.js";
-
 // Register fact providers
-import { registerProvider } from "./fact-runner.js";
-import { runProviders } from "./fact-runner.js";
+import { registerProvider, runProviders } from "./fact-runner.js";
 import { fileContentProvider } from "./facts/file-content.js";
+import { resolveRunnerPath } from "./runner-context.js";
+import { registerDefaultRunners } from "./runners/index.js";
+
 registerProvider(fileContentProvider);
+
 import { tryCatchFactProvider } from "./facts/try-catch-facts.js";
+
 registerProvider(tryCatchFactProvider);
+
 import { functionFactProvider } from "./facts/function-facts.js";
+
 registerProvider(functionFactProvider);
+
 import { commentFactProvider } from "./facts/comment-facts.js";
+
 registerProvider(commentFactProvider);
+
 import { importFactProvider } from "./facts/import-facts.js";
+
 registerProvider(importFactProvider);
 
 // Register fact rules
 import { registerRule } from "./fact-rule-runner.js";
+import { asyncNoiseRule } from "./rules/async-noise.js";
+import { asyncUnnecessaryWrapperRule } from "./rules/async-unnecessary-wrapper.js";
 import { errorObscuringRule } from "./rules/error-obscuring.js";
 import { errorSwallowingRule } from "./rules/error-swallowing.js";
-import { asyncNoiseRule } from "./rules/async-noise.js";
+import { highComplexityRule } from "./rules/high-complexity.js";
+import { highFanOutRule } from "./rules/high-fan-out.js";
+import { missingErrorPropagationRule } from "./rules/missing-error-propagation.js";
 import { passThroughWrappersRule } from "./rules/pass-through-wrappers.js";
 import { placeholderCommentsRule } from "./rules/placeholder-comments.js";
-import { highComplexityRule } from "./rules/high-complexity.js";
-import { unsafeBoundaryRule } from "./rules/unsafe-boundary.js";
-import { asyncUnnecessaryWrapperRule } from "./rules/async-unnecessary-wrapper.js";
-import { missingErrorPropagationRule } from "./rules/missing-error-propagation.js";
-import { highFanOutRule } from "./rules/high-fan-out.js";
 import {
+	highImportCouplingRule,
+	noBooleanParamsRule,
+	noComplexConditionalsRule,
+} from "./rules/quality-rules.js";
+import {
+	commentedCredentialsRule,
 	commentedOutCodeRule,
+	corsWildcardRule,
 	duplicateStringLiteralRule,
+	dynamicRegexpRule,
 	functionInLoopRule,
 	jwtWithoutVerifyRule,
-	corsWildcardRule,
-	dynamicRegexpRule,
 	maxSwitchCasesRule,
-	commentedCredentialsRule,
 } from "./rules/sonar-rules.js";
-import {
-	noMagicNumbersRule,
-	noBooleanParamsRule,
-	highImportCouplingRule,
-	noComplexConditionalsRule,
-	highEntropyStringRule,
-} from "./rules/quality-rules.js";
+import { unsafeBoundaryRule } from "./rules/unsafe-boundary.js";
+
 registerRule(errorObscuringRule);
 registerRule(errorSwallowingRule);
 registerRule(asyncNoiseRule);
@@ -109,11 +115,9 @@ registerRule(corsWildcardRule);
 registerRule(dynamicRegexpRule);
 registerRule(maxSwitchCasesRule);
 registerRule(commentedCredentialsRule);
-registerRule(noMagicNumbersRule);
 registerRule(noBooleanParamsRule);
 registerRule(highImportCouplingRule);
 registerRule(noComplexConditionalsRule);
-registerRule(highEntropyStringRule);
 
 const sessionFacts = new FactStore();
 const sessionRunnerRegistry = new RunnerRegistry();
@@ -138,11 +142,9 @@ const FACT_RULE_IDS = new Set([
 	"dynamic-regexp",
 	"max-switch-cases",
 	"no-commented-credentials",
-	"no-magic-numbers",
 	"no-boolean-params",
 	"high-import-coupling",
 	"no-complex-conditionals",
-	"high-entropy-string",
 ]);
 const sessionSlopRuleCounts = new Map<string, number>();
 let sessionSlopDiagnosticCount = 0;
@@ -151,7 +153,10 @@ let sessionWrittenLineCount = 0;
 // Debounced ast-grep warning scan — fires 2s after the last write to a jsts file.
 // Runs warning-tier rules that are too expensive to include in the blocking write path,
 // logs all diagnostics for history without surfacing anything to the agent.
-const astGrepWarnDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const astGrepWarnDebounceTimers = new Map<
+	string,
+	ReturnType<typeof setTimeout>
+>();
 const AST_GREP_WARN_DEBOUNCE_MS = 2000;
 
 function scheduleAstGrepWarningScan(
@@ -220,8 +225,15 @@ function trackSessionSlopStats(
 	ctx: ReturnType<typeof createDispatchContext>,
 	diagnostics: DispatchResult["diagnostics"],
 ): void {
-	const lineCount = ctx.facts.getFileFact<number>(ctx.filePath, "file.lineCount");
-	if (typeof lineCount === "number" && Number.isFinite(lineCount) && lineCount > 0) {
+	const lineCount = ctx.facts.getFileFact<number>(
+		ctx.filePath,
+		"file.lineCount",
+	);
+	if (
+		typeof lineCount === "number" &&
+		Number.isFinite(lineCount) &&
+		lineCount > 0
+	) {
 		sessionWrittenLineCount += lineCount;
 	}
 
@@ -229,7 +241,10 @@ function trackSessionSlopStats(
 		const ruleId = detectFactRuleId(diagnostic);
 		if (!ruleId) continue;
 		sessionSlopDiagnosticCount += 1;
-		sessionSlopRuleCounts.set(ruleId, (sessionSlopRuleCounts.get(ruleId) ?? 0) + 1);
+		sessionSlopRuleCounts.set(
+			ruleId,
+			(sessionSlopRuleCounts.get(ruleId) ?? 0) + 1,
+		);
 	}
 }
 
@@ -262,7 +277,7 @@ function withPrimaryPolicyGroup(
 	groups: RunnerGroup[],
 	pi: PiAgentAPI,
 ): RunnerGroup[] {
-	const lspEnabled = !!pi.getFlag("lens-lsp") && !pi.getFlag("no-lsp");
+	const lspEnabled = !pi.getFlag("no-lsp");
 	const normalizedGroups = lspEnabled
 		? groups
 		: groups
@@ -284,7 +299,9 @@ function withPrimaryPolicyGroup(
 	const alreadyHasPrimary = normalizedGroups.some((group) => {
 		if (group.mode !== primary.mode) return false;
 		if (group.runnerIds.length !== primary.runnerIds.length) return false;
-		return group.runnerIds.every((id, index) => primary.runnerIds[index] === id);
+		return group.runnerIds.every(
+			(id, index) => primary.runnerIds[index] === id,
+		);
 	});
 	if (alreadyHasPrimary) return normalizedGroups;
 
@@ -297,11 +314,13 @@ export function getDispatchGroupsForKind(
 ): RunnerGroup[] {
 	const plan = TOOL_PLANS[kind];
 	if (!plan) {
-		const lspEnabled = !!pi.getFlag("lens-lsp") && !pi.getFlag("no-lsp");
+		const lspEnabled = !pi.getFlag("no-lsp");
 		const policyGroup = getPrimaryDispatchGroup(kind as FileKind, lspEnabled);
 		if (policyGroup) return [policyGroup];
 		if (lspEnabled && LSP_CAPABLE_KINDS.has(kind as FileKind)) {
-			return [{ mode: "all", runnerIds: ["lsp"], filterKinds: [kind as FileKind] }];
+			return [
+				{ mode: "all", runnerIds: ["lsp"], filterKinds: [kind as FileKind] },
+			];
 		}
 		return [];
 	}

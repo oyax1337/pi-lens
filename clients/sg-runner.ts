@@ -13,7 +13,7 @@ import {
 	getSgCommand,
 	isSgAvailable,
 } from "./dispatch/runners/utils/runner-helpers.js";
-import { safeSpawn } from "./safe-spawn.js";
+import { safeSpawn, safeSpawnAsync } from "./safe-spawn.js";
 
 /**
  * Escape an argument for Windows cmd.exe shell execution.
@@ -61,7 +61,7 @@ export class SgRunner {
 		if (this.available !== null) return this.available;
 
 		// Check if available in PATH (fast)
-		const pathResult = safeSpawn("sg", ["--version"], {
+		const pathResult = await safeSpawnAsync("sg", ["--version"], {
 			timeout: 5000,
 		});
 		if (!pathResult.error && pathResult.status === 0) {
@@ -168,31 +168,55 @@ export class SgRunner {
 			});
 
 			proc.on("close", (code: number | null) => {
-				if (code !== 0 && !stdout.trim()) {
-					// Enhanced error messages for common pattern issues
-					let errorMsg = stderr.trim() || `Exit code ${code}`;
+				// ast-grep exit codes:
+				// 0 = matches found
+				// 1 = no matches found (NOT an error, just empty result)
+				// 2+ or non-zero with stderr = actual error
 
-					if (stderr.includes("Multiple AST nodes are detected")) {
-						errorMsg =
-							`Invalid AST pattern: The pattern appears to contain multiple AST nodes or is malformed.\n` +
-							`Common causes:\n` +
-							`  1. Missing parentheses: use it($TEST) not it"test"\n` +
-							`  2. Raw text without structure: use console.log($MSG) not just "console.log"\n` +
-							`  3. Unclosed quotes or brackets\n\n` +
-							`Original error: ${errorMsg}`;
-					} else if (stderr.includes("Cannot parse query")) {
-						errorMsg =
-							`Pattern syntax error: The pattern could not be parsed as valid code.\n` +
-							`Tips:\n` +
-							`  - Patterns must be valid ${args.includes("--lang") ? args[args.indexOf("--lang") + 1] : "language"} syntax\n` +
-							`  - Use metavariables like $NAME, $ARGS for variable parts\n` +
-							`  - Example: 'function $NAME($$$PARAMS) { $$$BODY }'\n\n` +
-							`Original error: ${errorMsg}`;
+				if (code !== 0 && !stdout.trim()) {
+					// No stdout - check if this is a real error or just "no matches"
+					const stderrMsg = stderr.trim();
+
+					// Exit code 1 with no stderr typically means "no matches" in ast-grep
+					// This is normal behavior, not an error
+					if (code === 1 && !stderrMsg) {
+						resolve({ matches: [] });
+						return;
 					}
 
+					// Check stderr for specific error patterns
+					if (stderrMsg.includes("Multiple AST nodes are detected")) {
+						resolve({
+							matches: [],
+							error:
+								`Invalid AST pattern: The pattern appears to contain multiple AST nodes or is malformed.\n` +
+								`Common causes:\n` +
+								`  1. Missing parentheses: use it($TEST) not it"test"\n` +
+								`  2. Raw text without structure: use console.log($MSG) not just "console.log"\n` +
+								`  3. Unclosed quotes or brackets\n\n` +
+								`Original error: ${stderrMsg}`,
+						});
+						return;
+					}
+
+					if (stderrMsg.includes("Cannot parse query")) {
+						resolve({
+							matches: [],
+							error:
+								`Pattern syntax error: The pattern could not be parsed as valid code.\n` +
+								`Tips:\n` +
+								`  - Patterns must be valid ${args.includes("--lang") ? args[args.indexOf("--lang") + 1] : "language"} syntax\n` +
+								`  - Use metavariables like $NAME, $ARGS for variable parts\n` +
+								`  - Example: 'function $NAME($$$PARAMS) { $$$BODY }'\n\n` +
+								`Original error: ${stderrMsg}`,
+						});
+						return;
+					}
+
+					// Unknown error - include what we have
 					resolve({
 						matches: [],
-						error: stderr.includes("No files found") ? undefined : errorMsg,
+						error: stderrMsg || `Command failed with exit code ${code}`,
 					});
 					return;
 				}

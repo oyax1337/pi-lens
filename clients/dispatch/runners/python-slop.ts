@@ -10,15 +10,14 @@
  * Based on slop-code-bench: https://github.com/SprocketLab/slop-code-bench
  */
 
-import { spawnSync } from "node:child_process";
 import { safeSpawn } from "../../safe-spawn.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
 import {
 	createConfigFinder,
 	getSgCommand,

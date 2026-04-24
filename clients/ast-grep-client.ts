@@ -22,13 +22,6 @@ import type {
 import { resolvePackagePath } from "./package-root.js";
 import { SgRunner } from "./sg-runner.js";
 
-const _getExtensionDir = () => {
-	if (typeof __dirname !== "undefined") {
-		return __dirname;
-	}
-	return ".";
-};
-
 // --- Client ---
 
 export class AstGrepClient {
@@ -345,7 +338,7 @@ message: found
 			output += `  ${ruleInfo} (${loc})${fix}\n`;
 
 			if (d.ruleDescription?.note) {
-				const shortNote = d.ruleDescription.note.split("\n")[0];
+				const shortNote = d.ruleDescription.note.split(/\r?\n/)[0];
 				output += `    → ${shortNote}\n`;
 			}
 		}

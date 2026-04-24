@@ -1,23 +1,25 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { detectFileKind } from "../file-kinds.js";
-import { functionFactProvider, type FunctionSummary } from "../dispatch/facts/function-facts.js";
+import type { FactStore } from "../dispatch/fact-store.js";
 import { fileContentProvider } from "../dispatch/facts/file-content.js";
-import { importFactProvider, type ImportEntry } from "../dispatch/facts/import-facts.js";
+import {
+	type FunctionSummary,
+	functionFactProvider,
+} from "../dispatch/facts/function-facts.js";
+import {
+	type ImportEntry,
+	importFactProvider,
+} from "../dispatch/facts/import-facts.js";
+import type { DispatchContext } from "../dispatch/types.js";
+import { detectFileKind } from "../file-kinds.js";
 import { normalizeMapKey } from "../path-utils.js";
 import { getSourceFiles } from "../scan-utils.js";
 import { TreeSitterClient } from "../tree-sitter-client.js";
 import {
-	TreeSitterSymbolExtractor,
 	type ExtractedSymbols,
+	TreeSitterSymbolExtractor,
 } from "../tree-sitter-symbol-extractor.js";
-import type { FactStore } from "../dispatch/fact-store.js";
-import type { DispatchContext } from "../dispatch/types.js";
-import type {
-	ReviewGraph,
-	ReviewGraphEdge,
-	ReviewGraphNode,
-} from "./types.js";
+import type { ReviewGraph, ReviewGraphEdge, ReviewGraphNode } from "./types.js";
 
 const REVIEW_GRAPH_VERSION = "v1";
 const MAIN_KINDS = new Set(["jsts", "python", "go", "rust", "ruby"]);
@@ -25,7 +27,11 @@ const CHANGED_SYMBOLS_PREFIX = "session.reviewGraph.changedSymbols:";
 const treeSitterClient = new TreeSitterClient();
 const extractorCache = new Map<string, TreeSitterSymbolExtractor>();
 
-function makeCtx(filePath: string, cwd: string, facts: FactStore): DispatchContext {
+function makeCtx(
+	filePath: string,
+	cwd: string,
+	facts: FactStore,
+): DispatchContext {
 	return {
 		filePath,
 		cwd,
@@ -39,6 +45,10 @@ function makeCtx(filePath: string, cwd: string, facts: FactStore): DispatchConte
 		hasTool: async () => false,
 		log: () => {},
 	};
+}
+
+function escapeRegExp(string: string): string {
+	return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function createEmptyGraph(): ReviewGraph {
@@ -97,28 +107,11 @@ function rebuildIndexes(graph: ReviewGraph): void {
 	}
 }
 
-function removeFileSubgraph(graph: ReviewGraph, filePath: string): void {
-	const normalized = normalizeMapKey(filePath);
-	const fileNodeId = graph.fileNodes.get(normalized) ?? `file:${normalized}`;
-	const symbolNodeIds = new Set<string>(graph.symbolNodesByFile.get(normalized) ?? []);
-	graph.nodes.forEach((node, id) => {
-		if (node.filePath === normalized && id !== fileNodeId) symbolNodeIds.add(id);
-	});
-	for (const nodeId of symbolNodeIds) {
-		graph.nodes.delete(nodeId);
-	}
-	graph.edges = graph.edges.filter(
-		(edge) =>
-			edge.from !== fileNodeId &&
-			!symbolNodeIds.has(edge.from) &&
-			!symbolNodeIds.has(edge.to),
-	);
-	graph.nodes.delete(fileNodeId);
-	graph.changedSymbolsByFile.delete(normalized);
-	rebuildIndexes(graph);
-}
-
-function localImportToFile(cwd: string, filePath: string, source: string): string | undefined {
+function localImportToFile(
+	cwd: string,
+	filePath: string,
+	source: string,
+): string | undefined {
 	if (!source.startsWith(".")) return undefined;
 	const base = path.resolve(path.dirname(filePath), source);
 	const candidates = [
@@ -140,9 +133,15 @@ function localImportToFile(cwd: string, filePath: string, source: string): strin
 	return undefined;
 }
 
-function upsertChangedSymbols(graph: ReviewGraph, facts: FactStore, filePath: string): void {
+function upsertChangedSymbols(
+	graph: ReviewGraph,
+	facts: FactStore,
+	filePath: string,
+): void {
 	const normalized = normalizeMapKey(filePath);
-	const changed = facts.getSessionFact<string[]>(`${CHANGED_SYMBOLS_PREFIX}${normalized}`);
+	const changed = facts.getSessionFact<string[]>(
+		`${CHANGED_SYMBOLS_PREFIX}${normalized}`,
+	);
 	if (changed && changed.length > 0) {
 		graph.changedSymbolsByFile.set(normalized, [...changed]);
 	} else {
@@ -150,14 +149,23 @@ function upsertChangedSymbols(graph: ReviewGraph, facts: FactStore, filePath: st
 	}
 }
 
-async function ensureTsFacts(filePath: string, cwd: string, facts: FactStore): Promise<void> {
+async function ensureTsFacts(
+	filePath: string,
+	cwd: string,
+	facts: FactStore,
+): Promise<void> {
 	const ctx = makeCtx(filePath, cwd, facts);
 	await fileContentProvider.run(ctx, facts);
 	importFactProvider.run(ctx, facts);
 	functionFactProvider.run(ctx, facts);
 }
 
-function addJsTsFile(graph: ReviewGraph, cwd: string, filePath: string, facts: FactStore): void {
+function addJsTsFile(
+	graph: ReviewGraph,
+	cwd: string,
+	filePath: string,
+	facts: FactStore,
+): void {
 	const normalized = normalizeMapKey(filePath);
 	const content = facts.getFileFact<string>(normalized, "file.content") ?? "";
 	const fileNodeId = `file:${normalized}`;
@@ -171,9 +179,13 @@ function addJsTsFile(graph: ReviewGraph, cwd: string, filePath: string, facts: F
 		},
 	});
 
-	const imports = facts.getFileFact<ImportEntry[]>(normalized, "file.imports") ?? [];
+	const imports =
+		facts.getFileFact<ImportEntry[]>(normalized, "file.imports") ?? [];
 	const functions =
-		facts.getFileFact<FunctionSummary[]>(normalized, "file.functionSummaries") ?? [];
+		facts.getFileFact<FunctionSummary[]>(
+			normalized,
+			"file.functionSummaries",
+		) ?? [];
 
 	for (const entry of imports) {
 		const localFile = localImportToFile(cwd, normalized, entry.source);
@@ -212,7 +224,7 @@ function addJsTsFile(graph: ReviewGraph, cwd: string, filePath: string, facts: F
 			symbolName: fn.name,
 			symbolKind: "function",
 			exported: new RegExp(
-				String.raw`export\s+(?:async\s+)?(?:function|const|let|var)\s+${fn.name}\b`,
+				String.raw`export\s+(?:async\s+)?(?:function|const|let|var)\s+${escapeRegExp(fn.name)}\b`,
 			).test(content),
 			metadata: {
 				line: fn.line,
@@ -248,7 +260,9 @@ function addJsTsFile(graph: ReviewGraph, cwd: string, filePath: string, facts: F
 	}
 }
 
-function mapKindToTreeSitterLanguage(kind: string | undefined): string | undefined {
+function mapKindToTreeSitterLanguage(
+	kind: string | undefined,
+): string | undefined {
 	switch (kind) {
 		case "python":
 			return "python";
@@ -263,7 +277,9 @@ function mapKindToTreeSitterLanguage(kind: string | undefined): string | undefin
 	}
 }
 
-async function getExtractor(languageId: string): Promise<TreeSitterSymbolExtractor | null> {
+async function getExtractor(
+	languageId: string,
+): Promise<TreeSitterSymbolExtractor | null> {
 	if (extractorCache.has(languageId)) return extractorCache.get(languageId)!;
 	const extractor = new TreeSitterSymbolExtractor(languageId, treeSitterClient);
 	const ok = await extractor.init();
@@ -354,7 +370,11 @@ function resolveDeferredSymbolEdges(graph: ReviewGraph): void {
 
 	graph.edges = graph.edges.map((edge) => {
 		const unresolvedName = String(edge.metadata?.unresolvedName ?? "");
-		if (!unresolvedName || !graph.nodes.has(edge.to) || !graph.nodes.get(edge.to)?.metadata?.unresolvedName) {
+		if (
+			!unresolvedName ||
+			!graph.nodes.has(edge.to) ||
+			!graph.nodes.get(edge.to)?.metadata?.unresolvedName
+		) {
 			return edge;
 		}
 		const candidates = symbolNameToIds.get(unresolvedName) ?? [];

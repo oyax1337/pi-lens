@@ -3,6 +3,61 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Mock read-guard for integration tests to avoid dynamic require issues
+vi.mock("../clients/read-guard.js", () => ({
+	ReadGuard: class MockReadGuard {
+		isNewFile() {
+			return false;
+		}
+		checkEdit() {
+			return { action: "allow" };
+		}
+		recordRead() {}
+		getReadHistory() {
+			return [];
+		}
+		getEditHistory() {
+			return [];
+		}
+		addExemption() {}
+		getSummary() {
+			return {
+				totalEdits: 0,
+				totalBlocks: 0,
+				byReason: {},
+				byFile: {},
+				lspExpansionsHelped: 0,
+			};
+		}
+	},
+	createReadGuard: () =>
+		new (class MockReadGuard {
+			isNewFile() {
+				return false;
+			}
+			checkEdit() {
+				return { action: "allow" };
+			}
+			recordRead() {}
+			getReadHistory() {
+				return [];
+			}
+			getEditHistory() {
+				return [];
+			}
+			addExemption() {}
+			getSummary() {
+				return {
+					totalEdits: 0,
+					totalBlocks: 0,
+					byReason: {},
+					byFile: {},
+					lspExpansionsHelped: 0,
+				};
+			}
+		})(),
+}));
+
 type Handler = (event: any, ctx: any) => unknown;
 
 interface MockPi {
@@ -289,6 +344,11 @@ describe("index.ts integration", () => {
 				cachedExports = new Map();
 				cachedProjectIndex = null;
 				errorDebtBaseline = null;
+				readGuard = {
+					isNewFile: () => false,
+					checkEdit: () => ({ action: "allow" }),
+					recordRead: () => {},
+				};
 			},
 		}));
 		vi.doMock("../clients/dispatch/integration.js", async () => ({

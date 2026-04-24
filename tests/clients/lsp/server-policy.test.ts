@@ -3,6 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+// Set test mode to isolate logging from production logs
+process.env.PI_LENS_TEST_MODE = "1";
+
 const ensureTool = vi.fn();
 const getToolEnvironment = vi.fn(async () => ({}));
 const launchLSP = vi.fn();
@@ -16,6 +19,12 @@ vi.mock("../../../clients/installer/index.js", () => ({
 vi.mock("../../../clients/lsp/launch.js", () => ({
 	launchLSP,
 	launchViaPackageManager,
+}));
+
+// Suppress sync disk I/O from logLatency — prevents timeout under full-suite load
+vi.mock("../../../clients/latency-logger.js", () => ({
+	logLatency: vi.fn(),
+	resetLatencyLog: vi.fn(),
 }));
 
 const dirs: string[] = [];
@@ -34,9 +43,9 @@ afterEach(() => {
 describe("lsp server policy", () => {
 	it("every built-in server has a spawn function", async () => {
 		const { LSP_SERVERS } = await import("../../../clients/lsp/server.js");
-		const missing = LSP_SERVERS.filter((server) => typeof server.spawn !== "function").map(
-			(server) => server.id,
-		);
+		const missing = LSP_SERVERS.filter(
+			(server) => typeof server.spawn !== "function",
+		).map((server) => server.id);
 		expect(missing).toEqual([]);
 	});
 
@@ -60,7 +69,9 @@ describe("lsp server policy", () => {
 
 	it("falls back to file directory when go root markers are missing", async () => {
 		const { GoServer } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-go-fallback-root-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-go-fallback-root-"),
+		);
 		dirs.push(tmp);
 
 		const file = path.join(tmp, "src", "main.go");
@@ -73,7 +84,9 @@ describe("lsp server policy", () => {
 
 	it("falls back to file directory when json root markers are missing", async () => {
 		const { JsonServer } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-json-fallback-root-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-json-fallback-root-"),
+		);
 		dirs.push(tmp);
 
 		const file = path.join(tmp, "cases", "config.json");
@@ -86,7 +99,9 @@ describe("lsp server policy", () => {
 
 	it("falls back to file directory when html root markers are missing", async () => {
 		const { HtmlServer } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-html-fallback-root-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-html-fallback-root-"),
+		);
 		dirs.push(tmp);
 
 		const file = path.join(tmp, "cases", "index.html");
@@ -99,7 +114,9 @@ describe("lsp server policy", () => {
 
 	it("falls back to file directory when css root markers are missing", async () => {
 		const { CssServer } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-css-fallback-root-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-css-fallback-root-"),
+		);
 		dirs.push(tmp);
 
 		const file = path.join(tmp, "cases", "styles.css");
@@ -112,7 +129,9 @@ describe("lsp server policy", () => {
 
 	it("falls back to file directory when yaml root markers are missing", async () => {
 		const { YamlServer } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-yaml-fallback-root-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-yaml-fallback-root-"),
+		);
 		dirs.push(tmp);
 
 		const file = path.join(tmp, "cases", "service.yaml");
@@ -125,7 +144,9 @@ describe("lsp server policy", () => {
 
 	it("falls back to file directory when docker root markers are missing", async () => {
 		const { DockerServer } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-docker-fallback-root-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-docker-fallback-root-"),
+		);
 		dirs.push(tmp);
 
 		const file = path.join(tmp, "Dockerfile");
@@ -137,11 +158,13 @@ describe("lsp server policy", () => {
 
 	it("falls back to file directory for standalone csharp files", async () => {
 		const { CSharpServer } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-csharp-fallback-root-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-csharp-fallback-root-"),
+		);
 		dirs.push(tmp);
 
 		const file = path.join(tmp, "Program.cs");
-		fs.writeFileSync(file, "Console.WriteLine(\"ok\");\n");
+		fs.writeFileSync(file, 'Console.WriteLine("ok");\n');
 
 		const root = await CSharpServer.root(file);
 		expect(root).toBe(path.dirname(file));
@@ -149,7 +172,9 @@ describe("lsp server policy", () => {
 
 	it("tries pi-lens managed csharp candidates before legacy global dotnet tools", async () => {
 		const { CSharpServer } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-csharp-candidates-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-csharp-candidates-"),
+		);
 		dirs.push(tmp);
 
 		launchLSP.mockRejectedValue(new Error("ENOENT: command not found"));
@@ -158,14 +183,20 @@ describe("lsp server policy", () => {
 		expect(spawned).toBeUndefined();
 		expect(launchLSP).toHaveBeenCalled();
 		const commands = launchLSP.mock.calls.map((call) => String(call[0] ?? ""));
-		expect(commands.some((command) => command.includes(path.join(".pi-lens", "bin", "csharp-ls")))).toBe(true);
+		expect(
+			commands.some((command) =>
+				command.includes(path.join(".pi-lens", "bin", "csharp-ls")),
+			),
+		).toBe(true);
 	});
 
 	it("falls back to file directory for standalone cpp/zig/elixir/gleam files", async () => {
 		const { CppServer, ZigServer, ElixirServer, GleamServer } = await import(
 			"../../../clients/lsp/server.js"
 		);
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-secondary-roots-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-secondary-roots-"),
+		);
 		dirs.push(tmp);
 
 		const cppFile = path.join(tmp, "src", "main.cpp");
@@ -181,13 +212,19 @@ describe("lsp server policy", () => {
 
 		await expect(CppServer.root(cppFile)).resolves.toBe(path.dirname(cppFile));
 		await expect(ZigServer.root(zigFile)).resolves.toBe(path.dirname(zigFile));
-		await expect(ElixirServer.root(elixirFile)).resolves.toBe(path.dirname(elixirFile));
-		await expect(GleamServer.root(gleamFile)).resolves.toBe(path.dirname(gleamFile));
+		await expect(ElixirServer.root(elixirFile)).resolves.toBe(
+			path.dirname(elixirFile),
+		);
+		await expect(GleamServer.root(gleamFile)).resolves.toBe(
+			path.dirname(gleamFile),
+		);
 	});
 
 	it("resolves relative file roots without hanging", async () => {
 		const { NearestRoot } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-relative-root-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-relative-root-"),
+		);
 		dirs.push(tmp);
 
 		const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tmp);
@@ -207,7 +244,9 @@ describe("lsp server policy", () => {
 
 	it("does not resolve markers above explicit stop directory", async () => {
 		const { NearestRoot } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-root-boundary-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-root-boundary-"),
+		);
 		dirs.push(tmp);
 
 		const parent = path.join(tmp, "workspace");
@@ -283,7 +322,9 @@ describe("lsp server policy", () => {
 
 	it("skips PowerShell bash-language-server shim candidates on Windows", async () => {
 		const { BashServer } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-bash-candidates-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-bash-candidates-"),
+		);
 		dirs.push(tmp);
 
 		launchLSP.mockRejectedValue(new Error("ENOENT: command not found"));
@@ -297,7 +338,9 @@ describe("lsp server policy", () => {
 
 	it("skips managed TypeScript install when install is disallowed for file", async () => {
 		const { TypeScriptServer } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-ts-install-off-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-ts-install-off-"),
+		);
 		dirs.push(tmp);
 		fs.writeFileSync(path.join(tmp, "package.json"), "{}\n");
 
@@ -324,7 +367,9 @@ describe("lsp server policy", () => {
 
 	it("skips package-manager fallback when install is disallowed for file", async () => {
 		const { SvelteServer } = await import("../../../clients/lsp/server.js");
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-sv-install-off-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-sv-install-off-"),
+		);
 		dirs.push(tmp);
 		fs.writeFileSync(path.join(tmp, "package.json"), "{}\n");
 
@@ -336,10 +381,9 @@ describe("lsp server policy", () => {
 	});
 
 	it("keeps custom LSP config scoped per workspace", async () => {
-		const {
-			getServersForFileWithConfig,
-			initLSPConfig,
-		} = await import("../../../clients/lsp/config.js");
+		const { getServersForFileWithConfig, initLSPConfig } = await import(
+			"../../../clients/lsp/config.js"
+		);
 
 		const workspaceA = fs.mkdtempSync(
 			path.join(os.tmpdir(), "pi-lens-lsp-config-a-"),
@@ -388,8 +432,12 @@ describe("lsp server policy", () => {
 		await initLSPConfig(workspaceA);
 		await initLSPConfig(workspaceB);
 
-		const serversA = getServersForFileWithConfig(fileA).map((server) => server.id);
-		const serversB = getServersForFileWithConfig(fileB).map((server) => server.id);
+		const serversA = getServersForFileWithConfig(fileA).map(
+			(server) => server.id,
+		);
+		const serversB = getServersForFileWithConfig(fileB).map(
+			(server) => server.id,
+		);
 		const tsFileA = path.join(workspaceA, "src", "index.ts");
 		fs.writeFileSync(tsFileA, "export const a = 1;\n");
 		const tsServersA = getServersForFileWithConfig(tsFileA).map(
@@ -445,7 +493,9 @@ describe("lsp server policy", () => {
 		const { PythonServer, PythonPylspServer } = await import(
 			"../../../clients/lsp/server.js"
 		);
-		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-python-filedir-"));
+		const tmp = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-python-filedir-"),
+		);
 		dirs.push(tmp);
 
 		const file = path.join(tmp, "scripts", "tool.py");
@@ -453,7 +503,9 @@ describe("lsp server policy", () => {
 		fs.writeFileSync(file, "print('ok')\n");
 
 		await expect(PythonServer.root(file)).resolves.toBe(path.dirname(file));
-		await expect(PythonPylspServer.root(file)).resolves.toBe(path.dirname(file));
+		await expect(PythonPylspServer.root(file)).resolves.toBe(
+			path.dirname(file),
+		);
 	});
 
 	it("launches taplo LSP from managed taplo install", async () => {

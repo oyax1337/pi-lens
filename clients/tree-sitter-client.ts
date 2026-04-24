@@ -16,9 +16,13 @@
  */
 
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as path from "node:path";
 import { isExcludedDirName } from "./file-utils.js";
 import { resolvePackagePath } from "./package-root.js";
+
+const _require = createRequire(import.meta.url);
+
 import { TreeCache } from "./tree-sitter-cache.js";
 import { TreeSitterNavigator } from "./tree-sitter-navigator.js";
 import {
@@ -51,9 +55,6 @@ interface TreeSitterParserInstance {
 	parse: (content: string) => TreeSitterTree;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: Module type
-const _LanguageLoader: any = null;
-
 // --- WASM Grammar Mapping ---
 
 const LANGUAGE_TO_GRAMMAR: Record<string, string> = {
@@ -69,7 +70,6 @@ const LANGUAGE_TO_GRAMMAR: Record<string, string> = {
 	c: "tree-sitter-c.wasm",
 	cpp: "tree-sitter-cpp.wasm",
 	elixir: "tree-sitter-elixir.wasm",
-	gleam: "tree-sitter-gleam.wasm",
 	ruby: "tree-sitter-ruby.wasm",
 };
 
@@ -117,47 +117,84 @@ export class TreeSitterClient {
 	/** Debug logging helper */
 	private dbg(msg: string): void {
 		if (this.verbose) {
-			console.error(`[tree-sitter] ${msg}`);
+			console.error(`[tree-sitter] ${msg}`); // pi-lens-ignore: console-statement — intentional verbose logger
 		}
+	}
+
+	/**
+	 * Resolve a web-tree-sitter asset path using multiple strategies:
+	 * 1. Node module resolution via createRequire (handles hoisted installs — issue #20)
+	 * 2. Package-root walk from import.meta.url (handles on-the-fly TS compilation by pi)
+	 * 3. process.cwd() fallback
+	 */
+	private resolveWebTreeSitterAsset(asset: string): string | undefined {
+		// Strategy 1: Node module resolution (hoisted installs, pnpm workspaces)
+		try {
+			const resolved = _require.resolve(`web-tree-sitter/${asset}`);
+			if (fs.existsSync(resolved)) return resolved;
+		} catch {
+			/* fall through */
+		}
+
+		// Strategy 2: Walk up from this module to find package.json, then into node_modules.
+		// This is required when pi compiles TS on-the-fly to a temp directory —
+		// createRequire(import.meta.url) resolves from the temp dir and can't find
+		// web-tree-sitter, but the package root (where package.json lives) still has
+		// the correct node_modules layout.
+		try {
+			const candidate = resolvePackagePath(
+				import.meta.url,
+				"node_modules",
+				"web-tree-sitter",
+				asset,
+			);
+			if (fs.existsSync(candidate)) return candidate;
+		} catch {
+			/* fall through */
+		}
+
+		// Strategy 3: cwd fallback
+		const cwdCandidate = path.join(
+			process.cwd(),
+			"node_modules",
+			"web-tree-sitter",
+			asset,
+		);
+		if (fs.existsSync(cwdCandidate)) return cwdCandidate;
+
+		return undefined;
 	}
 
 	/** Find tree-sitter grammar directory */
 	private findGrammarsDir(): string {
-		const pkgGrammars = resolvePackagePath(
-			import.meta.url,
-			"node_modules",
-			"web-tree-sitter",
-			"grammars",
-		);
-		const downloadedGrammars = [
-			path.join(process.cwd(), "node_modules", "web-tree-sitter", "grammars"),
-			pkgGrammars,
-		];
-
-		for (const dir of downloadedGrammars) {
-			if (
-				fs.existsSync(dir) &&
-				fs.existsSync(path.join(dir, "tree-sitter-typescript.wasm"))
-			) {
-				return dir;
-			}
+		const grammarsDir = this.resolveWebTreeSitterAsset("grammars");
+		if (
+			grammarsDir &&
+			fs.existsSync(path.join(grammarsDir, "tree-sitter-typescript.wasm"))
+		) {
+			return grammarsDir;
 		}
 
-		const candidates: string[] = [
-			path.join(process.cwd(), "node_modules", "tree-sitter-wasms", "out"),
-			resolvePackagePath(
-				import.meta.url,
-				"node_modules",
-				"tree-sitter-wasms",
+		// Fallback: tree-sitter-wasms package (real installs, not npm:null)
+		try {
+			const wasmsOut = path.join(
+				path.dirname(_require.resolve("tree-sitter-wasms/package.json")),
 				"out",
-			),
-		];
-
-		for (const dir of candidates) {
-			if (fs.existsSync(dir)) return dir;
+			);
+			if (fs.existsSync(wasmsOut)) return wasmsOut;
+		} catch {
+			/* fall through */
 		}
 
-		return pkgGrammars;
+		const cwdWasms = path.join(
+			process.cwd(),
+			"node_modules",
+			"tree-sitter-wasms",
+			"out",
+		);
+		if (fs.existsSync(cwdWasms)) return cwdWasms;
+
+		return "";
 	}
 
 	/** Initialize tree-sitter WASM runtime */
@@ -180,25 +217,21 @@ export class TreeSitterClient {
 				// Store Language loader from module (not from Parser)
 				this.LanguageLoader = mod.Language;
 
-				// Log what we're trying to load
-				const wasmPath = resolvePackagePath(
-					import.meta.url,
-					"node_modules",
-					"web-tree-sitter",
-					"tree-sitter.wasm",
-				);
+				// Resolve WASM path using same multi-strategy helper (hoisted installs +
+				// on-the-fly compilation by pi).
+				const wasmPath = this.resolveWebTreeSitterAsset("tree-sitter.wasm");
+				if (!wasmPath) {
+					this.dbg("Could not resolve tree-sitter.wasm");
+					return false;
+				}
+				const wasmDir = path.dirname(wasmPath);
 				this.dbg(
 					`Looking for WASM at: ${wasmPath}, exists: ${fs.existsSync(wasmPath)}`,
 				);
 
 				await ParserClass.init({
 					locateFile: (scriptName: string) => {
-						const fullPath = resolvePackagePath(
-							import.meta.url,
-							"node_modules",
-							"web-tree-sitter",
-							scriptName,
-						);
+						const fullPath = path.join(wasmDir, scriptName);
 						this.dbg(`locateFile: ${scriptName} -> ${fullPath}`);
 						return fullPath;
 					},
@@ -384,7 +417,11 @@ export class TreeSitterClient {
 
 	/** Check if tree-sitter is available (grammars installed) */
 	isAvailable(): boolean {
-		return fs.existsSync(this.grammarsDir);
+		if (fs.existsSync(this.grammarsDir)) return true;
+		// Re-evaluate in case grammars were installed after process start
+		const dir = this.findGrammarsDir();
+		this.grammarsDir = dir;
+		return fs.existsSync(dir);
 	}
 
 	/** Check if specific language is supported */
@@ -700,7 +737,10 @@ export class TreeSitterClient {
 		postFilter?: string;
 		postFilterParams?: unknown;
 	} | null> {
-		const cacheKey = this.getQueryCacheKey(`raw:${queryId}:${queryStr}`, languageId);
+		const cacheKey = this.getQueryCacheKey(
+			`raw:${queryId}:${queryStr}`,
+			languageId,
+		);
 
 		if (this.queryCache.has(cacheKey)) {
 			return this.queryCache.get(cacheKey);
@@ -770,8 +810,7 @@ export class TreeSitterClient {
 				if (!bodyNode) return true;
 				const bodyText = bodyNode.text;
 				return (
-					bodyText.includes("await") &&
-					/\.\s*(then|catch)\s*\(/.test(bodyText)
+					bodyText.includes("await") && /\.\s*(then|catch)\s*\(/.test(bodyText)
 				);
 			}
 			case "no_super_call": {
@@ -839,10 +878,14 @@ export class TreeSitterClient {
 				]);
 				if (!funcNode) return false;
 				const signature =
-					String(funcNode.text ?? "").split("{", 1)[0]?.trim() ?? "";
+					String(funcNode.text ?? "")
+						.split("{", 1)[0]
+						?.trim() ?? "";
 				const returnPart =
 					signature
-						.match(/func\s*(?:\([^)]*\)\s*)?[A-Za-z_]\w*\s*\([^)]*\)\s*(.*)$/s)?.[1]
+						.match(
+							/func\s*(?:\([^)]*\)\s*)?[A-Za-z_]\w*\s*\([^)]*\)\s*(.*)$/s,
+						)?.[1]
 						?.trim() ?? "";
 				return returnPart.length > 0 && /\berror\b/.test(returnPart);
 			}
@@ -899,10 +942,13 @@ export class TreeSitterClient {
 					/^(md5|sha1)$/i.test(captures.ALG?.text ?? "")
 				);
 			case "ts_insecure_random_source": {
-				if (captures.OBJ?.text !== "Math" || captures.FN?.text !== "random") return false;
+				if (captures.OBJ?.text !== "Math" || captures.FN?.text !== "random")
+					return false;
 				// Only flag when assigned to a security-sensitive variable name
 				const varName = captures.VAR?.text ?? "";
-				return /token|secret|password|key|nonce|salt|csrf|auth|session|credential|hash|otp|pin/i.test(varName);
+				return /token|secret|password|key|nonce|salt|csrf|auth|session|credential|hash|otp|pin/i.test(
+					varName,
+				);
 			}
 			case "ts_detached_async_call":
 				return /(Async$|fetch$|request$)/.test(captures.FN?.text ?? "");
@@ -1114,24 +1160,11 @@ export class TreeSitterClient {
 			c: [".c", ".h"],
 			cpp: [".cpp", ".hpp", ".cc", ".hh"],
 			elixir: [".ex", ".exs"],
-			gleam: [".gleam"],
 			ruby: [".rb"],
 		};
 		return mapping[languageId] || [];
 	}
 }
-
-// --- Pattern Node Types ---
-
-type PatternNode =
-	| {
-			kind: "literal";
-			nodeType: string;
-			text?: string;
-			children: PatternNode[];
-	  }
-	| { kind: "single"; name: string }
-	| { kind: "variadic"; name: string };
 
 // --- Simplified Pattern Search (regex fallback) ---
 

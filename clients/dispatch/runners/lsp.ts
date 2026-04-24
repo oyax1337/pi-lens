@@ -14,6 +14,7 @@
 
 import { getLSPService } from "../../lsp/index.js";
 import { RUNTIME_CONFIG } from "../../runtime-config.js";
+import { PRIORITY } from "../priorities.js";
 import { resolveRunnerPath } from "../runner-context.js";
 import type {
 	Diagnostic,
@@ -21,7 +22,6 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
 import { readFileContent } from "./utils.js";
 
 const LSP_MAX_FILE_BYTES = RUNTIME_CONFIG.pipeline.lspMaxFileBytes;
@@ -96,8 +96,8 @@ const lspRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const diagnosticPath = resolveRunnerPath(ctx.cwd, ctx.filePath);
-		// Only run if --lens-lsp flag is enabled
-		if (!ctx.pi.getFlag("lens-lsp") || !!ctx.pi.getFlag("no-lsp")) {
+		// Only run if LSP is not disabled via --no-lsp
+		if (ctx.pi.getFlag("no-lsp")) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
@@ -174,7 +174,9 @@ const lspRunner: RunnerDefinition = {
 
 		// Convert LSP diagnostics to our format
 		// Defensive: filter out malformed diagnostics that may lack range
-		const validLspDiags = lspDiags.filter((d) => d.range?.start?.line !== undefined);
+		const validLspDiags = lspDiags.filter(
+			(d) => d.range?.start?.line !== undefined,
+		);
 		const fixSuggestionByIndex = new Map<number, string>();
 
 		const blockingDiagIndexes = validLspDiags
@@ -203,24 +205,20 @@ const lspRunner: RunnerDefinition = {
 		}
 
 		const diagnostics: Diagnostic[] = validLspDiags.map((d, idx) => ({
-				id: `lsp:${d.code ?? "unknown"}:${d.range.start.line}`,
-				message: d.message,
-				filePath: diagnosticPath,
-				line: d.range.start.line + 1,
-				column: d.range.start.character + 1,
-				severity:
-					d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info",
-				semantic:
-					d.severity === 1
-						? "blocking"
-						: d.severity === 2
-							? "warning"
-							: "none",
-				tool: "lsp",
-				code: String(d.code ?? ""),
-				fixable: fixSuggestionByIndex.has(idx),
-				fixSuggestion: fixSuggestionByIndex.get(idx),
-			}));
+			id: `lsp:${d.code ?? "unknown"}:${d.range.start.line}`,
+			message: d.message,
+			filePath: diagnosticPath,
+			line: d.range.start.line + 1,
+			column: d.range.start.character + 1,
+			severity:
+				d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info",
+			semantic:
+				d.severity === 1 ? "blocking" : d.severity === 2 ? "warning" : "none",
+			tool: "lsp",
+			code: String(d.code ?? ""),
+			fixable: fixSuggestionByIndex.has(idx),
+			fixSuggestion: fixSuggestionByIndex.get(idx),
+		}));
 
 		const hasErrors = diagnostics.some((d) => d.semantic === "blocking");
 

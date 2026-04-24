@@ -1,5 +1,4 @@
 import type { AgentBehaviorClient } from "./agent-behavior-client.js";
-import type { ArchitectClient } from "./architect-client.js";
 import type { BiomeClient } from "./biome-client.js";
 import type { ComplexityClient } from "./complexity-client.js";
 import type { DependencyChecker } from "./dependency-checker.js";
@@ -24,25 +23,12 @@ export interface BootstrapClients {
 	testRunnerClient: TestRunnerClient;
 	metricsClient: MetricsClient;
 	complexityClient: ComplexityClient;
-	architectClient: ArchitectClient;
 	goClient: GoClient;
 	rustClient: RustClient;
 	agentBehaviorClient: AgentBehaviorClient;
 }
 
 let bootstrapPromise: Promise<BootstrapClients> | null = null;
-
-function createArchitectFallback(): ArchitectClient {
-	return {
-		loadConfig: () => false,
-		isUserDefined: () => false,
-		hasConfig: () => false,
-		getRulesForFile: () => [],
-		checkFile: () => [],
-		checkFileSize: () => null,
-		getHints: () => [],
-	} as unknown as ArchitectClient;
-}
 
 export function loadBootstrapClients(): Promise<BootstrapClients> {
 	bootstrapPromise ??= (async () => {
@@ -76,14 +62,6 @@ export function loadBootstrapClients(): Promise<BootstrapClients> {
 			import("./agent-behavior-client.js"),
 		]);
 
-		let architectClient: ArchitectClient;
-		try {
-			const architectMod = await import("./architect-client.js");
-			architectClient = new architectMod.ArchitectClient();
-		} catch {
-			architectClient = createArchitectFallback();
-		}
-
 		return {
 			ruffClient: new ruffMod.RuffClient(),
 			biomeClient: new biomeMod.BiomeClient(),
@@ -95,7 +73,6 @@ export function loadBootstrapClients(): Promise<BootstrapClients> {
 			testRunnerClient: new testRunnerMod.TestRunnerClient(),
 			metricsClient: new metricsMod.MetricsClient(),
 			complexityClient: new complexityMod.ComplexityClient(),
-			architectClient,
 			goClient: new goMod.GoClient(),
 			rustClient: new rustMod.RustClient(),
 			agentBehaviorClient: new agentBehaviorMod.AgentBehaviorClient(),

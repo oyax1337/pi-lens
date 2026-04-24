@@ -11,13 +11,13 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { logLatency } from "../latency-logger.js";
+import { normalizeMapKey, uriToPath } from "../path-utils.js";
 import type { LSPClientInfo } from "./client.js";
 import { createLSPClient } from "./client.js";
 import { getServersForFileWithConfig } from "./config.js";
 import { getLanguageId } from "./language.js";
 import type { LSPServerInfo } from "./server.js";
-import { normalizeMapKey, uriToPath } from "../path-utils.js";
-import { logLatency } from "../latency-logger.js";
 
 // --- Types ---
 
@@ -28,15 +28,15 @@ export interface LSPState {
 	inFlight: Map<string, Promise<SpawnedServer | undefined>>; // prevent duplicate spawns
 }
 
-const BROKEN_RETRY_COOLDOWN_MS = 15_000;
+const BROKEN_BASE_COOLDOWN_MS = 15_000;
+const BROKEN_MAX_COOLDOWN_MS = 5 * 60_000; // cap at 5 minutes
+const BROKEN_PERMANENT_AFTER = 5; // disable for session after N consecutive failures
 const OPTIONAL_LSP_RETRY_COOLDOWN_MS = 5 * 60_000;
 const OPTIONAL_LSP_SERVER_IDS = new Set<string>();
 const NAV_CLIENT_WAIT_TIMEOUT_MS = Math.max(
 	0,
-	Number.parseInt(
-		process.env.PI_LENS_LSP_NAV_CLIENT_WAIT_MS ?? "1500",
-		10,
-	) || 1500,
+	Number.parseInt(process.env.PI_LENS_LSP_NAV_CLIENT_WAIT_MS ?? "1500", 10) ||
+		1500,
 );
 const TOUCH_DEBOUNCE_MS = Math.max(
 	0,
@@ -69,10 +69,14 @@ export class LSPService {
 	private warmStartLogged = new Set<string>();
 	private optionalFailureLogged = new Set<string>();
 	private optionalDisabled = new Set<string>();
+	/** Consecutive failure counts for exponential backoff circuit breaker */
+	private failureCounts = new Map<string, number>();
 	private recentTouches = new Map<
 		string,
 		{ fingerprint: string; touchedAt: number; clientScope: "primary" | "all" }
 	>();
+	/** True after shutdown() has been called; blocks new operations */
+	private isDestroyed = false;
 
 	constructor() {
 		this.state = {
@@ -81,6 +85,11 @@ export class LSPService {
 			broken: new Map(),
 			inFlight: new Map(),
 		};
+	}
+
+	/** Guard: return true if service is shutting down or shut down */
+	private checkDestroyed(): boolean {
+		return this.isDestroyed;
 	}
 
 	private fingerprintContent(content: string): string {
@@ -133,6 +142,7 @@ export class LSPService {
 		filePath: string,
 		maxWaitMs?: number,
 	): Promise<SpawnedServer | undefined> {
+		if (this.checkDestroyed()) return undefined;
 		const servers = getServersForFileWithConfig(filePath);
 		const serverWaitOverrideMs = servers.reduce(
 			(max, server) => Math.max(max, server.clientWaitTimeoutMs ?? 0),
@@ -141,38 +151,38 @@ export class LSPService {
 		const effectiveMaxWaitMs = Math.max(maxWaitMs ?? 0, serverWaitOverrideMs);
 
 		const withBudget = async (): Promise<SpawnedServer | undefined> => {
-		if (servers.length === 0) return undefined;
+			if (servers.length === 0) return undefined;
 
-		// Try each matching server
-		for (const server of servers) {
-			const spawned = await this.ensureClientForServer(filePath, server);
-			if (spawned) {
-				logLatency({
-					type: "phase",
-					phase: "lsp_client_selected",
-					filePath,
-					durationMs: 0,
-					metadata: {
-						serverId: server.id,
-						candidateCount: servers.length,
-					},
-				});
-				return spawned;
+			// Try each matching server
+			for (const server of servers) {
+				const spawned = await this.ensureClientForServer(filePath, server);
+				if (spawned) {
+					logLatency({
+						type: "phase",
+						phase: "lsp_client_selected",
+						filePath,
+						durationMs: 0,
+						metadata: {
+							serverId: server.id,
+							candidateCount: servers.length,
+						},
+					});
+					return spawned;
+				}
 			}
-		}
 
-		logLatency({
-			type: "phase",
-			phase: "lsp_client_unavailable",
-			filePath,
-			durationMs: 0,
-			metadata: {
-				candidateCount: servers.length,
-				servers: servers.map((server) => server.id),
-			},
-		});
+			logLatency({
+				type: "phase",
+				phase: "lsp_client_unavailable",
+				filePath,
+				durationMs: 0,
+				metadata: {
+					candidateCount: servers.length,
+					servers: servers.map((server) => server.id),
+				},
+			});
 
-		return undefined;
+			return undefined;
 		};
 
 		if (!effectiveMaxWaitMs || effectiveMaxWaitMs <= 0) {
@@ -215,6 +225,27 @@ export class LSPService {
 		return spawned.filter((entry): entry is SpawnedServer => Boolean(entry));
 	}
 
+	/**
+	 * Get a warm LSP client for a file without spawning.
+	 * Returns undefined if no matching client is already connected and alive.
+	 */
+	async getWarmClientForFile(
+		filePath: string,
+	): Promise<SpawnedServer | undefined> {
+		if (this.checkDestroyed()) return undefined;
+		const servers = getServersForFileWithConfig(filePath);
+		for (const server of servers) {
+			const root = await server.root(filePath);
+			if (!root) continue;
+			const key = `${server.id}:${normalizeMapKey(root)}`;
+			const existing = this.state.clients.get(key);
+			if (existing && existing.isAlive()) {
+				return { client: existing, info: server };
+			}
+		}
+		return undefined;
+	}
+
 	private async ensureClientForServer(
 		filePath: string,
 		server: LSPServerInfo,
@@ -233,15 +264,7 @@ export class LSPService {
 
 		const existing = this.state.clients.get(key);
 		if (existing) {
-			if (!existing.isAlive()) {
-				try {
-					await existing.shutdown();
-				} catch {
-					/* ignore dead client shutdown errors */
-				}
-				this.state.clients.delete(key);
-				this.state.broken.delete(key);
-			} else {
+			if (existing.isAlive()) {
 				if (!this.warmStartLogged.has(key)) {
 					logSessionStart(
 						`lsp warm-start ${server.id}: reused root=${root} file=${filePath}`,
@@ -250,6 +273,13 @@ export class LSPService {
 				}
 				return { client: existing, info: server };
 			}
+			try {
+				await existing.shutdown();
+			} catch {
+				/* ignore dead client shutdown errors */
+			}
+			this.state.clients.delete(key);
+			this.state.broken.delete(key);
 		}
 
 		const brokenUntil = this.state.broken.get(key);
@@ -268,6 +298,7 @@ export class LSPService {
 		}
 		if (typeof brokenUntil === "number" && brokenUntil <= Date.now()) {
 			this.state.broken.delete(key);
+			if (isOptionalServer) this.optionalDisabled.delete(key);
 		}
 
 		const inFlight = this.state.inFlight.get(key);
@@ -275,7 +306,13 @@ export class LSPService {
 			return inFlight;
 		}
 
-		const spawnPromise = this.spawnClient(server, root, key, filePath, allowInstall);
+		const spawnPromise = this.spawnClient(
+			server,
+			root,
+			key,
+			filePath,
+			allowInstall,
+		);
 		this.state.inFlight.set(key, spawnPromise);
 
 		try {
@@ -312,7 +349,18 @@ export class LSPService {
 				logSessionStart(
 					`lsp spawn ${server.id}: unavailable (${Date.now() - startedAt}ms)`,
 				);
-				this.state.broken.set(key, Date.now() + BROKEN_RETRY_COOLDOWN_MS);
+				const uCount = (this.failureCounts.get(key) ?? 0) + 1;
+				this.failureCounts.set(key, uCount);
+				const uCooldown = Math.min(
+					BROKEN_BASE_COOLDOWN_MS * 2 ** (uCount - 1),
+					BROKEN_MAX_COOLDOWN_MS,
+				);
+				this.state.broken.set(key, Date.now() + uCooldown);
+				if (uCount >= BROKEN_PERMANENT_AFTER) {
+					logSessionStart(
+						`lsp spawn ${server.id}: permanently disabled after ${uCount} failures`,
+					);
+				}
 				return undefined;
 			}
 
@@ -327,12 +375,13 @@ export class LSPService {
 				typeof client.getWorkspaceDiagnosticsSupport === "function"
 					? client.getWorkspaceDiagnosticsSupport()
 					: {
-						advertised: false,
-						mode: "push-only" as const,
-						diagnosticProviderKind: "unavailable",
-					};
+							advertised: false,
+							mode: "push-only" as const,
+							diagnosticProviderKind: "unavailable",
+						};
 
 			this.state.clients.set(key, client);
+			this.failureCounts.delete(key);
 			if (isOptionalServer) {
 				this.optionalDisabled.delete(key);
 				this.optionalFailureLogged.delete(key);
@@ -356,10 +405,20 @@ export class LSPService {
 					this.optionalFailureLogged.add(key);
 				}
 			}
-			this.state.broken.set(
-				key,
-				Date.now() + (isOptionalServer ? OPTIONAL_LSP_RETRY_COOLDOWN_MS : BROKEN_RETRY_COOLDOWN_MS),
-			);
+			const eCount = (this.failureCounts.get(key) ?? 0) + 1;
+			this.failureCounts.set(key, eCount);
+			const eCooldown = isOptionalServer
+				? OPTIONAL_LSP_RETRY_COOLDOWN_MS
+				: Math.min(
+						BROKEN_BASE_COOLDOWN_MS * 2 ** (eCount - 1),
+						BROKEN_MAX_COOLDOWN_MS,
+					);
+			this.state.broken.set(key, Date.now() + eCooldown);
+			if (!isOptionalServer && eCount >= BROKEN_PERMANENT_AFTER) {
+				logSessionStart(
+					`lsp spawn ${server.id}: permanently disabled after ${eCount} failures`,
+				);
+			}
 			if (isOptionalServer) {
 				this.optionalDisabled.add(key);
 			}
@@ -371,6 +430,7 @@ export class LSPService {
 	 * Open a file in LSP (sends textDocument/didOpen)
 	 */
 	async openFile(filePath: string, content: string): Promise<void> {
+		if (this.checkDestroyed()) return;
 		const spawned = await this.getClientForFile(filePath);
 		if (!spawned) return;
 
@@ -382,6 +442,7 @@ export class LSPService {
 	 * Update file content (sends textDocument/didChange)
 	 */
 	async updateFile(filePath: string, content: string): Promise<void> {
+		if (this.checkDestroyed()) return;
 		const spawned = await this.getClientForFile(filePath);
 		if (!spawned) return;
 
@@ -400,6 +461,7 @@ export class LSPService {
 		useAllClients = false,
 		maxClientWaitMs?: number,
 	): Promise<void> {
+		if (this.checkDestroyed()) return;
 		const startedAt = Date.now();
 		const normalizedPath = normalizeMapKey(filePath);
 		const clientScope = useAllClients ? "all" : "primary";
@@ -414,16 +476,18 @@ export class LSPService {
 				phase: "lsp_touch_file",
 				filePath: normalizedPath,
 				durationMs: Date.now() - startedAt,
-			metadata: {
-				serverCountReady: 0,
-				clientScope,
-				failureKind: "no_clients",
-			},
+				metadata: {
+					serverCountReady: 0,
+					clientScope,
+					failureKind: "no_clients",
+				},
 			});
 			return;
 		}
 
-		if (this.shouldSkipTouch(filePath, content, clientScope, waitForDiagnostics)) {
+		if (
+			this.shouldSkipTouch(filePath, content, clientScope, waitForDiagnostics)
+		) {
 			logLatency({
 				type: "phase",
 				phase: "lsp_touch_file",
@@ -444,13 +508,17 @@ export class LSPService {
 
 		const languageId = getLanguageId(filePath) ?? "plaintext";
 		await Promise.all(
-			spawned.map((entry) => entry.client.notify.open(filePath, content, languageId)),
+			spawned.map((entry) =>
+				entry.client.notify.open(filePath, content, languageId),
+			),
 		);
 
 		if (waitForDiagnostics) {
 			await Promise.all(
 				spawned.map((entry) =>
-					entry.client.waitForDiagnostics(filePath, 1200).catch(() => undefined),
+					entry.client
+						.waitForDiagnostics(filePath, 1200)
+						.catch(() => undefined),
 				),
 			);
 		}
@@ -478,6 +546,7 @@ export class LSPService {
 	async getDiagnostics(
 		filePath: string,
 	): Promise<import("./client.js").LSPDiagnostic[]> {
+		if (this.checkDestroyed()) return [];
 		const startedAt = Date.now();
 		const normalizedPath = normalizeMapKey(filePath);
 		const spawned = await this.getClientsForFile(filePath);
@@ -500,11 +569,28 @@ export class LSPService {
 			return [];
 		}
 
+		// TypeScript LSP pushes two diagnostic batches: syntactic first (fast, often
+		// empty), semantic second (~500ms later). If the first wait resolves quickly
+		// with no results, do a second short wait to catch the semantic batch.
+		const SEMANTIC_SETTLE_THRESHOLD_MS = 200;
+		const SEMANTIC_SETTLE_WAIT_MS = 800;
+
 		const perServer = await Promise.all(
 			spawned.map(async (entry) => {
 				const waitStart = Date.now();
 				await entry.client.waitForDiagnostics(filePath, 5000);
-				const diagnostics = entry.client.getDiagnostics(filePath);
+				let diagnostics = entry.client.getDiagnostics(filePath);
+				const firstWaitMs = Date.now() - waitStart;
+				if (
+					diagnostics.length === 0 &&
+					firstWaitMs < SEMANTIC_SETTLE_THRESHOLD_MS
+				) {
+					await entry.client.waitForDiagnostics(
+						filePath,
+						SEMANTIC_SETTLE_WAIT_MS,
+					);
+					diagnostics = entry.client.getDiagnostics(filePath);
+				}
 				return {
 					serverId: entry.info.id,
 					waitMs: Date.now() - waitStart,
@@ -536,7 +622,7 @@ export class LSPService {
 		const serversWithDiagnostics = perServer.filter(
 			(entry) => entry.diagnosticCount > 0,
 		).length;
-		const failureKind = merged.length === 0 ? "empty_result" : "success";
+		const failureKind = merged.length === 0 ? "ok_empty" : "success";
 
 		logLatency({
 			type: "phase",
@@ -550,7 +636,7 @@ export class LSPService {
 				mergedCount: merged.length,
 				dedupDroppedCount: rawCount - merged.length,
 				failureKind,
-				health: failureKind === "success" ? "ok" : "empty_result",
+				health: failureKind === "success" ? "ok" : "ok_empty",
 				servers: perServer.map((entry) => ({
 					id: entry.serverId,
 					waitMs: entry.waitMs,
@@ -655,9 +741,9 @@ export class LSPService {
 	 * Capability snapshot for LSP operations.
 	 * If filePath is provided, probes that server; otherwise uses first active client.
 	 */
-	async getOperationSupport(filePath?: string): Promise<
-		import("./client.js").LSPOperationSupport | null
-	> {
+	async getOperationSupport(
+		filePath?: string,
+	): Promise<import("./client.js").LSPOperationSupport | null> {
 		if (filePath) {
 			const spawned = await this.getClientForFile(filePath);
 			if (!spawned) return null;
@@ -677,9 +763,9 @@ export class LSPService {
 	 * Capability snapshot for workspace diagnostics support.
 	 * If filePath is provided, probes that server; otherwise uses first active client.
 	 */
-	async getWorkspaceDiagnosticsSupport(filePath?: string): Promise<
-		import("./client.js").LSPWorkspaceDiagnosticsSupport | null
-	> {
+	async getWorkspaceDiagnosticsSupport(
+		filePath?: string,
+	): Promise<import("./client.js").LSPWorkspaceDiagnosticsSupport | null> {
 		if (filePath) {
 			const spawned = await this.getClientForFile(filePath);
 			if (!spawned) return null;
@@ -792,14 +878,22 @@ export class LSPService {
 	 * Get all diagnostics across all tracked files (for cascade checking)
 	 */
 	async getAllDiagnostics(): Promise<
-		Map<string, import("./client.js").LSPDiagnostic[]>
+		Map<string, { diags: import("./client.js").LSPDiagnostic[]; ts: number }>
 	> {
-		const all = new Map<string, import("./client.js").LSPDiagnostic[]>();
+		const all = new Map<
+			string,
+			{ diags: import("./client.js").LSPDiagnostic[]; ts: number }
+		>();
 		for (const [_key, client] of this.state.clients) {
 			const clientDiags = client.getAllDiagnostics();
-			for (const [filePath, diags] of clientDiags) {
-				const existing = all.get(filePath) ?? [];
-				all.set(filePath, [...existing, ...diags]);
+			for (const [filePath, entry] of clientDiags) {
+				const existing = all.get(filePath);
+				if (existing) {
+					existing.diags.push(...entry.diags);
+					existing.ts = Math.max(existing.ts, entry.ts);
+				} else {
+					all.set(filePath, { diags: [...entry.diags], ts: entry.ts });
+				}
 			}
 		}
 		return all;
@@ -817,10 +911,12 @@ export class LSPService {
 	 * Shutdown all LSP clients
 	 */
 	async shutdown(): Promise<void> {
+		if (this.checkDestroyed()) return;
+		this.isDestroyed = true;
 		// Cancel any in-flight spawns
 		this.state.inFlight.clear();
 
-		for (const [key, client] of this.state.clients) {
+		for (const [_key, client] of this.state.clients) {
 			try {
 				await client.shutdown();
 			} catch {
@@ -841,6 +937,18 @@ export class LSPService {
 			const [serverId, root] = key.split(":");
 			return { serverId, root, connected: true };
 		});
+	}
+
+	/**
+	 * Count clients that are currently alive (connected and initialized).
+	 * Lightweight — does not spawn or wait for anything.
+	 */
+	getAliveClientCount(): number {
+		let count = 0;
+		for (const client of this.state.clients.values()) {
+			if (client.isAlive()) count++;
+		}
+		return count;
 	}
 }
 

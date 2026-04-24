@@ -26,7 +26,9 @@ export class RunnerTracker {
 	private runners: TrackedRunner[] = [];
 	private onProgress?: (runner: TrackedRunner, index: number) => void;
 
-	constructor(options?: { onProgress?: (runner: TrackedRunner, index: number) => void }) {
+	constructor(options?: {
+		onProgress?: (runner: TrackedRunner, index: number) => void;
+	}) {
 		this.onProgress = options?.onProgress;
 	}
 
@@ -36,7 +38,7 @@ export class RunnerTracker {
 	async run<T>(
 		name: string,
 		runFn: () => Promise<T> | T,
-		options?: RunOptions,
+		_options?: RunOptions,
 	): Promise<T> {
 		const startMs = Date.now();
 		const index = this.runners.length;

@@ -67,7 +67,7 @@ export class AstGrepRuleManager {
 		);
 		if (noteMatch) {
 			result.note = noteMatch[1]
-				.split("\n")
+				.split(/\r?\n/)
 				.map((line) => line.trim())
 				.filter((line) => line.length > 0)
 				.join(" ");
@@ -82,7 +82,7 @@ export class AstGrepRuleManager {
 		const fixMatch = content.match(/^fix:\s*\|?([\s\S]*?)(?=^\w|^rule:|Z)/m);
 		if (fixMatch) {
 			result.fix = fixMatch[1]
-				.split("\n")
+				.split(/\r?\n/)
 				.map((line) => line.replace(/^\s*\|?\s*/, ""))
 				.filter((line) => line.length > 0)
 				.join("\n");

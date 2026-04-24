@@ -11,24 +11,28 @@ import { basename, dirname } from "node:path";
 // --- Types ---
 
 export type FileRole =
-	| "source"    // Regular application source
-	| "test"      // Test / spec file
-	| "init"      // Module entry point (index.ts, __init__.py, mod.rs)
+	| "source" // Regular application source
+	| "test" // Test / spec file
+	| "init" // Module entry point (index.ts, __init__.py, mod.rs)
 	| "re-export" // Pure re-export barrel (only export * / export { } from)
 	| "generated" // Auto-generated code — do not lint
-	| "config"    // Build / tool configuration
-	| "stub"      // Type-only declaration file (.d.ts or interface-heavy)
+	| "config" // Build / tool configuration
+	| "stub" // Type-only declaration file (.d.ts or interface-heavy)
 	| "migration"; // Database migration
 
 // --- Detection ---
 
-const RE_EXPORT_LINE = /^export\s+(type\s+)?\*\s+from\s+|^export\s*\{[^}]*\}\s+from\s+/;
+const RE_EXPORT_LINE =
+	/^export\s+(type\s+)?\*\s+from\s+|^export\s*\{[^}]*\}\s+from\s+/;
 
 function isReExportBarrel(content: string): boolean {
 	const lines = content
-		.split("\n")
+		.split(/\r?\n/)
 		.map((l) => l.trim())
-		.filter((l) => l && !l.startsWith("//") && !l.startsWith("*") && !l.startsWith("/*"));
+		.filter(
+			(l) =>
+				l && !l.startsWith("//") && !l.startsWith("*") && !l.startsWith("/*"),
+		);
 	return lines.length > 0 && lines.every((l) => RE_EXPORT_LINE.test(l));
 }
 
@@ -48,14 +52,25 @@ function isGeneratedContent(content: string): boolean {
 
 function isTypeStub(content: string): boolean {
 	const lines = content
-		.split("\n")
+		.split(/\r?\n/)
 		.map((l) => l.trim())
-		.filter((l) => l && !l.startsWith("//") && !l.startsWith("*") && !l.startsWith("/*") && l !== "{" && l !== "}");
+		.filter(
+			(l) =>
+				l &&
+				!l.startsWith("//") &&
+				!l.startsWith("*") &&
+				!l.startsWith("/*") &&
+				l !== "{" &&
+				l !== "}",
+		);
 	if (lines.length < 4) return false;
-	const typeOnlyLines = lines.filter((l) =>
-		/^(export\s+)?(interface|type|abstract\s+class|declare\s+(class|function|const|var|let|module|namespace|enum))\s+/.test(l) ||
-		/^(import\s+type\s+|import\s+\{)/.test(l) ||
-		/^export\s+type\s+\{/.test(l),
+	const typeOnlyLines = lines.filter(
+		(l) =>
+			/^(export\s+)?(interface|type|abstract\s+class|declare\s+(class|function|const|var|let|module|namespace|enum))\s+/.test(
+				l,
+			) ||
+			/^(import\s+type\s+|import\s+\{)/.test(l) ||
+			/^export\s+type\s+\{/.test(l),
 	);
 	return typeOnlyLines.length / lines.length >= 0.75;
 }
@@ -70,19 +85,29 @@ export function detectFileRole(filePath: string, content?: string): FileRole {
 
 	// --- Test ---
 	if (
-		base.includes(".test.") || base.includes(".spec.") ||
-		base.startsWith("test_") || base.startsWith("spec_") ||
-		dir.includes("/__tests__/") || dir.includes("/test/") ||
-		dir.includes("/tests/") || dir.includes("/spec/") || dir.includes("/specs/") ||
-		/[/_-]tests?\/?$/.test(dir) || /[/_-]specs?\/?$/.test(dir)
-	) return "test";
+		base.includes(".test.") ||
+		base.includes(".spec.") ||
+		base.startsWith("test_") ||
+		base.startsWith("spec_") ||
+		dir.includes("/__tests__/") ||
+		dir.includes("/test/") ||
+		dir.includes("/tests/") ||
+		dir.includes("/spec/") ||
+		dir.includes("/specs/") ||
+		/[/_-]tests?\/?$/.test(dir) ||
+		/[/_-]specs?\/?$/.test(dir)
+	)
+		return "test";
 
 	// --- Generated (path-based) ---
 	if (
-		base.includes(".generated.") || base.includes(".gen.") ||
-		dir.includes("/generated/") || dir.includes("/__generated__/") ||
+		base.includes(".generated.") ||
+		base.includes(".gen.") ||
+		dir.includes("/generated/") ||
+		dir.includes("/__generated__/") ||
 		dir.includes("/codegen/")
-	) return "generated";
+	)
+		return "generated";
 
 	// --- Generated (content-based) ---
 	if (content && isGeneratedContent(content)) return "generated";
@@ -91,20 +116,29 @@ export function detectFileRole(filePath: string, content?: string): FileRole {
 	// Normalize separators before regex so the pattern works on Windows too
 	const forwardDir = dir.replace(/\\/g, "/");
 	if (
-		forwardDir.includes("/migrations/") || forwardDir.includes("/migration/") ||
+		forwardDir.includes("/migrations/") ||
+		forwardDir.includes("/migration/") ||
 		/\/\d{4,}_[a-z]/.test(forwardDir + "/" + base)
-	) return "migration";
+	)
+		return "migration";
 
 	// --- Config ---
 	if (
-		base.endsWith(".config.ts") || base.endsWith(".config.js") ||
-		base.endsWith(".config.mjs") || base.endsWith(".config.cjs") ||
-		base === "vite.config.ts" || base === "jest.config.ts" ||
-		base === "jest.config.js" || base === "webpack.config.js" ||
-		base === "rollup.config.js" || base === "tailwind.config.js" ||
-		base === "tailwind.config.ts" || base === "next.config.js" ||
+		base.endsWith(".config.ts") ||
+		base.endsWith(".config.js") ||
+		base.endsWith(".config.mjs") ||
+		base.endsWith(".config.cjs") ||
+		base === "vite.config.ts" ||
+		base === "jest.config.ts" ||
+		base === "jest.config.js" ||
+		base === "webpack.config.js" ||
+		base === "rollup.config.js" ||
+		base === "tailwind.config.js" ||
+		base === "tailwind.config.ts" ||
+		base === "next.config.js" ||
 		base === "next.config.mjs"
-	) return "config";
+	)
+		return "config";
 
 	// --- Type stubs ---
 	if (base.endsWith(".d.ts")) return "stub";
@@ -112,9 +146,14 @@ export function detectFileRole(filePath: string, content?: string): FileRole {
 
 	// --- Init / barrel ---
 	const isIndexFile =
-		base === "index.ts" || base === "index.tsx" || base === "index.js" ||
-		base === "index.mjs" || base === "index.cjs" || base === "index.jsx" ||
-		base === "__init__.py" || base === "mod.rs";
+		base === "index.ts" ||
+		base === "index.tsx" ||
+		base === "index.js" ||
+		base === "index.mjs" ||
+		base === "index.cjs" ||
+		base === "index.jsx" ||
+		base === "__init__.py" ||
+		base === "mod.rs";
 
 	if (isIndexFile) {
 		if (content && isReExportBarrel(content)) return "re-export";

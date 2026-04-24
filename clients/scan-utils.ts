@@ -1,5 +1,3 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { isExcludedDirName, isTestFile } from "./file-utils.js";
 import { collectSourceFiles, isBuildArtifact } from "./source-filter.js";
 
@@ -38,8 +36,6 @@ export function shouldIgnoreFile(
 	isTsProject: boolean,
 ): boolean {
 	const relPath = filePath.replace(/\\/g, "/");
-	const _basename = path.basename(relPath);
-
 	// Use new source-filter module for artifact detection
 	if (isTsProject && isBuildArtifact(filePath)) return true;
 

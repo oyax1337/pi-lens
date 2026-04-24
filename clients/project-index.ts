@@ -8,11 +8,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as ts from "typescript";
-import {
-	buildStateMatrixFromFile,
-	calculateSimilarity,
-	countTransitions,
-} from "./state-matrix.js";
+import { getStateIndex, NUM_STATES, NUM_SYNTAX } from "./amain-types.js";
+import { calculateSimilarity, countTransitions } from "./state-matrix.js";
 
 // ============================================================================
 // Types
@@ -27,6 +24,7 @@ export interface IndexEntry {
 	transitionCount: number; // For guardrail filtering
 	lastModified: number; // mtime for cache invalidation
 	exports: string[]; // All exports from file
+	line: number; // Line number (1-based)
 }
 
 export interface SimilarityMatch {
@@ -57,19 +55,28 @@ export async function buildProjectIndex(
 ): Promise<ProjectIndex> {
 	const entries = new Map<string, IndexEntry>();
 
-	for (const filePath of filePaths) {
-		if (!filePath.endsWith(".ts") && !filePath.endsWith(".tsx")) {
-			continue;
-		}
-
-		try {
-			const fileEntries = await indexFile(projectRoot, filePath);
+	// Process files concurrently with a limit to avoid overwhelming the event loop.
+	const CONCURRENCY = 8;
+	for (let i = 0; i < filePaths.length; i += CONCURRENCY) {
+		const chunk = filePaths.slice(i, i + CONCURRENCY);
+		const results = await Promise.all(
+			chunk.map(async (filePath) => {
+				if (!filePath.endsWith(".ts") && !filePath.endsWith(".tsx")) {
+					return [] as IndexEntry[];
+				}
+				try {
+					return await indexFile(projectRoot, filePath);
+				} catch (error) {
+					// pi-lens-ignore: missing-error-propagation — per-file indexing failure, skip unparseable files
+					console.error(`Failed to index ${filePath}:`, error);
+					return [] as IndexEntry[];
+				}
+			}),
+		);
+		for (const fileEntries of results) {
 			for (const entry of fileEntries) {
 				entries.set(entry.id, entry);
 			}
-		} catch (error) {
-			// pi-lens-ignore: missing-error-propagation — per-file indexing failure, skip unparseable files
-			console.error(`Failed to index ${filePath}:`, error);
 		}
 	}
 
@@ -113,17 +120,20 @@ async function indexFile(
 		// Extract function declarations
 		if (ts.isFunctionDeclaration(node) && node.name) {
 			const functionName = node.name.text;
-			const _isExported = hasExportModifier(node);
+			hasExportModifier(node); // Side effect: validates export status
 
 			// For now, index all named functions (we can filter to exports only later)
 			const id = `${relativePath}:${functionName}`;
 
 			// Build matrix just for this function's AST subtree
-			const matrix = buildFunctionMatrix(node, sourceFile);
+			const matrix = buildFunctionMatrixFromNode(node);
 			const transitionCount = countTransitions(matrix);
 
 			// Skip trivial functions (<20 transitions)
 			if (transitionCount >= 20) {
+				const { line } = sourceFile.getLineAndCharacterOfPosition(
+					node.getStart(sourceFile),
+				);
 				entries.push({
 					id,
 					filePath: relativePath,
@@ -133,6 +143,7 @@ async function indexFile(
 					transitionCount,
 					lastModified: stats.mtimeMs,
 					exports,
+					line: line + 1, // 1-based
 				});
 			}
 		}
@@ -180,7 +191,7 @@ function extractArrowFunctions(
 		const functionName = decl.name.text;
 		const id = `${relativePath}:${functionName}`;
 
-		const matrix = buildFunctionMatrix(func, sourceFile);
+		const matrix = buildFunctionMatrixFromNode(func);
 		const transitionCount = countTransitions(matrix);
 
 		// Skip trivial functions (<20 transitions)
@@ -188,6 +199,9 @@ function extractArrowFunctions(
 			continue;
 		}
 
+		const { line } = sourceFile.getLineAndCharacterOfPosition(
+			func.getStart(sourceFile),
+		);
 		entries.push({
 			id,
 			filePath: relativePath,
@@ -197,35 +211,38 @@ function extractArrowFunctions(
 			transitionCount,
 			lastModified: stats.mtimeMs,
 			exports,
+			line: line + 1, // 1-based
 		});
 	}
 }
 
 /**
- * Build state matrix for a specific function node
+ * Build state matrix for a specific function node by walking its AST directly.
+ * Avoids the expensive re-parse of extracting function text into a new SourceFile.
  */
-function buildFunctionMatrix(
+function buildFunctionMatrixFromNode(
 	functionNode:
 		| ts.FunctionDeclaration
 		| ts.ArrowFunction
 		| ts.FunctionExpression,
-	sourceFile: ts.SourceFile,
 ): number[][] {
-	// Extract just the function's code as text
-	const start = functionNode.getStart(sourceFile);
-	const end = functionNode.getEnd();
-	const functionCode = sourceFile.text.substring(start, end);
+	const matrix: number[][] = Array(NUM_SYNTAX)
+		.fill(0)
+		.map(() => Array(NUM_STATES).fill(0));
 
-	// Build matrix for just this function
-	const funcSourceFile = ts.createSourceFile(
-		"func.ts",
-		functionCode,
-		ts.ScriptTarget.Latest,
-		true,
-		ts.ScriptKind.TS,
-	);
+	function visitNode(node: ts.Node, parentKind?: number) {
+		const nodeState = getStateIndex(node);
+		if (parentKind !== undefined) {
+			const parentState = getStateIndex({ kind: parentKind } as ts.Node);
+			if (parentState < NUM_SYNTAX) {
+				matrix[parentState][nodeState]++;
+			}
+		}
+		ts.forEachChild(node, (child) => visitNode(child, node.kind));
+	}
 
-	return buildStateMatrixFromFile(funcSourceFile);
+	visitNode(functionNode);
+	return matrix;
 }
 
 // ============================================================================
@@ -308,7 +325,7 @@ export function findSimilarFunctions(
 			matches.push({
 				targetId: entry.id,
 				targetName: entry.functionName,
-				targetLocation: `${entry.filePath}:1`, // TODO: get actual line
+				targetLocation: `${entry.filePath}:${entry.line}`,
 				similarity,
 				signature: entry.signature,
 				targetTransitionCount: entry.transitionCount,

@@ -8,7 +8,6 @@ type CapabilityDimension =
 	| "smells"
 	| "format"
 	| "lint"
-	| "architecture"
 	| "docs";
 
 interface CapabilityMatrixEntry {
@@ -32,14 +31,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 > = {
 	jsts: {
 		name: "JavaScript/TypeScript Linting",
-		capabilities: [
-			"types",
-			"security",
-			"smells",
-			"format",
-			"lint",
-			"architecture",
-		],
+		capabilities: ["types", "security", "smells", "format", "lint"],
 		writeGroups: [
 			primary("jsts"),
 			{ mode: "all", runnerIds: ["biome-check-json"], filterKinds: ["jsts"] },
@@ -48,7 +40,6 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 			{ mode: "fallback", runnerIds: ["type-safety"], filterKinds: ["jsts"] },
 			{ mode: "fallback", runnerIds: ["similarity"], filterKinds: ["jsts"] },
 			{ mode: "fallback", runnerIds: ["eslint"], filterKinds: ["jsts"] },
-			{ mode: "fallback", runnerIds: ["architect"], filterKinds: ["jsts"] },
 		],
 		fullOnlyGroups: [
 			{
@@ -60,12 +51,11 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 	},
 	python: {
 		name: "Python Linting",
-		capabilities: ["types", "lint", "architecture", "smells"],
+		capabilities: ["types", "lint", "smells"],
 		writeGroups: [
 			primary("python"),
 			{ mode: "fallback", runnerIds: ["ruff-lint"], filterKinds: ["python"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["python"] },
-			{ mode: "fallback", runnerIds: ["architect"], filterKinds: ["python"] },
 		],
 		fullOnlyGroups: [
 			{ mode: "fallback", runnerIds: ["python-slop"], filterKinds: ["python"] },
@@ -265,7 +255,6 @@ function toFullPlan(kind: FileKind, entry: CapabilityMatrixEntry): ToolPlan {
 				...(entry.fullOnlyGroups ?? []),
 				{ mode: "fallback", runnerIds: ["type-safety"], filterKinds: ["jsts"] },
 				{ mode: "fallback", runnerIds: ["similarity"], filterKinds: ["jsts"] },
-				{ mode: "fallback", runnerIds: ["architect"], filterKinds: ["jsts"] },
 				{ mode: "fallback", runnerIds: ["eslint"], filterKinds: ["jsts"] },
 			],
 		};
@@ -280,7 +269,6 @@ function toFullPlan(kind: FileKind, entry: CapabilityMatrixEntry): ToolPlan {
 				{ mode: "fallback", runnerIds: ["ruff-lint"], filterKinds: ["python"] },
 				{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["python"] },
 				...(entry.fullOnlyGroups ?? []),
-				{ mode: "fallback", runnerIds: ["architect"], filterKinds: ["python"] },
 			],
 		};
 	}

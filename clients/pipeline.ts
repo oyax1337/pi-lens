@@ -17,15 +17,19 @@ import * as path from "node:path";
 import type { BiomeClient } from "./biome-client.js";
 import { getDiagnosticLogger } from "./diagnostic-logger.js";
 import { getDiagnosticTracker } from "./diagnostic-tracker.js";
-import { dispatchLintWithResult } from "./dispatch/integration.js";
-import { computeImpactCascadeForFile } from "./dispatch/integration.js";
+import {
+	computeImpactCascadeForFile,
+	dispatchLintWithResult,
+} from "./dispatch/integration.js";
 import {
 	resolveRunnerPath,
 	toRunnerDisplayPath,
 } from "./dispatch/runner-context.js";
 import type { PiAgentAPI } from "./dispatch/types.js";
 import { detectFileKind, getFileKindLabel } from "./file-kinds.js";
+import { detectFileChangedAfterCommand } from "./file-utils.js";
 import type { FormatService } from "./format-service.js";
+import { ensureTool } from "./installer/index.js";
 import { logLatency } from "./latency-logger.js";
 import { getLSPService } from "./lsp/index.js";
 import type { MetricsClient } from "./metrics-client.js";
@@ -34,14 +38,12 @@ import type { RuffClient } from "./ruff-client.js";
 import { RUNTIME_CONFIG } from "./runtime-config.js";
 import { safeSpawnAsync } from "./safe-spawn.js";
 import { formatSecrets, scanForSecrets } from "./secrets-scanner.js";
-import type { TestRunnerClient } from "./test-runner-client.js";
-import { ensureTool } from "./installer/index.js";
 
 const LSP_MAX_FILE_BYTES = RUNTIME_CONFIG.pipeline.lspMaxFileBytes;
 const LSP_MAX_FILE_LINES = RUNTIME_CONFIG.pipeline.lspMaxFileLines;
 
 function exceedsLspSyncLimits(
-	filePath: string,
+	_filePath: string,
 	content: string,
 ): {
 	tooLarge: boolean;
@@ -88,7 +90,6 @@ export interface PipelineContext {
 export interface PipelineDeps {
 	biomeClient: BiomeClient;
 	ruffClient: RuffClient;
-	testRunnerClient: TestRunnerClient;
 	metricsClient: MetricsClient;
 	getFormatService: () => FormatService;
 	fixedThisTurn: Set<string>;
@@ -174,7 +175,12 @@ const STYLELINT_CONFIGS = [
 	"stylelint.config.mjs",
 ];
 
-const SQLFLUFF_CONFIGS = [".sqlfluff", "pyproject.toml", "setup.cfg", "tox.ini"];
+const SQLFLUFF_CONFIGS = [
+	".sqlfluff",
+	"pyproject.toml",
+	"setup.cfg",
+	"tox.ini",
+];
 
 const JSTS_EXTS = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"]);
 const CSS_EXTS = new Set([".css", ".scss", ".sass", ".less"]);
@@ -211,7 +217,7 @@ function supportsAutofix(filePath: string): boolean {
 	return AUTOFIX_EXTS.has(path.extname(filePath).toLowerCase());
 }
 
-function hasEslintConfig(cwd: string): boolean {
+export function hasEslintConfig(cwd: string): boolean {
 	for (const cfg of ESLINT_CONFIGS) {
 		if (nodeFs.existsSync(path.join(cwd, cfg))) return true;
 	}
@@ -224,7 +230,7 @@ function hasEslintConfig(cwd: string): boolean {
 	return false;
 }
 
-function hasStylelintConfig(cwd: string): boolean {
+export function hasStylelintConfig(cwd: string): boolean {
 	if (STYLELINT_CONFIGS.some((cfg) => nodeFs.existsSync(path.join(cwd, cfg)))) {
 		return true;
 	}
@@ -237,7 +243,7 @@ function hasStylelintConfig(cwd: string): boolean {
 	return false;
 }
 
-function hasSqlfluffConfig(cwd: string): boolean {
+export function hasSqlfluffConfig(cwd: string): boolean {
 	for (const cfg of SQLFLUFF_CONFIGS) {
 		const cfgPath = path.join(cwd, cfg);
 		if (!nodeFs.existsSync(cfgPath)) continue;
@@ -312,37 +318,6 @@ function findRubocopCommand(cwd: string): { cmd: string; args: string[] } {
 	return { cmd: "rubocop", args: [] };
 }
 
-async function detectFileChangedAfterCommand(
-	filePath: string,
-	command: string,
-	args: string[],
-	cwd: string,
-	ignoreStatuses: number[] = [],
-): Promise<number> {
-	let before = "";
-	try {
-		before = nodeFs.readFileSync(filePath, "utf-8");
-	} catch {
-		return 0;
-	}
-
-	const result = await safeSpawnAsync(command, args, {
-		timeout: 30000,
-		cwd,
-	});
-	if (result.error) return 0;
-	if (result.status !== 0 && !ignoreStatuses.includes(result.status ?? -1)) {
-		return 0;
-	}
-
-	try {
-		const after = nodeFs.readFileSync(filePath, "utf-8");
-		return before !== after ? 1 : 0;
-	} catch {
-		return 0;
-	}
-}
-
 /**
  * Run eslint --fix on a file. Returns number of fixable issues resolved,
  * or 0 if ESLint is not configured / not available.
@@ -393,7 +368,9 @@ async function tryEslintFix(filePath: string, cwd: string): Promise<number> {
 				sum + (r.fixableErrorCount ?? 0) + (r.fixableWarningCount ?? 0),
 			0,
 		);
-	} catch {}
+	} catch {
+		/* treat as zero fixable on error */
+	}
 	if (fixableCount === 0) return 0;
 	// Apply the fixes
 	const fix = await safeSpawnAsync(
@@ -486,18 +463,17 @@ async function tryRubocopFix(filePath: string, cwd: string): Promise<number> {
 async function syncLspFile(
 	filePath: string,
 	fileContent: string,
-	cwd: string,
+	_cwd: string,
 	getFlag: PipelineContext["getFlag"],
 	dbg: PipelineContext["dbg"],
-	ruffClient: RuffClient,
-	biomeClient: BiomeClient,
+	_ruffClient: RuffClient,
+	_biomeClient: BiomeClient,
 ): Promise<{ completed: boolean; phaseEnded: boolean }> {
-	if (!getFlag("lens-lsp") || getFlag("no-lsp")) {
+	if (getFlag("no-lsp")) {
 		return { completed: true, phaseEnded: false };
 	}
 
-	const deferLspSync =
-		!getFlag("no-autofix") && supportsAutofix(filePath);
+	const deferLspSync = !getFlag("no-autofix") && supportsAutofix(filePath);
 
 	if (deferLspSync) {
 		return { completed: true, phaseEnded: true };
@@ -534,8 +510,6 @@ async function runAutofix(
 }> {
 	const { biomeClient, ruffClient, fixedThisTurn } = deps;
 	const noAutofix = getFlag("no-autofix");
-	const noAutofixBiome = getFlag("no-autofix-biome");
-	const noAutofixRuff = getFlag("no-autofix-ruff");
 	let fixedCount = 0;
 	const autofixTools: string[] = [];
 	let needsContentRefresh = false;
@@ -543,12 +517,10 @@ async function runAutofix(
 	if (!fixedThisTurn.has(filePath) && !noAutofix) {
 		const preferEslintForJsTs = isJsTs(filePath) && hasEslintConfig(cwd);
 		const [ruffReady, biomeReady] = await Promise.all([
-			!noAutofixRuff && ruffClient.isPythonFile(filePath)
+			ruffClient.isPythonFile(filePath)
 				? ruffClient.ensureAvailable()
 				: Promise.resolve(false),
-			!noAutofixBiome &&
-			biomeClient.isSupportedFile(filePath) &&
-			!preferEslintForJsTs
+			biomeClient.isSupportedFile(filePath) && !preferEslintForJsTs
 				? biomeClient.ensureAvailable()
 				: Promise.resolve(false),
 		]);
@@ -631,7 +603,7 @@ async function resyncLspFile(
 	getFlag: PipelineContext["getFlag"],
 	dbg: PipelineContext["dbg"],
 ): Promise<void> {
-	if (!getFlag("lens-lsp") || getFlag("no-lsp")) return;
+	if (getFlag("no-lsp")) return;
 	if (!needsContentRefresh && lspSyncCompleted) return;
 
 	const limitCheck = exceedsLspSyncLimits(filePath, fileContent);
@@ -648,14 +620,14 @@ async function resyncLspFile(
 	}
 }
 
-async function gatherCascadeDiagnostics(
-	filePath: string,
+export async function gatherCascadeDiagnostics(
+	excludePaths: Set<string>,
 	cwd: string,
 	toolName: string,
 	getFlag: PipelineContext["getFlag"],
 	dbg: PipelineContext["dbg"],
 ): Promise<string | undefined> {
-	if (!getFlag("lens-lsp") || getFlag("no-lsp")) return undefined;
+	if (getFlag("no-lsp")) return undefined;
 
 	const MAX_CASCADE_FILES = RUNTIME_CONFIG.pipeline.cascadeMaxFiles;
 	const MAX_DIAGNOSTICS_PER_FILE =
@@ -663,19 +635,28 @@ async function gatherCascadeDiagnostics(
 	const cascadeStart = Date.now();
 
 	try {
+		const CASCADE_TTL_MS = 240_000;
 		const lspService = getLSPService();
 		const allDiags = await lspService.getAllDiagnostics();
-		const normalizedEditedPath = resolveRunnerPath(cwd, filePath);
+		const normalizedExcludePaths = new Set(
+			[...excludePaths].map((p) => normalizeMapKey(resolveRunnerPath(cwd, p))),
+		);
+		const now = Date.now();
 		let stalePathsSkipped = 0;
 		const otherFileErrors: Array<{
 			file: string;
 			errors: import("./lsp/client.js").LSPDiagnostic[];
 		}> = [];
 
-		for (const [diagPath, diags] of allDiags) {
+		for (const [diagPath, { diags, ts }] of allDiags) {
 			const normalizedDiagPath = resolveRunnerPath(cwd, diagPath);
-			if (normalizeMapKey(normalizedDiagPath) === normalizedEditedPath) continue;
+			if (normalizedExcludePaths.has(normalizeMapKey(normalizedDiagPath)))
+				continue;
 			if (!nodeFs.existsSync(normalizedDiagPath)) {
+				stalePathsSkipped++;
+				continue;
+			}
+			if (now - ts > CASCADE_TTL_MS) {
 				stalePathsSkipped++;
 				continue;
 			}
@@ -720,7 +701,7 @@ async function gatherCascadeDiagnostics(
 		logLatency({
 			type: "phase",
 			toolName,
-			filePath,
+			filePath: [...excludePaths][0] ?? cwd,
 			phase: "cascade_diagnostics",
 			durationMs: Date.now() - cascadeStart,
 			metadata: {
@@ -737,11 +718,8 @@ async function gatherCascadeDiagnostics(
 }
 
 type DispatchResult = Awaited<ReturnType<typeof dispatchLintWithResult>>;
-type TestSummary = { passed: number; total: number; failed: number } | null;
-
 function buildAllClearOutput(
-	dispatchResult: DispatchResult,
-	testSummary: TestSummary,
+	_dispatchResult: DispatchResult,
 	elapsed: number,
 	filePath: string,
 ): string {
@@ -749,21 +727,8 @@ function buildAllClearOutput(
 	const langLabel = kind ? getFileKindLabel(kind) : path.extname(filePath);
 	const parts: string[] = [];
 
-	if (dispatchResult.warnings.length > 0) {
-		const newWarnings = dispatchResult.warnings.length;
-		const totalWarnings = newWarnings + dispatchResult.baselineWarningCount;
-		const totalStr =
-			totalWarnings === newWarnings
-				? `${totalWarnings} warning(s)`
-				: `${newWarnings} new (${totalWarnings} total)`;
-		parts.push(`no blockers`);
-		parts.push(`${totalStr} -> /lens-booboo`);
-	} else if (kind) {
+	if (kind) {
 		parts.push(`${langLabel} clean`);
-	}
-
-	if (testSummary && testSummary.failed === 0) {
-		parts.push(`${testSummary.passed}/${testSummary.total} tests`);
 	}
 
 	parts.push(`${elapsed}ms`);
@@ -777,7 +742,7 @@ export async function runPipeline(
 	deps: PipelineDeps,
 ): Promise<PipelineResult> {
 	const { filePath, cwd, toolName, getFlag, dbg } = ctx;
-	const { biomeClient, ruffClient, testRunnerClient, getFormatService } = deps;
+	const { biomeClient, ruffClient, getFormatService } = deps;
 
 	const phase = createPhaseTracker(toolName, filePath);
 	const pipelineStart = Date.now();
@@ -869,8 +834,11 @@ export async function runPipeline(
 	// Biome (TS/JS) and Ruff (Python) never touch the same file, so their
 	// availability checks run in parallel.
 	phase.start("autofix");
-	const { fixedCount, autofixTools, needsContentRefresh: fixRefresh } =
-		await runAutofix(filePath, cwd, getFlag, dbg, deps);
+	const {
+		fixedCount,
+		autofixTools,
+		needsContentRefresh: fixRefresh,
+	} = await runAutofix(filePath, cwd, getFlag, dbg, deps);
 	if (fixRefresh) needsContentRefresh = true;
 	phase.end("autofix", { fixedCount, tools: autofixTools });
 
@@ -959,65 +927,18 @@ export async function runPipeline(
 		output += `\n\n✅ Auto-fixed ${fixedCount} issue(s)${detail}`;
 	}
 	if (formatChanged || fixedCount > 0) {
-		output += `\n\n⚠️ **File modified by auto-format/fix. Re-read before next edit.**`;
+		output += `\n\n⚠️ **File was modified by auto-format/fix. You MUST re-read the file before making any further edits — the content on disk has changed (whitespace, indentation, quotes, or code). Editing from memory will produce mismatches.**`;
 	}
 	phase.end("dispatch_lint", {
 		hasOutput: !!dispatchResult.output,
 		diagnosticCount: dispatchResult.diagnostics.length,
 	});
 
-	// --- 7. Test runner ---
-	phase.start("test_runner");
-	let testSummary: TestSummary = null;
-	let testInfoFound = false;
-	let testRunnerRan = false;
-	if (!getFlag("no-tests")) {
-		const target = testRunnerClient.getTestRunTarget(filePath, cwd);
-		testInfoFound = !!target;
-		if (target) {
-			dbg(
-				`test-runner: ${target.strategy} target ${target.testFile} (${target.runner}) for ${filePath}`,
-			);
-			testRunnerRan = true;
-			const testStart = Date.now();
-			const testResult = await testRunnerClient.runTestFileAsync(
-				target.testFile,
-				cwd,
-				target.runner,
-				target.config,
-			);
-			logLatency({
-				type: "phase",
-				toolName,
-				filePath,
-				phase: "test_runner",
-				durationMs: Date.now() - testStart,
-				metadata: {
-					testFile: target.testFile,
-					runner: target.runner,
-					strategy: target.strategy,
-					success: !testResult?.error,
-				},
-			});
-			if (testResult && !testResult.error) {
-				testSummary = {
-					passed: testResult.passed,
-					total: testResult.passed + testResult.failed + testResult.skipped,
-					failed: testResult.failed,
-				};
-				if (testSummary.failed > 0) hasBlockers = true;
-				const testOutput = testRunnerClient.formatResult(testResult);
-				if (testOutput) output += `\n\n${testOutput}`;
-			}
-		}
-	}
-	phase.end("test_runner", { found: testInfoFound, ran: testRunnerRan });
-
-	// --- 8. Cascade diagnostics (LSP only) ---
+	// --- 7. Cascade diagnostics (LSP only) ---
 	// Deferred: cascade errors in OTHER files are NOT shown inline — surfaced at
 	// turn_end so mid-refactor intermediate errors don't derail the agent.
 	const cascadeOutput = await gatherCascadeDiagnostics(
-		filePath,
+		new Set([filePath]),
 		cwd,
 		toolName,
 		getFlag,
@@ -1028,17 +949,10 @@ export async function runPipeline(
 	// --- Final timing + all-clear ---
 	const elapsed = Date.now() - pipelineStart;
 	if (!output) {
-		output = buildAllClearOutput(dispatchResult, testSummary, elapsed, filePath);
+		output = buildAllClearOutput(dispatchResult, elapsed, filePath);
 	}
 
 	phase.end("total", { hasOutput: !!output });
-	logLatency({
-		type: "tool_result",
-		toolName,
-		filePath,
-		durationMs: elapsed,
-		result: output ? "completed" : "no_output",
-	});
 
 	return {
 		output,

@@ -51,7 +51,7 @@ export class AstGrepParser {
 		}
 
 		return output
-			.split("\n")
+			.split(/\r?\n/)
 			.filter((l) => l.trim())
 			.map((line) => {
 				try {

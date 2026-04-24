@@ -4,7 +4,7 @@
  * Extracted from index.ts for maintainability.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AstGrepClient } from "../clients/ast-grep-client.js";
 import { LANGUAGES } from "./shared.js";
 
@@ -90,7 +90,7 @@ export function createAstGrepSearchTool(astGrepClient: AstGrepClient) {
 			_onUpdate: unknown,
 			ctx: { cwd?: string },
 		) {
-			if (!astGrepClient.isAvailable()) {
+			if (!(await astGrepClient.ensureAvailable())) {
 				return {
 					content: [
 						{

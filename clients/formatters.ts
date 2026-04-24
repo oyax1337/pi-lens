@@ -110,7 +110,7 @@ async function which(command: string): Promise<string | null> {
 		{ timeout: 5000 },
 	);
 	if (result.error || result.status !== 0) return null;
-	return result.stdout?.trim().split("\n")[0] ?? null;
+	return result.stdout?.trim().split(/\r?\n/)[0] ?? null;
 }
 
 async function resolveGoFmtBinary(): Promise<string | null> {
@@ -839,7 +839,12 @@ export async function getFormattersForFile(
 		}
 	}
 
-	if (preferBiomeDefault && !biomeEnabled && !prettierEnabled && biomeFormatter) {
+	if (
+		preferBiomeDefault &&
+		!biomeEnabled &&
+		!prettierEnabled &&
+		biomeFormatter
+	) {
 		enabled.push(biomeFormatter);
 		biomeEnabled = true;
 	}

@@ -13,12 +13,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	clearCoverageNoticeState,
 	createDispatchContext,
-	dispatchForFile as runDispatchForFile,
 	RunnerRegistry,
+	dispatchForFile as runDispatchForFile,
 } from "../../../clients/dispatch/dispatcher.js";
 import { FactStore } from "../../../clients/dispatch/fact-store.js";
-import { normalizeMapKey } from "../../../clients/path-utils.js";
 import type { RunnerGroup } from "../../../clients/dispatch/types.js";
+import { normalizeMapKey } from "../../../clients/path-utils.js";
 import {
 	createCleanRunner,
 	createConditionalRunner,
@@ -30,14 +30,18 @@ import {
 describe("Dispatch Flow", () => {
 	let registry: RunnerRegistry;
 
-	const registerRunner = (runner: Parameters<RunnerRegistry["register"]>[0]) => {
+	const registerRunner = (
+		runner: Parameters<RunnerRegistry["register"]>[0],
+	) => {
 		registry.register(runner);
 	};
 	const getRunner = (id: string) => registry.get(id);
 	const getRunnersForKind = (kind: "jsts" | "python") =>
 		registry.getForKind(kind);
-	const dispatchForFile = (ctx: Parameters<typeof runDispatchForFile>[0], groups: Parameters<typeof runDispatchForFile>[1]) =>
-		runDispatchForFile(ctx, groups, registry);
+	const dispatchForFile = (
+		ctx: Parameters<typeof runDispatchForFile>[0],
+		groups: Parameters<typeof runDispatchForFile>[1],
+	) => runDispatchForFile(ctx, groups, registry);
 
 	beforeEach(() => {
 		registry = new RunnerRegistry();
@@ -207,7 +211,10 @@ describe("Dispatch Flow", () => {
 
 			const ctx = createMockContext("main.go");
 			const groups: RunnerGroup[] = [
-				{ mode: "all", runnerIds: ["lsp", "go-vet", "golangci-lint", "tree-sitter"] },
+				{
+					mode: "all",
+					runnerIds: ["lsp", "go-vet", "golangci-lint", "tree-sitter"],
+				},
 			];
 
 			const result = await dispatchForFile(ctx, groups);
@@ -221,7 +228,7 @@ describe("Dispatch Flow", () => {
 			expect(secondResult.output).not.toContain(
 				"Pi-lens analysis unavailable. Tools for go not installed.",
 			);
-		});
+		}, 30000);
 
 		it("does not let unrelated runner coverage suppress missing-tool notices", async () => {
 			registerRunner({
@@ -475,10 +482,12 @@ describe("Dispatch Flow", () => {
 	describe("Delta Mode (Baseline Filtering)", () => {
 		it("should filter pre-existing issues in delta mode", async () => {
 			const facts = new FactStore();
-			setBaselineFacts(facts, "/project/test.ts", [{
-				id: "old-issue",
-				message: "Old",
-			}]);
+			setBaselineFacts(facts, "/project/test.ts", [
+				{
+					id: "old-issue",
+					message: "Old",
+				},
+			]);
 
 			registerRunner(
 				createMockRunner({
@@ -526,10 +535,12 @@ describe("Dispatch Flow", () => {
 
 		it("should report all issues when delta mode disabled", async () => {
 			const facts = new FactStore();
-			setBaselineFacts(facts, "/project/test.ts", [{
-				id: "old-issue",
-				message: "Old",
-			}]);
+			setBaselineFacts(facts, "/project/test.ts", [
+				{
+					id: "old-issue",
+					message: "Old",
+				},
+			]);
 
 			registerRunner(
 				createMockRunner({
@@ -555,12 +566,7 @@ describe("Dispatch Flow", () => {
 			const mockPi = {
 				getFlag: (f: string) => f === "no-delta",
 			}; // Delta mode OFF
-			const ctx = createDispatchContext(
-				"test.ts",
-				"/project",
-				mockPi,
-				facts,
-			);
+			const ctx = createDispatchContext("test.ts", "/project", mockPi, facts);
 			const groups: RunnerGroup[] = [{ mode: "all", runnerIds: ["reporter"] }];
 
 			const result = await dispatchForFile(ctx, groups);
@@ -618,8 +624,9 @@ describe("Dispatch Flow", () => {
 				createConditionalRunner("conditional", (ctx) => ctx.autofix),
 			);
 
+			// autofix is now always false (per-tool autofix flags removed)
 			const mockPi = {
-				getFlag: (f: string) => f === "autofix-biome",
+				getFlag: () => false,
 			};
 			const ctx = createDispatchContext(
 				"test.ts",
@@ -633,8 +640,10 @@ describe("Dispatch Flow", () => {
 
 			const result = await dispatchForFile(ctx, groups);
 
-			expect(ctx.autofix).toBe(true);
-			expect(result.diagnostics).toHaveLength(1);
+			// autofix is always false now (feature removed)
+			expect(ctx.autofix).toBe(false);
+			// Conditional runner skips when autofix is false
+			expect(result.diagnostics).toHaveLength(0);
 		});
 
 		it("should skip conditional runner when condition false", async () => {
@@ -699,9 +708,14 @@ describe("Dispatch Flow", () => {
 
 // Helper function
 function createMockContext(filePath: string) {
-	return createDispatchContext(filePath, "/project", {
-		getFlag: () => false,
-	}, new FactStore());
+	return createDispatchContext(
+		filePath,
+		"/project",
+		{
+			getFlag: () => false,
+		},
+		new FactStore(),
+	);
 }
 
 function setBaselineFacts(

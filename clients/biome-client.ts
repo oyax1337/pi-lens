@@ -28,17 +28,6 @@ export interface BiomeDiagnostic {
 	fixable: boolean;
 }
 
-interface BiomeJsonDiagnostic {
-	message: string;
-	severity: "error" | "warning" | "info" | "hint";
-	category: string;
-	span?: {
-		start: { line: number; column: number };
-		end: { line: number; column: number };
-	};
-	advice?: Array<{ message: string }>;
-}
-
 // --- Client ---
 
 export class BiomeClient {
@@ -137,7 +126,7 @@ export class BiomeClient {
 		if (this.biomeAvailable !== null) return this.biomeAvailable;
 
 		// Check if already available
-		const result = this.spawnBiome(["--version"], 10000);
+		const result = await this.spawnBiomeAsync(["--version"], 10000);
 		if (!result.error && result.status === 0) {
 			this.biomeAvailable = true;
 			return true;
@@ -568,8 +557,8 @@ export class BiomeClient {
 	}
 
 	private computeDiff(original: string, formatted: string): string {
-		const origLines = original.split("\n");
-		const formLines = formatted.split("\n");
+		const origLines = original.split(/\r?\n/);
+		const formLines = formatted.split(/\r?\n/);
 
 		let changedLines = 0;
 		const changes: string[] = [];

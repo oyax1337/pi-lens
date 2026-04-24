@@ -39,15 +39,16 @@ const DEFAULT_VALUE_PATTERN =
 const STRUCTURED_ERROR_PATTERN =
   /\breturn\s+\{[^}]*(?:success\s*:\s*false|error\s*:)/;
 
-const EXPLAINING_COMMENT_PATTERN =
-  /\/\/[^\n]*(intentional|expected|ignore|ok|safe|fallback|known|silent|no-op)/i;
+// Any non-trivial comment (≥ 4 non-space chars) counts as documented intent.
+// This covers patterns like: // continue, /* not found */, // best-effort, etc.
+const EXPLAINING_COMMENT_PATTERN = /(?:\/\/\s*\S.{3,}|\/\*\s*\S[\s\S]{3,}?\*\/)/;
 
 const FS_PROBE_PATTERN =
   /\b(?:existsSync|statSync|lstatSync|readFileSync|accessSync)\b/;
 
 const DB_PATTERN = /\b(?:query|execute|findOne|findMany|findById|insert|update|delete|select|prisma\.|knex\.|sequelize\.)/;
 const NETWORK_PATTERN = /\b(?:fetch|axios|http\.|https\.|request\.|got\.|undici\.)/;
-const FS_PATTERN = /\b(?:readFile|writeFile|appendFile|readdir|mkdir|stat|unlink|existsSync|readFileSync)\b/;
+const FS_PATTERN = /\b(?:readFileSync?|writeFileSync?|appendFileSync?|readdirSync?|mkdirSync?|statSync?|unlinkSync?|existsSync|accessSync?|copyFileSync?|renameSync?)\b/;
 const PROCESS_PATTERN = /\b(?:spawn|exec|execSync|spawnSync|child_process\.)\b/;
 
 function detectBoundaryCategory(

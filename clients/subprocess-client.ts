@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import type { spawnSync } from "node:child_process";
 import * as path from "node:path";
 import { safeSpawn } from "./safe-spawn.js";
 
@@ -69,7 +69,7 @@ export abstract class SubprocessClient<T extends Diagnostic> {
 			input?: string;
 		} = {},
 	): ReturnType<typeof spawnSync> {
-		const { cwd, timeout = 15000, input } = options;
+		const { cwd, timeout = 15000 } = options;
 
 		try {
 			const result = safeSpawn(cmd[0], cmd.slice(1), {

@@ -307,10 +307,6 @@ function validateDeploy(root: string): CategoryResult {
 		hasCleanGit = true;
 		details.push("Git repository initialized");
 		
-		// Check for uncommitted changes (best effort)
-		try {
-			// This requires git to be available - skip if not
-		} catch {}
 	} else {
 		issues.push("No git repository found");
 	}

@@ -5,7 +5,6 @@
  * Tools like biome, ruff, ast-grep are checked once per session.
  */
 
-import { spawnSync } from "node:child_process";
 import { safeSpawn } from "./safe-spawn.js";
 
 // --- Types ---
