@@ -143,7 +143,14 @@ Structural rules are organized by language in `rules/tree-sitter-queries/`:
 - **Rust** (6 rules): unsafe blocks, unwrap outside tests, and more
 - **Ruby** (15 rules): empty rescue, rescue Exception, debugger, hardcoded secrets, and more
 
-Plus **180+ ast-grep rules** in `rules/ast-grep-rules/` covering security (no-eval, jwt-no-verify, no-hardcoded-secrets, no-insecure-randomness), correctness (strict-equality, empty-catch, no-cond-assign), and style patterns across JS/TS/Python.
+## Ast-Grep Rules
+
+**180+ rules** in `rules/ast-grep-rules/` across JS, TS, and Python:
+
+- **Security** — no-eval, jwt-no-verify, no-hardcoded-secrets, no-insecure-randomness, no-inner-html, no-javascript-url, weak-rsa-key
+- **Correctness** — strict-equality, no-cond-assign, no-constant-condition, no-dupe-keys, no-nan-comparison, array-callback-return, constructor-super
+- **Style/smells** — nested-ternary, long-parameter-list, large-class, prefer-optional-chain, redundant-state, require-await
+- **Agent stubs** — no-unimplemented-stub, no-raise-not-implemented, no-ellipsis-body
 
 ## Review Graph - Cascade Diagnostics
 
@@ -160,42 +167,6 @@ pi-lens includes **37 language server definitions**. LSP is **enabled by default
 **LSP Idle Management:** LSP servers shut down after 240 seconds of inactivity (no files modified) to free resources. The timer resets when you resume editing, preventing cold-start penalties during active development.
 
 LSP servers for: TypeScript, Deno, Python (pyright + pylsp), Go, Rust, Ruby (ruby-lsp + solargraph), PHP, C# (omnisharp), F#, Java, Kotlin, Swift, Dart, Lua, C/C++, Zig, Haskell, Elixir, Gleam, OCaml, Clojure, Terraform, Nix, Bash, Docker, YAML, JSON, HTML, TOML, Prisma, Vue, Svelte, ESLint, CSS.
-
-## Runners
-
-44 registered dispatch runners:
-
-| Category | Runners |
-|---|---|
-| LSP | `lsp`, `ts-lsp`, `pyright` |
-| JS/TS | `biome-check-json`, `eslint`, `ast-grep-napi`, `type-safety`, `similarity`, `tree-sitter`, `fact-rules` |
-| Python | `ruff-lint`, `tree-sitter`, `python-slop`, `mypy` |
-| Go | `go-vet`, `golangci-lint` |
-| Rust | `rust-clippy` |
-| Ruby | `rubocop` |
-| PHP | `php-lint`, `phpstan` |
-| C# | `dotnet-build` |
-| Java | `javac` |
-| Kotlin | `ktlint` |
-| Dart | `dart-analyze` |
-| Elixir | `elixir-check`, `credo` |
-| Gleam | `gleam-check` |
-| Zig | `zig-check` |
-| C/C++ | `cpp-check` |
-| Docker | `hadolint` |
-| HTML | `htmlhint` |
-| CSS | `stylelint`, `prettier-check` |
-| Markdown | `markdownlint`, `spellcheck` |
-| Shell | `shellcheck`, `shfmt` |
-| YAML | `yamllint` |
-| SQL | `sqlfluff` |
-| TOML | `taplo` |
-| Terraform | `tflint` |
-| PowerShell | `psscriptanalyzer` |
-| Prisma | `prisma-validate` |
-| Architecture | `architect`, `fact-rules` |
-
-Runners are language/config-gated and skip when not applicable. `ast-grep-napi` runs in post-write dispatch for JS/TS with blocker-focused filtering; `/lens-booboo` additionally runs full CLI ast-grep scans.
 
 ## Formatters
 
