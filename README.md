@@ -123,7 +123,7 @@ pi-lens supports **35+ languages** through dispatch runners and LSP integration:
 
 ## Fact Rules Pipeline
 
-Dispatch includes a fact-rule engine that extracts function-level metrics (cyclomatic complexity, nesting depth, outgoing calls) and evaluates quality rules inline:
+Language-specific. Dispatch includes a fact-rule engine that extracts function-level metrics (cyclomatic complexity, nesting depth, outgoing calls) and evaluates quality rules inline:
 
 - **high-complexity** — flags functions exceeding configurable CC thresholds
 - **unsafe-boundary** — detects dangerous boundary crossings (unvalidated user input → trusted context)
@@ -149,7 +149,7 @@ Plus **180+ ast-grep rules** in `rules/ast-grep-rules/` covering security (no-ev
 
 pi-lens builds a review graph (`file → symbol → dependency`) during session and uses it at turn end to render an impact cascade: which files were affected by a change and how diagnostics propagated through the dependency graph. Nodes track kind, language, and export status; edges track contains/imports/calls/references.
 
-### Opportunistic Read Expansion
+## Opportunistic Read Expansion
 
 When the agent reads a single line of a file and a warm LSP client is already running for that language, pi-lens transparently expands the read to the full enclosing symbol (function, method, or class). This happens without blocking the read — if LSP responds in time, the agent sees the full context; otherwise the original line is returned unchanged.
 
