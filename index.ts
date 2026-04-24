@@ -861,7 +861,6 @@ export default function (pi: ExtensionAPI) {
 		const {
 			biomeClient,
 			ruffClient,
-			testRunnerClient,
 			metricsClient,
 			agentBehaviorClient,
 		} = await loadBootstrapClients();
@@ -873,7 +872,6 @@ export default function (pi: ExtensionAPI) {
 			cacheManager,
 			biomeClient,
 			ruffClient,
-			testRunnerClient,
 			metricsClient,
 			resetLSPService,
 			agentBehaviorRecord: (toolName, filePath) =>
@@ -891,7 +889,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("turn_end", async (_event, ctx) => {
 		try {
-			const { jscpdClient, knipClient, depChecker } =
+			const { jscpdClient, knipClient, depChecker, testRunnerClient } =
 				await loadBootstrapClients();
 			await handleTurnEnd({
 				ctxCwd: ctx.cwd,
@@ -902,6 +900,7 @@ export default function (pi: ExtensionAPI) {
 				jscpdClient,
 				knipClient,
 				depChecker,
+				testRunnerClient,
 				resetLSPService,
 				resetFormatService,
 			});

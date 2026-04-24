@@ -10,7 +10,6 @@ import type { CacheManager } from "./cache-manager.js";
 import type { MetricsClient } from "./metrics-client.js";
 import type { RuffClient } from "./ruff-client.js";
 import type { RuntimeCoordinator } from "./runtime-coordinator.js";
-import type { TestRunnerClient } from "./test-runner-client.js";
 
 interface ToolResultEvent {
 	toolName: string;
@@ -31,7 +30,6 @@ interface ToolResultDeps {
 	cacheManager: CacheManager;
 	biomeClient: BiomeClient;
 	ruffClient: RuffClient;
-	testRunnerClient: TestRunnerClient;
 	metricsClient: MetricsClient;
 	resetLSPService: () => void;
 	agentBehaviorRecord: (toolName: string, filePath?: string) => unknown[];
@@ -84,7 +82,6 @@ export async function handleToolResult(
 		cacheManager,
 		biomeClient,
 		ruffClient,
-		testRunnerClient,
 		metricsClient,
 		resetLSPService,
 		agentBehaviorRecord,
@@ -223,7 +220,6 @@ export async function handleToolResult(
 		{
 			biomeClient,
 			ruffClient,
-			testRunnerClient,
 			metricsClient,
 			getFormatService,
 			fixedThisTurn: runtime.fixedThisTurn,

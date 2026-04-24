@@ -38,7 +38,6 @@ import type { RuffClient } from "./ruff-client.js";
 import { RUNTIME_CONFIG } from "./runtime-config.js";
 import { safeSpawnAsync } from "./safe-spawn.js";
 import { formatSecrets, scanForSecrets } from "./secrets-scanner.js";
-import type { TestRunnerClient } from "./test-runner-client.js";
 
 const LSP_MAX_FILE_BYTES = RUNTIME_CONFIG.pipeline.lspMaxFileBytes;
 const LSP_MAX_FILE_LINES = RUNTIME_CONFIG.pipeline.lspMaxFileLines;
@@ -91,7 +90,6 @@ export interface PipelineContext {
 export interface PipelineDeps {
 	biomeClient: BiomeClient;
 	ruffClient: RuffClient;
-	testRunnerClient: TestRunnerClient;
 	metricsClient: MetricsClient;
 	getFormatService: () => FormatService;
 	fixedThisTurn: Set<string>;
@@ -720,11 +718,8 @@ export async function gatherCascadeDiagnostics(
 }
 
 type DispatchResult = Awaited<ReturnType<typeof dispatchLintWithResult>>;
-type TestSummary = { passed: number; total: number; failed: number } | null;
-
 function buildAllClearOutput(
 	_dispatchResult: DispatchResult,
-	testSummary: TestSummary,
 	elapsed: number,
 	filePath: string,
 ): string {
@@ -734,10 +729,6 @@ function buildAllClearOutput(
 
 	if (kind) {
 		parts.push(`${langLabel} clean`);
-	}
-
-	if (testSummary && testSummary.failed === 0) {
-		parts.push(`${testSummary.passed}/${testSummary.total} tests`);
 	}
 
 	parts.push(`${elapsed}ms`);
@@ -751,7 +742,7 @@ export async function runPipeline(
 	deps: PipelineDeps,
 ): Promise<PipelineResult> {
 	const { filePath, cwd, toolName, getFlag, dbg } = ctx;
-	const { biomeClient, ruffClient, testRunnerClient, getFormatService } = deps;
+	const { biomeClient, ruffClient, getFormatService } = deps;
 
 	const phase = createPhaseTracker(toolName, filePath);
 	const pipelineStart = Date.now();
@@ -943,54 +934,7 @@ export async function runPipeline(
 		diagnosticCount: dispatchResult.diagnostics.length,
 	});
 
-	// --- 7. Test runner ---
-	phase.start("test_runner");
-	let testSummary: TestSummary = null;
-	let testInfoFound = false;
-	let testRunnerRan = false;
-	if (!getFlag("no-tests")) {
-		const target = testRunnerClient.getTestRunTarget(filePath, cwd);
-		testInfoFound = !!target;
-		if (target) {
-			dbg(
-				`test-runner: ${target.strategy} target ${target.testFile} (${target.runner}) for ${filePath}`,
-			);
-			testRunnerRan = true;
-			const testStart = Date.now();
-			const testResult = await testRunnerClient.runTestFileAsync(
-				target.testFile,
-				cwd,
-				target.runner,
-				target.config,
-			);
-			logLatency({
-				type: "phase",
-				toolName,
-				filePath,
-				phase: "test_runner",
-				durationMs: Date.now() - testStart,
-				metadata: {
-					testFile: target.testFile,
-					runner: target.runner,
-					strategy: target.strategy,
-					success: !testResult?.error,
-				},
-			});
-			if (testResult && !testResult.error) {
-				testSummary = {
-					passed: testResult.passed,
-					total: testResult.passed + testResult.failed + testResult.skipped,
-					failed: testResult.failed,
-				};
-				if (testSummary.failed > 0) hasBlockers = true;
-				const testOutput = testRunnerClient.formatResult(testResult);
-				if (testOutput) output += `\n\n${testOutput}`;
-			}
-		}
-	}
-	phase.end("test_runner", { found: testInfoFound, ran: testRunnerRan });
-
-	// --- 8. Cascade diagnostics (LSP only) ---
+	// --- 7. Cascade diagnostics (LSP only) ---
 	// Deferred: cascade errors in OTHER files are NOT shown inline — surfaced at
 	// turn_end so mid-refactor intermediate errors don't derail the agent.
 	const cascadeOutput = await gatherCascadeDiagnostics(
@@ -1005,12 +949,7 @@ export async function runPipeline(
 	// --- Final timing + all-clear ---
 	const elapsed = Date.now() - pipelineStart;
 	if (!output) {
-		output = buildAllClearOutput(
-			dispatchResult,
-			testSummary,
-			elapsed,
-			filePath,
-		);
+		output = buildAllClearOutput(dispatchResult, elapsed, filePath);
 	}
 
 	phase.end("total", { hasOutput: !!output });

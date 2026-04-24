@@ -12,6 +12,7 @@ import type { KnipClient, KnipIssue } from "./knip-client.js";
 import { gatherCascadeDiagnostics } from "./pipeline.js";
 import { RUNTIME_CONFIG } from "./runtime-config.js";
 import type { RuntimeCoordinator } from "./runtime-coordinator.js";
+import type { TestRunnerClient } from "./test-runner-client.js";
 
 interface TurnEndDeps {
 	ctxCwd?: string;
@@ -22,6 +23,7 @@ interface TurnEndDeps {
 	jscpdClient: JscpdClient;
 	knipClient: KnipClient;
 	depChecker: DependencyChecker;
+	testRunnerClient: TestRunnerClient;
 	resetLSPService: () => void;
 	resetFormatService: () => void;
 }
@@ -66,6 +68,7 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 		jscpdClient,
 		knipClient,
 		depChecker,
+		testRunnerClient,
 		resetLSPService,
 		resetFormatService,
 	} = deps;
@@ -261,6 +264,43 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 							`turn_end: circular dependency note for ${file} (suppressed in blockers-only mode)`,
 						);
 					}
+				}
+			}
+		}
+	}
+
+	// --- Test runner: fire once per turn after all edits are done ---
+	// Runs for each unique test target across modified files; results appear
+	// in the next turn's context injection alongside jscpd/madge findings.
+	if (!getFlag("no-tests") && files.length > 0) {
+		const seen = new Set<string>();
+		const targets: NonNullable<
+			ReturnType<TestRunnerClient["getTestRunTarget"]>
+		>[] = [];
+		for (const file of files) {
+			const abs = resolveRunnerPath(cwd, file);
+			const target = testRunnerClient.getTestRunTarget(abs, cwd);
+			if (target && !seen.has(target.testFile)) {
+				seen.add(target.testFile);
+				targets.push(target);
+			}
+		}
+		if (targets.length > 0) {
+			dbg(`turn_end: running tests for ${targets.length} target(s)`);
+			const results = await Promise.allSettled(
+				targets.map((t) =>
+					testRunnerClient.runTestFileAsync(
+						t.testFile,
+						cwd,
+						t.runner,
+						t.config,
+					),
+				),
+			);
+			for (const r of results) {
+				if (r.status === "fulfilled" && r.value.failed > 0) {
+					const formatted = testRunnerClient.formatResult(r.value);
+					if (formatted) blockerParts.push(formatted);
 				}
 			}
 		}
