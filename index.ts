@@ -855,7 +855,7 @@ export default function (pi: ExtensionAPI) {
 			runtime.readGuard.recordRead({
 				filePath,
 				requestedOffset: requestedReadOffset,
-				requestedLimit: effectiveReadLimit!,
+				requestedLimit: requestedReadLimit ?? effectiveReadLimit!,
 				effectiveOffset: requestedReadOffset,
 				effectiveLimit: effectiveReadLimit!,
 				expandedByLsp: false,

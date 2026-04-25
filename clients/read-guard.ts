@@ -289,8 +289,8 @@ export class ReadGuard {
 
 		const reads = this.reads.get(filePath) ?? [];
 
+		// First pass: check symbol coverage and any single read that covers the edit.
 		for (const read of reads) {
-			// Direct range coverage (read range expanded by context window)
 			const readStart = Math.max(
 				1,
 				read.effectiveOffset - this.config.contextLines,
@@ -305,14 +305,37 @@ export class ReadGuard {
 				return { covered: true, viaSymbol: false };
 			}
 
-			// Symbol coverage (LSP expansion)
 			if (read.enclosingSymbol) {
 				const symStart = read.enclosingSymbol.startLine;
 				const symEnd = read.enclosingSymbol.endLine;
-
 				if (symStart <= editStart && symEnd >= editEnd) {
 					return { covered: true, viaSymbol: true };
 				}
+			}
+		}
+
+		// Second pass: merge all read intervals and check if their union covers
+		// [editStart, editEnd]. Handles multi-chunk reads (e.g. 1-100 + 101-200).
+		const intervals = reads.map((read) => [
+			Math.max(1, read.effectiveOffset - this.config.contextLines),
+			read.effectiveOffset + read.effectiveLimit - 1 + this.config.contextLines,
+		] as [number, number]);
+
+		intervals.sort((a, b) => a[0] - b[0]);
+
+		// Merge overlapping/adjacent intervals
+		const merged: Array<[number, number]> = [];
+		for (const [s, e] of intervals) {
+			if (merged.length > 0 && s <= merged[merged.length - 1][1] + 1) {
+				merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], e);
+			} else {
+				merged.push([s, e]);
+			}
+		}
+
+		for (const [s, e] of merged) {
+			if (editStart >= s && editEnd <= e) {
+				return { covered: true, viaSymbol: false };
 			}
 		}
 
