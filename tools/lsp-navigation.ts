@@ -810,7 +810,7 @@ export function createLspNavigationTool(
 
 			const isEmpty = !result || (Array.isArray(result) && result.length === 0);
 			let output = isEmpty
-				? `No results for ${operation} at ${path.basename(filePath)}${line ? `:${line}:${character}` : ""}`
+				? `No results for ${operation}${filePath ? ` at ${path.basename(filePath)}` : ""}${line ? `:${line}:${character}` : ""}`
 				: JSON.stringify(result, null, 2);
 			if (isEmpty && operation === "workspaceSymbol" && !rawPath) {
 				output +=

@@ -4,6 +4,14 @@ All notable changes to pi-lens will be documented in this file.
 
 ## [Unreleased]
 
+## [3.8.32] - 2026-04-26
+
+### Fixed
+
+- **`lspExpansionsHelped` counter undercounted in `/lens-health`** — `getSummary` used `reads.find(r => r.timestamp <= record.precedingReads[0]?.timestamp)` which always selected the first ever read for the file, so only sessions where the very first read used LSP expansion were counted. Fixed to `record.precedingReads.some(r => r.expandedByLsp)`, correctly checking all reads that preceded the specific edit.
+- **`preserveDiagnostics` incorrectly set when autofix also ran** — when a formatter and an autofix tool both modified a file, the LSP resync was still called with `preserveDiagnostics: true` because `formatChanged` was set, even though autofix changes can affect code semantics. Fixed by gating on `formatChanged && fixedCount === 0`, ensuring semantics-changing autofix always triggers a fresh diagnostics cycle.
+- **Empty-result message for `workspaceSymbol` had dangling "at"** — `"No results for workspaceSymbol at "` was produced when no `filePath` was given (workspace-scoped query with no file). Fixed by guarding the `" at <filename>"` segment on `filePath` being non-empty.
+
 ### Fixed
 
 - **TypeScript LSP 5-second pipeline stall on every edit to clean files** — after biome or another formatter rewrote a file, `resyncLspFile` called `lsp.openFile` which deleted the diagnostics cache and sent `textDocument/didChange`. `waitForDiagnostics` then waited the full 5000ms timeout for TypeScript to re-publish what it already knew (formatting doesn't change semantics, so the error set is identical). Added `preserveDiagnostics` option to `openFile`/`handleNotifyOpen`: format-only resyncs no longer clear the cache, so `waitForDiagnostics` fast-paths immediately. For pi-free provider files this cuts per-edit pipeline time from ~12s to ~3-4s.

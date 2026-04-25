@@ -834,7 +834,7 @@ export async function runPipeline(
 			lspSyncCompleted,
 			getFlag,
 			dbg,
-			formatChanged,
+			formatChanged && fixedCount === 0,
 		);
 	}
 

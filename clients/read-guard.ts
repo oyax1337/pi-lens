@@ -294,11 +294,10 @@ export class ReadGuard {
 				}
 
 				// Count LSP expansions that allowed an edit
-				const reads = this.reads.get(filePath) ?? [];
-				const relevantRead = reads.find(
-					(r) => r.timestamp <= record.precedingReads[0]?.timestamp,
-				);
-				if (relevantRead?.expandedByLsp && record.verdict === "allowed") {
+				if (
+					record.precedingReads.some((r) => r.expandedByLsp) &&
+					record.verdict === "allowed"
+				) {
 					lspExpansionsHelped++;
 				}
 			}
