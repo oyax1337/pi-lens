@@ -20,14 +20,14 @@
  */
 
 import { safeSpawn } from "../../safe-spawn.js";
-import { createAvailabilityChecker } from "./utils/runner-helpers.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
+import { createAvailabilityChecker } from "./utils/runner-helpers.js";
 
 const typos = createAvailabilityChecker("typos", ".exe");
 
@@ -50,7 +50,10 @@ function parseTyposOutput(raw: string, filePath: string): Diagnostic[] {
 		return diagnostics;
 	}
 
-	const lines = raw.trim().split("\n").filter((l) => l.trim());
+	const lines = raw
+		.trim()
+		.split("\n")
+		.filter((l) => l.trim());
 
 	for (const line of lines) {
 		try {
@@ -78,12 +81,11 @@ function parseTyposOutput(raw: string, filePath: string): Diagnostic[] {
 				tool: "typos",
 				rule: "typo",
 				fixable: !!parsed.corrections?.length,
+				autoFixAvailable: false,
+				fixKind: parsed.corrections?.length ? "suggestion" : undefined,
 				fixSuggestion: parsed.corrections?.[0],
 			});
-		} catch {
-			// Skip invalid JSON lines
-			continue;
-		}
+		} catch {}
 	}
 
 	return diagnostics;
@@ -107,9 +109,13 @@ const spellcheckRunner: RunnerDefinition = {
 		// --exclude <pattern>: Could be used to exclude code blocks if needed
 		const args = ["--format", "json", ctx.filePath];
 
-		const result = safeSpawn(typos.getCommand(ctx.cwd || process.cwd())!, args, {
-			timeout: 15000,
-		});
+		const result = safeSpawn(
+			typos.getCommand(ctx.cwd || process.cwd())!,
+			args,
+			{
+				timeout: 15000,
+			},
+		);
 
 		// typos-cli exits with code 2 if typos found, 0 if clean
 		const hasTypos = result.status === 2 || result.stdout?.trim();

@@ -542,6 +542,8 @@ const astGrepNapiRunner: RunnerDefinition = {
 							rule: rule.id,
 							defectClass,
 							fixable: !!ruleFix,
+							autoFixAvailable: false,
+							fixKind: ruleFix ? "suggestion" : undefined,
 							fixSuggestion:
 								semantic === "blocking"
 									? (ruleFix ?? defaultFixSuggestion(defectClass, rule.id))

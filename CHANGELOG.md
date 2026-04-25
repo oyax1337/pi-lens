@@ -5,6 +5,11 @@ All notable changes to pi-lens will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **Read-before-edit guard correctness** — fixed `read.path` vs `read.filePath` mismatch, full-file read coverage tracking, read-guard range math, session reset leakage, and guard messaging so edit enforcement now correctly reflects actual reads
+- **First-read LSP warmup behavior** — first `read` now triggers non-blocking async LSP warmup once per file/session window, with retry-safe state tracking and reset handling
+- **Formatter selection bugs and drift** — formatter chooser now reliably selects exactly one formatter, no longer lets registry order accidentally block smart defaults, and keeps explicit config precedence over defaults
+- **Ruby auto-install policy mismatch** — `rubocop` policy and installer behavior are now aligned through managed gem install support
+- **Prettier dispatch redundancy** — removed `prettier-check` from the active dispatch path to avoid re-checking formatting after the authoritative autoformat pipeline has already run
 - **LSP race condition in `initLSPConfig`** — `configInFlight` Map deduplicates concurrent initialization calls for the same workspace; parallel session starts no longer double-initialize and race on `workspaceConfigs`
 - **`LSPService` use-after-shutdown** — `isDestroyed` flag added; all public methods (`getClientForFile`, `openFile`, `updateFile`, `waitForDiagnostics`, `getDiagnostics`, `shutdown`) return early once the service has been shut down
 - **`theme.fg` crash during session start** — `updateLspStatus` wraps theme calls in try/catch; theme may not be fully initialized during early session startup events
@@ -13,6 +18,11 @@ All notable changes to pi-lens will be documented in this file.
 - **Pipeline test assertion drift** — updated `tests/clients/pipeline.test.ts` to match the current auto-format warning text (`File was modified by auto-format/fix...`)
 
 ### Added
+- **Centralized formatter policy layer** — added normalized per-extension formatter policy with explicit config detection, smart-default selection, and managed-vs-toolchain default handling
+- **Centralized command spec / execution policy layer** — added shared tool command specs, execution policy, and resolver helpers used by dispatch runners and autofix paths
+- **Centralized linter policy layer** — added policy selectors for dispatch lint runner choice so config-first and smart-default lint behavior is now encoded centrally instead of only in individual runners
+- **Centralized autofix policy and capability metadata** — added policy selectors for safe pipeline autofix plus explicit capability metadata separating tool-level fix support from safe automatic post-write autofix
+- **Expanded smart-default formatter coverage** — added smart defaults across web/content formats and additional language ecosystems, including managed smart-default support for `prettier`, `shfmt`, and `taplo`
 - **LSP footer status indicator** — session start and turn end now show `LSP Active (N)` in green or `LSP Inactive` in red; count reflects alive (connected + initialized) clients via `getAliveClientCount()`
 - **Rust monorepo workspace root detection** — `RustServer` walks up from the detected crate root checking parent `Cargo.toml` files for a `[workspace]` section; rust-analyzer now resolves correctly in Cargo workspaces
 - **Opportunistic LSP read range expansion** — single-line `read` tool calls are silently expanded to the full enclosing symbol when a warm LSP client is available; best-effort, no-op if LSP is cold or the lookup doesn't resolve in time
@@ -25,16 +35,24 @@ All notable changes to pi-lens will be documented in this file.
 - **`buildFunctionMatrixFromNode` avoids re-parse** — walks the existing TypeScript AST directly instead of extracting function source text and creating a new `SourceFile`; removes per-function re-parse overhead from similarity indexing
 
 ### Removed
+- **`prettier-check` runner fully removed** — the dead `clients/dispatch/runners/prettier-check.ts` file is now deleted entirely after its earlier removal from active dispatch plans; formatting remains owned by the autoformat pipeline instead of dispatch re-checks
 - **Worthless `diagnostic-logger` tests** — deleted `tests/clients/diagnostic-logger.test.ts` (5 tests that only asserted mock objects equaled what was just assigned; zero behavior coverage)
 - **Redundant circular-dependency regression tests** — removed 3 no-op import tests from `tests/clients/circular-deps-regression.test.ts` (`expect(module).toBeDefined()` after `await import(...)` adds no value; import failure throws before the assertion)
 
 ### Changed
+- **Autoformat policy normalized across supported languages** — formatter behavior is now: exactly one formatter runs, explicit config wins, otherwise smart default applies, and config-first file types do nothing when unconfigured
+- **JS/TS lint fallback normalized** — no-config JavaScript/TypeScript dispatch now consistently prefers `oxlint` with `biome-check-json` fallback, while explicit ESLint/Oxlint/Biome config still wins
+- **Safe autofix remains pipeline-owned** — autofix selection now flows through centralized policy and remains in the post-write pipeline, while dispatch runners stay diagnostics-only
+- **Dispatch runner gating centralized** — major runners (`stylelint`, `yamllint`, `markdownlint`, `htmlhint`, `hadolint`, `sqlfluff`, `rubocop`, `ktlint`, `taplo`, `golangci-lint`, `phpstan`, `ruff`) now consult centralized lint policy before running
+- **Kotlin safe autofix added** — `ktlint -F` is now treated as a safe pipeline autofix path for Kotlin files
+- **Fixability semantics clarified** — dispatch diagnostics now distinguish generic fixability from safe pipeline autofix availability and expected fix mode (`pipeline`, `manual`, `suggestion`), including suggestion/manual-fix runners like LSP, TS-LSP, shellcheck, shfmt, spellcheck, tree-sitter, architect, and ast-grep-napi
 - **Test runner moved to turn_end (non-blocking)** — previously fired inline on every write, blocking the pipeline for up to 60s mid-refactor and producing false failures while the codebase was in an inconsistent state. Tests now run once per turn after all edits complete: unique test targets are collected from modified files, fired concurrently as a fire-and-forget `Promise.allSettled`, and failures are written to cache for injection into the next turn's context. Results are discarded if the agent starts a new turn before tests finish, preventing stale failures from clobbering newer results.
 - **Similarity runner skips small edits** — when `modifiedRanges` total lines is below `MIN_FUNCTION_LINES` (8), the similarity runner exits early; a new function can't fit in fewer lines than that, so the ~1100ms scan is wasted on targeted fixes
 - **Stronger auto-format/fix re-read warning** — message now explicitly tells the agent it MUST re-read the file before any further edits, listing what may have changed (whitespace, indentation, quotes, code)
 - **Turn-end findings cap tightened** — reduced `maxLines` from 24 → 20 and `maxChars` from 1600 → 1000 to stay conservative with context budget
 
 ### Tests
+- **Policy normalization regression coverage** — added and updated tests for read-guard fixes, runtime coordinator warm/reset behavior, formatter policy selection, command resolution, linter/autofix policy metadata, dispatch plan exposure, and runner status semantics across the formatter/linter/autofix normalization work
 - **LSP integration tests** — added `tests/clients/lsp/integration.test.ts` with a fake JSON-RPC server (`tests/fixtures/fake-lsp-server.mjs`) covering LSP client lifecycle: initialize handshake, file open/change notifications, diagnostics, and graceful shutdown
 - **Tree-sitter resolution regression tests** — added 3 tests to `tests/clients/tree-sitter-client-init.test.ts`:
   - `TreeSitterClient.isAvailable returns true when grammars are installed` (smoke test)

@@ -97,26 +97,31 @@ async function runWithBuiltinClient(
 
 		const line = d.range.start.line;
 		const character = d.range.start.character ?? 0;
-		const severity =
-			d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info";
+		let severity: "error" | "warning" | "info" = "info";
+		if (d.severity === 1) severity = "error";
+		else if (d.severity === 2) severity = "warning";
 		const semantic = d.severity === 1 ? "blocking" : "warning";
 
 		// Find fixes for this line
 		const lineFixes = allFixes.get(line);
 		const fixDescription = lineFixes?.[0]?.description;
+		const hasFixes = !!lineFixes && lineFixes.length > 0;
+		const message = fixDescription
+			? `${d.message} [💡 ${fixDescription}]`
+			: d.message;
 
 		diagnostics.push({
 			id: `ts:${d.code}:${line}`,
-			message: fixDescription
-				? `${d.message} [💡 ${fixDescription}]`
-				: d.message,
+			message,
 			filePath: diagnosticPath,
 			line: line + 1,
 			column: character + 1,
 			severity,
 			semantic,
 			tool: "ts-lsp",
-			fixable: !!lineFixes && lineFixes.length > 0,
+			fixable: hasFixes,
+			autoFixAvailable: false,
+			fixKind: hasFixes ? "suggestion" : undefined,
 			fixSuggestion: fixDescription,
 		});
 	}

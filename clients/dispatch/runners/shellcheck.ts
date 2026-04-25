@@ -118,6 +118,8 @@ function parseShellcheckOutput(raw: string, filePath: string): Diagnostic[] {
 				tool: "shellcheck",
 				rule: ruleCode,
 				fixable: !!item.fix,
+				autoFixAvailable: false,
+				fixKind: item.fix ? "suggestion" : undefined,
 			});
 		}
 	} catch {

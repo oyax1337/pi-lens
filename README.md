@@ -191,7 +191,11 @@ pi --lens-guard           # Block git commit/push when unresolved blockers exist
 
 ## Language Coverage
 
-pi-lens supports **35+ languages** through dispatch runners and LSP integration:
+pi-lens supports **35+ languages** through dispatch runners and LSP integration.
+
+Formatting uses a single selected formatter per file: explicit project config wins, otherwise pi-lens uses a smart default where supported, and config-first ecosystems do not autoformat without config.
+
+Dispatch is diagnostics-oriented: automatic formatting and safe autofix happen in the post-write pipeline rather than through dispatch format-check runners.
 
 | Language | LSP | Dispatch Runners | Formatter |
 |---|---|---|---|
@@ -202,8 +206,8 @@ pi-lens supports **35+ languages** through dispatch runners and LSP integration:
 | Ruby | ✓ | lsp, rubocop, tree-sitter | rubocop, standardrb |
 | C/C++ | ✓ | lsp, cpp-check | clang-format |
 | Shell | ✓ | lsp, shellcheck | shfmt |
-| CSS/SCSS/Less | ✓ | lsp, stylelint, prettier-check | biome, prettier |
-| HTML | ✓ | lsp, htmlhint, prettier-check | prettier |
+| CSS/SCSS/Less | ✓ | lsp, stylelint | biome, prettier |
+| HTML | ✓ | lsp, htmlhint | prettier |
 | YAML | ✓ | lsp, yamllint | prettier |
 | JSON | ✓ | lsp | biome, prettier |
 | SQL | — | sqlfluff | sqlfluff |
