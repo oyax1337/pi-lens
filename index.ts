@@ -183,7 +183,10 @@ function getEffectiveReadLimit(
 	);
 }
 
-function getTouchedLinesForGuard(event: unknown): [number, number] | undefined {
+function getTouchedLinesForGuard(
+	event: unknown,
+	filePath?: string,
+): [number, number] | undefined {
 	if (isToolCallEventType("edit", event as any)) {
 		const editInput = (event as { input?: unknown }).input as {
 			oldRange?: { start: { line: number }; end: { line: number } };
@@ -205,7 +208,11 @@ function getTouchedLinesForGuard(event: unknown): [number, number] | undefined {
 	}
 
 	if (isToolCallEventType("write", event as any)) {
-		return [1, Number.MAX_SAFE_INTEGER];
+		// Use the actual file line count so the coverage check is realistic.
+		// MAX_SAFE_INTEGER caused every write to be blocked unless the agent
+		// had read an impossibly large range.
+		const lineCount = filePath ? countFileLines(filePath) : 1;
+		return [1, lineCount];
 	}
 
 	return undefined;
@@ -966,7 +973,7 @@ export default function (pi: ExtensionAPI) {
 				typeof readGuard?.isNewFile !== "function" ||
 				!readGuard.isNewFile(filePath);
 			if (readGuard && isExistingFile) {
-				const touchedLines = getTouchedLinesForGuard(event);
+				const touchedLines = getTouchedLinesForGuard(event, filePath);
 				const verdict =
 					typeof readGuard.checkEdit === "function"
 						? readGuard.checkEdit(filePath, touchedLines)
