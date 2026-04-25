@@ -1,14 +1,17 @@
 import * as path from "node:path";
-import * as fs from "node:fs";
 import { safeSpawnAsync } from "../../safe-spawn.js";
-import { createAvailabilityChecker } from "./utils/runner-helpers.js";
+import { getLinterPolicyForCwd, hasPhpstanConfig } from "../../tool-policy.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
+import {
+	createAvailabilityChecker,
+	resolveVendorToolCommand,
+} from "./utils/runner-helpers.js";
 
 const phpstan = createAvailabilityChecker("phpstan", ".phar");
 
@@ -55,27 +58,9 @@ function parsePhpstanJson(raw: string, filePath: string): Diagnostic[] {
 	}
 }
 
-function hasPhpstanConfig(cwd: string): boolean {
-	return (
-		fs.existsSync(path.join(cwd, "phpstan.neon")) ||
-		fs.existsSync(path.join(cwd, "phpstan.neon.dist")) ||
-		fs.existsSync(path.join(cwd, "phpstan.dist.neon"))
-	);
-}
-
 function resolvePhpstan(cwd: string): string | null {
 	if (phpstan.isAvailable(cwd)) return phpstan.getCommand(cwd);
-
-	// Check vendor/bin (Composer install)
-	const vendorBin = path.join(
-		cwd,
-		"vendor",
-		"bin",
-		process.platform === "win32" ? "phpstan.bat" : "phpstan",
-	);
-	if (fs.existsSync(vendorBin)) return vendorBin;
-
-	return null;
+	return resolveVendorToolCommand(cwd, "phpstan", ".bat");
 }
 
 const phpstanRunner: RunnerDefinition = {
@@ -87,6 +72,10 @@ const phpstanRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("phpstan")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
 
 		// Only run if phpstan config present — avoids noisy defaults on unconfigured projects
 		if (!hasPhpstanConfig(cwd)) {

@@ -119,7 +119,7 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 	},
 	css: {
 		mode: "fallback",
-		runnerIds: ["lsp", "stylelint", "prettier-check"],
+		runnerIds: ["lsp", "stylelint"],
 		filterKinds: ["css"],
 	},
 	yaml: {
@@ -134,7 +134,7 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 	},
 	html: {
 		mode: "fallback",
-		runnerIds: ["lsp", "htmlhint", "prettier-check"],
+		runnerIds: ["lsp", "htmlhint"],
 		filterKinds: ["html"],
 	},
 	docker: {

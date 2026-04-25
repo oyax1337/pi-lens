@@ -10,9 +10,9 @@
  * that haven't opted in.
  */
 
-import * as fs from "node:fs";
 import * as path from "node:path";
 import { safeSpawnAsync } from "../../safe-spawn.js";
+import { getLinterPolicyForCwd, hasGolangciConfig } from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -20,21 +20,12 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { tryLazyInstall } from "./utils/lazy-installer.js";
+import {
+	createAvailabilityChecker,
+	resolveAvailableOrInstall,
+} from "./utils/runner-helpers.js";
 
-const GOLANGCI_CONFIGS = [
-	".golangci.yml",
-	".golangci.yaml",
-	".golangci.toml",
-	".golangci.json",
-];
-
-function hasGolangciConfig(cwd: string): boolean {
-	for (const cfg of GOLANGCI_CONFIGS) {
-		if (fs.existsSync(path.join(cwd, cfg))) return true;
-	}
-	return false;
-}
+const golangci = createAvailabilityChecker("golangci-lint", ".exe");
 
 interface GolangciIssue {
 	FromLinter: string;
@@ -87,31 +78,22 @@ const golangciRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("golangci-lint")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
 
 		// Only run if project has opted in via config file
 		if (!hasGolangciConfig(cwd)) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
-		// Check availability
-		const versionCheck = await safeSpawnAsync("golangci-lint", ["version"], {
-			timeout: 10000,
-			cwd,
-		});
-		if (versionCheck.error || versionCheck.status !== 0) {
-			await tryLazyInstall("golangci-lint", cwd);
-			const retry = await safeSpawnAsync("golangci-lint", ["version"], {
-				timeout: 10000,
-				cwd,
-			});
-			if (retry.error || retry.status !== 0) {
-				return { status: "skipped", diagnostics: [], semantic: "none" };
-			}
-		}
+		const cmd = await resolveAvailableOrInstall(golangci, "golangci-lint", cwd);
+		if (!cmd) return { status: "skipped", diagnostics: [], semantic: "none" };
 
 		// Run on the specific file. golangci-lint accepts file paths directly.
 		const result = await safeSpawnAsync(
-			"golangci-lint",
+			cmd,
 			["run", "--out-format=json", ctx.filePath],
 			{ timeout: 60000, cwd },
 		);
@@ -121,17 +103,22 @@ const golangciRunner: RunnerDefinition = {
 		}
 
 		const diagnostics = parseGolangciJson(result.stdout, ctx.filePath);
-
-		if (diagnostics.length === 0) {
-			// Non-zero exit but no parseable issues — likely a config/tool error
-			return { status: "skipped", diagnostics: [], semantic: "none" };
+		let semantic: RunnerResult["semantic"] = "none";
+		if (diagnostics.some((d) => d.semantic === "blocking")) {
+			semantic = "blocking";
+		} else if (diagnostics.length > 0) {
+			semantic = "warning";
 		}
 
-		const hasErrors = diagnostics.some((d) => d.semantic === "blocking");
+		if (semantic === "none") {
+			// Non-zero exit but no parseable issues — likely a config/tool error
+			return { status: "skipped", diagnostics: [], semantic };
+		}
+
 		return {
-			status: hasErrors ? "failed" : "succeeded",
+			status: semantic === "blocking" ? "failed" : "succeeded",
 			diagnostics,
-			semantic: hasErrors ? "blocking" : "warning",
+			semantic,
 		};
 	},
 };

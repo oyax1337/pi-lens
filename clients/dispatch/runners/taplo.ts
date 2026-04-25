@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { safeSpawnAsync } from "../../safe-spawn.js";
+import { getLinterPolicyForCwd } from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -55,6 +56,10 @@ const taploRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("taplo")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
 
 		let cmd: string | null = null;
 		if (taplo.isAvailable(cwd)) {

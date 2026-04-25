@@ -8,6 +8,7 @@ import {
 	resolveNodeToolCommand,
 	resolveToolCommand,
 	resolveToolCommandWithInstallFallback,
+	resolveVendorToolCommand,
 } from "../../../../clients/dispatch/runners/utils/runner-helpers.ts";
 import { setupTestEnvironment } from "../../test-utils.js";
 
@@ -55,6 +56,24 @@ describe("runner-helpers availability checker", () => {
 		try {
 			expect(resolveNodeToolCommand(env.tmpDir, "eslint")).toBe("eslint");
 			expect(resolveToolCommand(env.tmpDir, "eslint")).toBe("eslint");
+		} finally {
+			env.cleanup();
+		}
+	});
+
+	it("resolves vendor/bin commands by walking up the directory tree", () => {
+		const env = setupTestEnvironment("pi-lens-vendor-bin-");
+		try {
+			const nested = path.join(env.tmpDir, "src", "Controllers");
+			const vendorUnix = path.join(env.tmpDir, "vendor", "bin", "phpstan");
+			const vendorWin = path.join(env.tmpDir, "vendor", "bin", "phpstan.bat");
+			fs.mkdirSync(path.dirname(vendorUnix), { recursive: true });
+			fs.mkdirSync(nested, { recursive: true });
+			fs.writeFileSync(vendorUnix, "#!/bin/sh\nexit 0\n");
+			fs.writeFileSync(vendorWin, "@echo off\n");
+
+			const resolved = resolveVendorToolCommand(nested, "phpstan", ".bat");
+			expect(resolved).toContain(path.join("vendor", "bin"));
 		} finally {
 			env.cleanup();
 		}

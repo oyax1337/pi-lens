@@ -8,7 +8,7 @@
  */
 
 import { safeSpawnAsync } from "../../safe-spawn.js";
-import { hasEslintConfig } from "../../tool-policy.js";
+import { getAutofixCapability, hasEslintConfig } from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -38,6 +38,7 @@ function parseEslintJson(
 ): { diagnostics: Diagnostic[]; parseError?: string } {
 	try {
 		const results: EslintFileResult[] = JSON.parse(raw);
+		const autofix = getAutofixCapability("eslint");
 		const diagnostics: Diagnostic[] = [];
 
 		for (const fileResult of results) {
@@ -54,6 +55,12 @@ function parseEslintJson(
 					tool: "eslint",
 					rule: msg.ruleId ?? undefined,
 					fixable: !!msg.fix,
+					autoFixAvailable:
+						!!msg.fix && (autofix?.safePipelineAutofix ?? false),
+					fixKind:
+						!!msg.fix && autofix?.fixKind !== "none"
+							? autofix?.fixKind
+							: undefined,
 				});
 			}
 		}

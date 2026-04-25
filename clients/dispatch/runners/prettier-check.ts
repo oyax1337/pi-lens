@@ -1,6 +1,6 @@
-import * as nodeFs from "node:fs";
 import * as path from "node:path";
 import { safeSpawnAsync } from "../../safe-spawn.js";
+import { hasPrettierConfig } from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -15,31 +15,6 @@ import {
 } from "./utils/runner-helpers.js";
 
 const prettier = createAvailabilityChecker("prettier", ".cmd");
-
-const PRETTIER_CONFIGS = [
-	".prettierrc",
-	".prettierrc.json",
-	".prettierrc.yml",
-	".prettierrc.yaml",
-	".prettierrc.js",
-	".prettierrc.cjs",
-	".prettierrc.mjs",
-	"prettier.config.js",
-	"prettier.config.cjs",
-	"prettier.config.mjs",
-];
-
-function hasPrettierConfig(cwd: string): boolean {
-	if (PRETTIER_CONFIGS.some((cfg) => nodeFs.existsSync(path.join(cwd, cfg))))
-		return true;
-	try {
-		const pkg = JSON.parse(
-			nodeFs.readFileSync(path.join(cwd, "package.json"), "utf-8"),
-		);
-		if (pkg.prettier) return true;
-	} catch {}
-	return false;
-}
 
 async function resolvePrettier(cwd: string): Promise<string | null> {
 	if (prettier.isAvailable(cwd)) return prettier.getCommand(cwd);

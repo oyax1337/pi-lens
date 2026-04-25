@@ -1,5 +1,5 @@
 import { safeSpawn } from "../../safe-spawn.js";
-import { hasSqlfluffConfig } from "../../tool-policy.js";
+import { getLinterPolicyForCwd, hasSqlfluffConfig } from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -65,6 +65,10 @@ const sqlfluffRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("sqlfluff")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
 		const hasConfig = hasSqlfluffConfig(cwd);
 		if (!hasConfig) {
 			ctx.log("sqlfluff: no config detected, using ANSI dialect defaults");

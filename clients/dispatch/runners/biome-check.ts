@@ -6,12 +6,14 @@
  * mutating files mid-dispatch after LSP sync has already happened.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { resolvePackagePath } from "../../package-root.js";
 import { safeSpawnAsync } from "../../safe-spawn.js";
-import { getJstsLintPolicyForCwd, hasBiomeConfig } from "../../tool-policy.js";
+import {
+	getAutofixCapability,
+	getBiomeConfigPath,
+	getJstsLintPolicyForCwd,
+} from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -20,58 +22,7 @@ import type {
 	RunnerResult,
 } from "../types.js";
 
-function hasUserBiomeConfig(cwd: string): boolean {
-	return hasBiomeConfig(cwd);
-}
-
-interface BiomeBinary {
-	cmd: string;
-	argsPrefix: string[];
-}
-
-// Cache binary resolution to avoid repeated fs checks
-let cachedBiomeBinary: BiomeBinary | null = null;
-let cachedCwd: string | null = null;
-
-function findBiome(cwd: string): BiomeBinary {
-	// Return cached result if cwd hasn't changed
-	if (cachedBiomeBinary && cachedCwd === cwd) {
-		return cachedBiomeBinary;
-	}
-
-	const isWin = process.platform === "win32";
-	const local = path.join(
-		cwd,
-		"node_modules",
-		".bin",
-		isWin ? "biome.cmd" : "biome",
-	);
-	if (fs.existsSync(local)) {
-		cachedBiomeBinary = { cmd: local, argsPrefix: [] };
-		cachedCwd = cwd;
-		return cachedBiomeBinary;
-	}
-
-	// Check pi-lens tools directory (where ensureTool("biome") auto-installs)
-	const piLensBin = path.join(
-		os.homedir(),
-		".pi-lens",
-		"tools",
-		"node_modules",
-		".bin",
-		isWin ? "biome.cmd" : "biome",
-	);
-	if (fs.existsSync(piLensBin)) {
-		cachedBiomeBinary = { cmd: piLensBin, argsPrefix: [] };
-		cachedCwd = cwd;
-		return cachedBiomeBinary;
-	}
-
-	// Fall back to npx (slower but works anywhere, auto-installs if needed)
-	cachedBiomeBinary = { cmd: "npx", argsPrefix: ["@biomejs/biome"] };
-	cachedCwd = cwd;
-	return cachedBiomeBinary;
-}
+import { resolveToolCommandWithInstallFallback } from "./utils/runner-helpers.js";
 
 interface BiomeDiagnostic {
 	severity: "error" | "warning" | "information" | "hint";
@@ -92,6 +43,7 @@ function parseBiomeJson(
 	try {
 		const result = JSON.parse(raw);
 		const diagnostics: BiomeDiagnostic[] = result.diagnostics || [];
+		const autofix = getAutofixCapability("biome");
 
 		return {
 			diagnostics: diagnostics.map((d) => ({
@@ -105,6 +57,13 @@ function parseBiomeJson(
 				tool: "biome",
 				rule: d.category,
 				fixable: d.tags?.includes("fixable") ?? false,
+				autoFixAvailable:
+					(d.tags?.includes("fixable") ?? false) &&
+					(autofix?.safePipelineAutofix ?? false),
+				fixKind:
+					d.tags?.includes("fixable") && autofix?.fixKind !== "none"
+						? autofix?.fixKind
+						: undefined,
 			})),
 		};
 	} catch (err) {
@@ -131,31 +90,23 @@ const biomeCheckJsonRunner: RunnerDefinition = {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
-		// Check if Biome is available (resolve binary path)
-		const biomeBinary = findBiome(cwd);
+		const cmd = await resolveToolCommandWithInstallFallback(cwd, "biome");
+		if (!cmd) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
 
 		// Build config path — use user's if exists, else pi-lens config
-		const userHasConfig = hasUserBiomeConfig(cwd);
-		const configArg = userHasConfig
-			? [
-					"--config-path=" +
-						path.join(
-							cwd,
-							fs.existsSync(path.join(cwd, "biome.jsonc"))
-								? "biome.jsonc"
-								: "biome.json",
-						),
-				]
-			: [
-					"--config-path=" +
-						resolvePackagePath(import.meta.url, "config/biome/core.jsonc"),
-				];
+		const userConfigPath = getBiomeConfigPath(cwd);
+		const configArg = [
+			"--config-path=" +
+				(userConfigPath ??
+					resolvePackagePath(import.meta.url, "config/biome/core.jsonc")),
+		];
 
 		// Run biome lint (diagnostics only - format is handled separately)
 		const checkResult = await safeSpawnAsync(
-			biomeBinary.cmd,
+			cmd,
 			[
-				...biomeBinary.argsPrefix,
 				"lint",
 				"--reporter=json",
 				"--no-errors-on-unmatched",
@@ -197,16 +148,17 @@ const biomeCheckJsonRunner: RunnerDefinition = {
 		}
 
 		const diagnostics = parsed.diagnostics;
-
-		if (diagnostics.length === 0) {
-			return { status: "succeeded", diagnostics: [], semantic: "none" };
+		let semantic: RunnerResult["semantic"] = "none";
+		if (diagnostics.some((d) => d.semantic === "blocking")) {
+			semantic = "blocking";
+		} else if (diagnostics.length > 0) {
+			semantic = "warning";
 		}
 
-		const hasErrors = diagnostics.some((d) => d.semantic === "blocking");
 		return {
-			status: hasErrors ? "failed" : "succeeded",
+			status: semantic === "blocking" ? "failed" : "succeeded",
 			diagnostics,
-			semantic: hasErrors ? "blocking" : "warning",
+			semantic,
 		};
 	},
 };

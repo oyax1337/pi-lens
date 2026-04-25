@@ -161,6 +161,33 @@ export function resolveToolCommand(cwd: string, toolId: string): string | null {
 	return resolveNodeToolCommand(cwd, spec.command, spec.windowsExt ?? ".cmd");
 }
 
+export function resolveVendorToolCommand(
+	cwd: string,
+	toolName: string,
+	windowsExt = ".bat",
+): string | null {
+	const isWin = process.platform === "win32";
+	const candidates = isWin
+		? [
+				path.join("vendor", "bin", `${toolName}${windowsExt}`),
+				path.join("vendor", "bin", toolName),
+			]
+		: [path.join("vendor", "bin", toolName)];
+	let dir = cwd;
+	const root = path.parse(dir).root;
+	while (true) {
+		for (const candidate of candidates) {
+			const full = path.join(dir, candidate);
+			if (fs.existsSync(full)) return full;
+		}
+		if (dir === root) break;
+		const parent = path.dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return null;
+}
+
 export async function resolveToolCommandWithInstallFallback(
 	cwd: string,
 	toolId: string,

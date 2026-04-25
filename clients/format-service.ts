@@ -2,13 +2,13 @@
  * Format Service for pi-lens
  *
  * Concurrent formatter execution using Effect-TS.
- * Auto-formats files on write with multiple formatters per file.
+ * Auto-formats files on write with a single selected formatter per file.
  *
  * Key features:
- * - Auto-detects formatters based on project config
- * - Runs multiple formatters concurrently with concurrency limits
+ * - Chooses one formatter per file using config-gated or smart-default policy
+ * - Runs formatting with timeout protection
  * - FileTime integration for safety
- * - Multiple formatters per file (e.g., biome + prettier both run)
+ * - Explicit config wins; otherwise smart defaults apply
  */
 
 import * as path from "node:path";
@@ -23,8 +23,8 @@ import {
 
 // --- Configuration ---
 
-/** Maximum concurrent formatters to prevent resource contention */
-const DEFAULT_FORMATTER_CONCURRENCY = 2;
+/** Reserved for future batching; formatting currently runs one selected formatter per file. */
+const DEFAULT_FORMATTER_CONCURRENCY = 1;
 
 // --- Types ---
 
@@ -59,8 +59,7 @@ export class FormatService {
 	}
 
 	/**
-	 * Format a file with all detected formatters
-	 * Runs formatters with limited concurrency to prevent resource contention
+	 * Format a file with the single selected formatter for that file.
 	 */
 	async formatFile(
 		filePath: string,
@@ -133,7 +132,7 @@ export class FormatService {
 	}
 
 	/**
-	 * Run formatters sequentially to avoid concurrent writes to the same file.
+	 * Run the selected formatter with timeout protection.
 	 */
 	private async runFormattersWithConcurrency(
 		filePath: string,

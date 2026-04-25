@@ -16,6 +16,19 @@ import {
 	getAutoInstallToolIdForFormatter,
 	getFormatterPolicyForFile,
 	getSmartDefaultFormatterName,
+	hasBiomeConfig,
+	hasBlackConfig,
+	hasClangFormatConfig,
+	hasNearestPackageJsonDependency,
+	hasNearestPackageJsonField,
+	hasOcamlformatConfig,
+	hasPhpCsFixerConfig,
+	hasPrettierConfig,
+	hasRubocopConfig,
+	hasRuffConfig,
+	hasSqlfluffConfig,
+	hasStandardrbConfig,
+	hasStyluaConfig,
 } from "./tool-policy.js";
 
 const _lazyInstallAttempts = new Set<string>();
@@ -97,15 +110,6 @@ async function findUp(
 	}
 
 	return found;
-}
-
-async function readJson(filePath: string): Promise<unknown> {
-	try {
-		const content = await fs.readFile(filePath, "utf-8");
-		return JSON.parse(content);
-	} catch {
-		return {};
-	}
 }
 
 async function which(command: string): Promise<string | null> {
@@ -231,6 +235,53 @@ async function canUseBundleExec(cwd: string): Promise<boolean> {
 	return lockfiles.length > 0;
 }
 
+async function resolveManagedSmartDefaultCommand(
+	formatterName: string,
+	filePath: string,
+	args: string[],
+): Promise<string[] | null> {
+	const toolId = getAutoInstallToolIdForFormatter(formatterName);
+	if (!toolId) return null;
+	const { ensureTool } = await import("./installer/index.js");
+	const installed = await ensureTool(toolId);
+	if (!installed) return null;
+	return [installed, ...args, filePath];
+}
+
+function hasExplicitFormatterConfig(
+	formatterName: string,
+	cwd: string,
+): boolean {
+	switch (formatterName) {
+		case "biome":
+			return hasBiomeConfig(cwd);
+		case "prettier":
+			return (
+				hasPrettierConfig(cwd) || hasNearestPackageJsonField(cwd, "prettier")
+			);
+		case "ruff":
+			return hasRuffConfig(cwd);
+		case "black":
+			return hasBlackConfig(cwd);
+		case "sqlfluff":
+			return hasSqlfluffConfig(cwd);
+		case "rubocop":
+			return hasRubocopConfig(cwd);
+		case "standardrb":
+			return hasStandardrbConfig(cwd);
+		case "clang-format":
+			return hasClangFormatConfig(cwd);
+		case "php-cs-fixer":
+			return hasPhpCsFixerConfig(cwd);
+		case "stylua":
+			return hasStyluaConfig(cwd);
+		case "ocamlformat":
+			return hasOcamlformatConfig(cwd);
+		default:
+			return false;
+	}
+}
+
 // --- Formatter Definitions ---
 
 export const biomeFormatter: FormatterInfo = {
@@ -266,20 +317,10 @@ export const biomeFormatter: FormatterInfo = {
 		".htm",
 	],
 	async detect(cwd: string) {
-		const configs = ["biome.json", "biome.jsonc"];
-		const found = await findUp(configs, cwd);
-		if (found.length > 0) return true;
-
-		// Check if biome is in the nearest package.json devDependencies
-		const pkgPaths = await findUp(["package.json"], cwd);
-		if (pkgPaths.length > 0) {
-			const pkg = (await readJson(pkgPaths[0])) as {
-				devDependencies?: Record<string, string>;
-			};
-			if (pkg.devDependencies?.["@biomejs/biome"]) return true;
-		}
-
-		return false;
+		return (
+			hasBiomeConfig(cwd) ||
+			hasNearestPackageJsonDependency(cwd, "@biomejs/biome")
+		);
 	},
 };
 
@@ -289,7 +330,7 @@ export const prettierFormatter: FormatterInfo = {
 	async resolveCommand(filePath, cwd) {
 		const local = await findInNodeModules("prettier", cwd);
 		if (local) return [local, "--write", filePath];
-		return null;
+		return resolveManagedSmartDefaultCommand("prettier", filePath, ["--write"]);
 	},
 	extensions: [
 		".js",
@@ -318,36 +359,11 @@ export const prettierFormatter: FormatterInfo = {
 		".gql",
 	],
 	async detect(cwd: string) {
-		// Check for prettier config files
-		const configs = [
-			".prettierrc",
-			".prettierrc.json",
-			".prettierrc.yml",
-			".prettierrc.yaml",
-			".prettierrc.js",
-			".prettierrc.cjs",
-			"prettier.config.js",
-			"prettier.config.cjs",
-		];
-		const found = await findUp(configs, cwd);
-		if (found.length > 0) return true;
-
-		// Check the nearest package.json for prettier
-		const pkgPaths = await findUp(["package.json"], cwd);
-		if (pkgPaths.length > 0) {
-			const pkg = (await readJson(pkgPaths[0])) as {
-				devDependencies?: Record<string, string>;
-				dependencies?: Record<string, string>;
-				prettier?: unknown;
-			};
-			if (pkg.devDependencies?.prettier || pkg.dependencies?.prettier) {
-				return true;
-			}
-			// Also check if "prettier" field exists in package.json
-			if (pkg.prettier !== undefined) return true;
-		}
-
-		return false;
+		return (
+			hasPrettierConfig(cwd) ||
+			hasNearestPackageJsonDependency(cwd, "prettier") ||
+			hasNearestPackageJsonField(cwd, "prettier")
+		);
 	},
 };
 
@@ -366,29 +382,7 @@ export const ruffFormatter: FormatterInfo = {
 		return null;
 	},
 	async detect(cwd: string) {
-		// Check for ruff config
-		const configs = ["pyproject.toml", "ruff.toml", ".ruff.toml"];
-		const found = await findUp(configs, cwd);
-
-		for (const configPath of found) {
-			if (configPath.endsWith("pyproject.toml")) {
-				const content = await fs.readFile(configPath, "utf-8");
-				if (content.includes("[tool.ruff]")) return true;
-			} else {
-				return true; // ruff.toml or .ruff.toml found
-			}
-		}
-
-		// Check if ruff in requirements
-		const deps = ["requirements.txt", "pyproject.toml", "Pipfile"];
-		for (const dep of deps) {
-			const depPath = path.join(cwd, dep);
-			if (await fileExists(depPath)) {
-				const content = await fs.readFile(depPath, "utf-8");
-				if (content.includes("ruff")) return true;
-			}
-		}
-
+		if (hasRuffConfig(cwd)) return true;
 		// No-config fallback: if Ruff is already available, allow formatter usage.
 		// This keeps Python default behavior consistent with startup defaults.
 		const { getToolPath } = await import("./installer/index.js");
@@ -407,25 +401,7 @@ export const blackFormatter: FormatterInfo = {
 		return null;
 	},
 	async detect(cwd: string) {
-		// Check for black config in pyproject.toml
-		const configs = ["pyproject.toml"];
-		const found = await findUp(configs, cwd);
-		for (const configPath of found) {
-			const content = await fs.readFile(configPath, "utf-8");
-			if (content.includes("[tool.black]")) return true;
-		}
-
-		// Check if black in requirements
-		const deps = ["requirements.txt", "pyproject.toml", "Pipfile"];
-		for (const dep of deps) {
-			const depPath = path.join(cwd, dep);
-			if (await fileExists(depPath)) {
-				const content = await fs.readFile(depPath, "utf-8");
-				if (content.toLowerCase().includes("black")) return true;
-			}
-		}
-
-		return false;
+		return hasBlackConfig(cwd);
 	},
 };
 
@@ -439,32 +415,7 @@ export const sqlfluffFormatter: FormatterInfo = {
 		return null;
 	},
 	async detect(cwd: string) {
-		const configs = [".sqlfluff", "pyproject.toml", "setup.cfg", "tox.ini"];
-		const found = await findUp(configs, cwd);
-		for (const configPath of found) {
-			if (configPath.endsWith("pyproject.toml")) {
-				const content = await fs.readFile(configPath, "utf-8");
-				if (content.includes("[tool.sqlfluff]")) return true;
-				continue;
-			}
-			if (configPath.endsWith("setup.cfg") || configPath.endsWith("tox.ini")) {
-				const content = await fs.readFile(configPath, "utf-8");
-				if (content.includes("[sqlfluff]")) return true;
-				continue;
-			}
-			if (configPath.endsWith(".sqlfluff")) return true;
-		}
-
-		const deps = ["requirements.txt", "pyproject.toml", "Pipfile"];
-		for (const dep of deps) {
-			const depPath = path.join(cwd, dep);
-			if (await fileExists(depPath)) {
-				const content = await fs.readFile(depPath, "utf-8");
-				if (content.toLowerCase().includes("sqlfluff")) return true;
-			}
-		}
-
-		return false;
+		return hasSqlfluffConfig(cwd);
 	},
 };
 
@@ -519,8 +470,15 @@ export const shfmtFormatter: FormatterInfo = {
 	name: "shfmt",
 	command: ["shfmt", "-w", "$FILE"],
 	extensions: [".sh", ".bash"],
+	async resolveCommand(filePath, _cwd) {
+		const inPath = await which("shfmt");
+		if (inPath) return [inPath, "-w", filePath];
+		return resolveManagedSmartDefaultCommand("shfmt", filePath, ["-w"]);
+	},
 	async detect(_cwd: string) {
-		return (await which("shfmt")) !== null;
+		if ((await which("shfmt")) !== null) return true;
+		const { getToolPath } = await import("./installer/index.js");
+		return Boolean(await getToolPath("shfmt"));
 	},
 };
 
@@ -587,25 +545,10 @@ export const rubocopFormatter: FormatterInfo = {
 		return null;
 	},
 	async detect(cwd: string) {
-		// Only run if project has explicit RuboCop config
-		const configs = [".rubocop.yml", ".rubocop.yaml"];
-		const found = await findUp(configs, cwd);
-		if (found.length > 0) {
-			if ((await which("rubocop")) !== null) return true;
-			await tryLazyInstallFormatterTool("rubocop", cwd);
-			return (await which("rubocop")) !== null;
-		}
-		// Or rubocop in Gemfile
-		const gemfile = path.join(cwd, "Gemfile");
-		if (await fileExists(gemfile)) {
-			const content = await fs.readFile(gemfile, "utf-8");
-			if (content.includes("rubocop")) {
-				if ((await which("rubocop")) !== null) return true;
-				await tryLazyInstallFormatterTool("rubocop", cwd);
-				return (await which("rubocop")) !== null;
-			}
-		}
-		return false;
+		if (!hasRubocopConfig(cwd)) return false;
+		if ((await which("rubocop")) !== null) return true;
+		await tryLazyInstallFormatterTool("rubocop", cwd);
+		return (await which("rubocop")) !== null;
 	},
 };
 
@@ -619,14 +562,8 @@ export const standardrbFormatter: FormatterInfo = {
 		return null;
 	},
 	async detect(cwd: string) {
-		// standardrb is only used if explicitly in Gemfile (no config file — it is the config)
-		const gemfile = path.join(cwd, "Gemfile");
-		if (await fileExists(gemfile)) {
-			const content = await fs.readFile(gemfile, "utf-8");
-			if (content.includes("standard"))
-				return (await which("standardrb")) !== null;
-		}
-		return false;
+		if (!hasStandardrbConfig(cwd)) return false;
+		return (await which("standardrb")) !== null;
 	},
 };
 
@@ -730,10 +667,9 @@ export const taploFormatter: FormatterInfo = {
 	command: ["taplo", "fmt", "$FILE"],
 	extensions: [".toml"],
 	async resolveCommand(filePath, _cwd) {
-		const { getToolPath } = await import("./installer/index.js");
-		const installed = await getToolPath("taplo");
-		if (installed) return [installed, "fmt", filePath];
-		return null;
+		const inPath = await which("taplo");
+		if (inPath) return [inPath, "fmt", filePath];
+		return resolveManagedSmartDefaultCommand("taplo", filePath, ["fmt"]);
 	},
 	async detect(_cwd: string) {
 		if ((await which("taplo")) !== null) return true;
@@ -801,97 +737,52 @@ export async function getFormattersForFile(
 
 	// Detect formatters for this extension
 	const matching = ALL_FORMATTERS.filter((f) => f.extensions.includes(ext));
-	const enabled: FormatterInfo[] = [];
 	const formatterPolicy = getFormatterPolicyForFile(filePath);
 	const smartDefaultFormatterName = getSmartDefaultFormatterName(filePath);
-	const preferBiomeDefault = smartDefaultFormatterName === "biome";
 
-	// Check for Biome first (preferred default)
-	const biomeFormatter = matching.find((f) => f.name === "biome");
-	const prettierFormatter = matching.find((f) => f.name === "prettier");
-	let biomeEnabled = false;
-	let prettierEnabled = false;
-	if (biomeFormatter) {
-		try {
-			biomeEnabled = await biomeFormatter.detect(cwd);
-			if (biomeEnabled || (preferBiomeDefault && !prettierFormatter)) {
-				enabled.push(biomeFormatter);
-				biomeEnabled = true;
-			}
-		} catch (err) {
-			// pi-lens-ignore: missing-error-propagation — optional formatter detection, skip on failure
-			console.error(
-				`[format] Detection failed for ${biomeFormatter.name}:`,
-				err,
-			);
-		}
-	}
+	const candidateFormatters = formatterPolicy?.formatterNames?.length
+		? matching.filter((f) => formatterPolicy.formatterNames.includes(f.name))
+		: matching;
 
-	if (prettierFormatter) {
-		try {
-			prettierEnabled = await prettierFormatter.detect(cwd);
-			if (prettierEnabled && !biomeEnabled) {
-				enabled.push(prettierFormatter);
-			}
-		} catch (err) {
-			// pi-lens-ignore: missing-error-propagation — optional formatter detection, skip on failure
-			console.error(
-				`[format] Detection failed for ${prettierFormatter.name}:`,
-				err,
-			);
-		}
-	}
-
-	if (
-		smartDefaultFormatterName === "biome" &&
-		!biomeEnabled &&
-		!prettierEnabled &&
-		biomeFormatter
-	) {
-		enabled.push(biomeFormatter);
-		biomeEnabled = true;
-	}
-
-	if (smartDefaultFormatterName === "ruff") {
-		const ruffFormatter = matching.find((f) => f.name === "ruff");
-		const blackFormatter = matching.find((f) => f.name === "black");
-		const hasExplicitPythonFormatter = enabled.some(
-			(formatter) => formatter.name === "black" || formatter.name === "ruff",
+	let selected: FormatterInfo | undefined;
+	if (formatterPolicy) {
+		const explicitlyConfigured = candidateFormatters.filter((formatter) =>
+			hasExplicitFormatterConfig(formatter.name, cwd),
 		);
-		if (!hasExplicitPythonFormatter && !blackFormatter && ruffFormatter) {
-			enabled.push(ruffFormatter);
-		}
-	}
-
-	// If Biome is enabled, skip Prettier for overlapping extensions
-	// (Biome is the preferred default, Prettier is fallback)
-	const skipPrettier = biomeEnabled;
-
-	for (const formatter of matching) {
-		if (
-			formatterPolicy &&
-			formatterPolicy.formatterNames.length > 0 &&
-			!formatterPolicy.formatterNames.includes(formatter.name)
-		) {
-			continue;
-		}
-		// Skip Biome (already checked above)
-		if (formatter.name === "biome") continue;
-		if (formatter.name === "prettier") continue;
-
-		// Skip Prettier if Biome is enabled (prevents race condition)
-		if (skipPrettier && formatter.name === "prettier") continue;
-
-		try {
-			const isEnabled = await formatter.detect(cwd);
-			if (isEnabled) {
-				enabled.push(formatter);
+		if (explicitlyConfigured.length > 0) {
+			selected = formatterPolicy.defaultFormatter
+				? (explicitlyConfigured.find(
+						(f) => f.name === formatterPolicy.defaultFormatter,
+					) ?? explicitlyConfigured[0])
+				: explicitlyConfigured[0];
+		} else if (smartDefaultFormatterName) {
+			const smartDefaultFormatter = candidateFormatters.find(
+				(f) => f.name === smartDefaultFormatterName,
+			);
+			if (smartDefaultFormatter) {
+				const autoInstallToolId = getAutoInstallToolIdForFormatter(
+					smartDefaultFormatter.name,
+				);
+				if (autoInstallToolId || (await smartDefaultFormatter.detect(cwd))) {
+					selected = smartDefaultFormatter;
+				}
 			}
-		} catch (err) {
-			// pi-lens-ignore: missing-error-propagation — optional formatter detection, skip on failure
-			console.error(`[format] Detection failed for ${formatter.name}:`, err);
+		}
+	} else {
+		for (const formatter of candidateFormatters) {
+			try {
+				if (await formatter.detect(cwd)) {
+					selected = formatter;
+					break;
+				}
+			} catch (err) {
+				// pi-lens-ignore: missing-error-propagation — optional formatter detection, skip on failure
+				console.error(`[format] Detection failed for ${formatter.name}:`, err);
+			}
 		}
 	}
+
+	const enabled = selected ? [selected] : [];
 
 	// Store the list of enabled formatter names in cache
 	const enabledNames = enabled.map((f) => f.name);

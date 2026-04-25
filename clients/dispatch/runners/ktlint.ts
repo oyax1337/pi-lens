@@ -1,5 +1,9 @@
 import * as path from "node:path";
 import { safeSpawnAsync } from "../../safe-spawn.js";
+import {
+	getAutofixCapability,
+	getLinterPolicyForCwd,
+} from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -45,6 +49,7 @@ function parseKtlintOutput(raw: string, filePath: string): Diagnostic[] | null {
 		const parsed = normalizeKtlintResults(JSON.parse(raw));
 		if (!parsed) return null;
 
+		const autofix = getAutofixCapability("ktlint");
 		const diagnostics: Diagnostic[] = [];
 		for (const result of parsed) {
 			for (const err of result.errors ?? []) {
@@ -59,6 +64,8 @@ function parseKtlintOutput(raw: string, filePath: string): Diagnostic[] | null {
 					tool: "ktlint",
 					rule: err.ruleId,
 					fixable: true,
+					autoFixAvailable: autofix?.safePipelineAutofix ?? false,
+					fixKind: autofix?.fixKind === "none" ? undefined : autofix?.fixKind,
 				});
 			}
 		}
@@ -84,6 +91,10 @@ const ktlintRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("ktlint")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
 
 		let cmd: string | null = null;
 		if (ktlint.isAvailable(cwd)) {
@@ -121,6 +132,7 @@ const ktlintRunner: RunnerDefinition = {
 						semantic: "warning",
 						tool: "ktlint",
 						fixable: false,
+						autoFixAvailable: false,
 					},
 				],
 				semantic: "warning",
@@ -141,6 +153,7 @@ const ktlintRunner: RunnerDefinition = {
 							semantic: "warning",
 							tool: "ktlint",
 							fixable: false,
+							autoFixAvailable: false,
 						},
 					],
 					semantic: "warning",

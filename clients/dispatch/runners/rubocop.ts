@@ -9,7 +9,11 @@
  */
 
 import { safeSpawnAsync } from "../../safe-spawn.js";
-import { getRubocopCommand } from "../../tool-policy.js";
+import {
+	getAutofixCapability,
+	getLinterPolicyForCwd,
+	getRubocopCommand,
+} from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -50,6 +54,7 @@ const SEVERITY_MAP: Record<string, "error" | "warning" | "info"> = {
 function parseRubocopJson(raw: string, filePath: string): Diagnostic[] {
 	try {
 		const output: RubocopOutput = JSON.parse(raw);
+		const autofix = getAutofixCapability("rubocop");
 		const diagnostics: Diagnostic[] = [];
 
 		for (const file of output.files) {
@@ -66,6 +71,12 @@ function parseRubocopJson(raw: string, filePath: string): Diagnostic[] {
 					tool: "rubocop",
 					rule: offense.cop_name,
 					fixable: offense.correctable,
+					autoFixAvailable:
+						offense.correctable && (autofix?.safePipelineAutofix ?? false),
+					fixKind:
+						offense.correctable && autofix?.fixKind !== "none"
+							? autofix?.fixKind
+							: undefined,
 				});
 			}
 		}
@@ -84,6 +95,10 @@ const rubocopRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("rubocop")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
 		const resolved = await resolveCommandArgsWithInstallFallback(
 			getRubocopCommand(cwd),
 			"rubocop",

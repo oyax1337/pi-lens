@@ -119,11 +119,455 @@ const FORMATTER_POLICY_BY_EXTENSION = new Map<string, FormatterPolicy>([
 			gate: "mixed",
 		},
 	],
+	[
+		".css",
+		{
+			formatterNames: ["biome", "prettier"],
+			defaultFormatter: "biome",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".scss",
+		{
+			formatterNames: ["biome", "prettier"],
+			defaultFormatter: "biome",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".sass",
+		{
+			formatterNames: ["biome", "prettier"],
+			defaultFormatter: "biome",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".less",
+		{
+			formatterNames: ["prettier"],
+			defaultFormatter: "prettier",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".html",
+		{
+			formatterNames: ["prettier"],
+			defaultFormatter: "prettier",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".htm",
+		{
+			formatterNames: ["prettier"],
+			defaultFormatter: "prettier",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".yaml",
+		{
+			formatterNames: ["prettier"],
+			defaultFormatter: "prettier",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".yml",
+		{
+			formatterNames: ["prettier"],
+			defaultFormatter: "prettier",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".md",
+		{
+			formatterNames: ["prettier"],
+			defaultFormatter: "prettier",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".mdx",
+		{
+			formatterNames: ["prettier"],
+			defaultFormatter: "prettier",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".graphql",
+		{
+			formatterNames: ["prettier"],
+			defaultFormatter: "prettier",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".gql",
+		{
+			formatterNames: ["prettier"],
+			defaultFormatter: "prettier",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".kt",
+		{
+			formatterNames: ["ktlint"],
+			defaultFormatter: "ktlint",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".kts",
+		{
+			formatterNames: ["ktlint"],
+			defaultFormatter: "ktlint",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".swift",
+		{
+			formatterNames: ["swiftformat"],
+			defaultFormatter: "swiftformat",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".fs",
+		{
+			formatterNames: ["fantomas"],
+			defaultFormatter: "fantomas",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".fsi",
+		{
+			formatterNames: ["fantomas"],
+			defaultFormatter: "fantomas",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".fsx",
+		{
+			formatterNames: ["fantomas"],
+			defaultFormatter: "fantomas",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".nix",
+		{
+			formatterNames: ["nixfmt"],
+			defaultFormatter: "nixfmt",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".ex",
+		{
+			formatterNames: ["mix"],
+			defaultFormatter: "mix",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".exs",
+		{
+			formatterNames: ["mix"],
+			defaultFormatter: "mix",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".eex",
+		{
+			formatterNames: ["mix"],
+			defaultFormatter: "mix",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".heex",
+		{
+			formatterNames: ["mix"],
+			defaultFormatter: "mix",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".leex",
+		{
+			formatterNames: ["mix"],
+			defaultFormatter: "mix",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".gleam",
+		{
+			formatterNames: ["gleam"],
+			defaultFormatter: "gleam",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".c",
+		{
+			formatterNames: ["clang-format"],
+			defaultFormatter: "clang-format",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		},
+	],
+	[
+		".cc",
+		{
+			formatterNames: ["clang-format"],
+			defaultFormatter: "clang-format",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		},
+	],
+	[
+		".cpp",
+		{
+			formatterNames: ["clang-format"],
+			defaultFormatter: "clang-format",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		},
+	],
+	[
+		".cxx",
+		{
+			formatterNames: ["clang-format"],
+			defaultFormatter: "clang-format",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		},
+	],
+	[
+		".h",
+		{
+			formatterNames: ["clang-format"],
+			defaultFormatter: "clang-format",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		},
+	],
+	[
+		".hpp",
+		{
+			formatterNames: ["clang-format"],
+			defaultFormatter: "clang-format",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		},
+	],
+	[
+		".ino",
+		{
+			formatterNames: ["clang-format"],
+			defaultFormatter: "clang-format",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		},
+	],
+	[
+		".php",
+		{
+			formatterNames: ["php-cs-fixer"],
+			defaultFormatter: "php-cs-fixer",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		},
+	],
+	[
+		".cs",
+		{
+			formatterNames: ["csharpier"],
+			defaultFormatter: "csharpier",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".lua",
+		{
+			formatterNames: ["stylua"],
+			defaultFormatter: "stylua",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		},
+	],
+	[
+		".hs",
+		{
+			formatterNames: ["ormolu"],
+			defaultFormatter: "ormolu",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".lhs",
+		{
+			formatterNames: ["ormolu"],
+			defaultFormatter: "ormolu",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".ml",
+		{
+			formatterNames: ["ocamlformat"],
+			defaultFormatter: "ocamlformat",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		},
+	],
+	[
+		".mli",
+		{
+			formatterNames: ["ocamlformat"],
+			defaultFormatter: "ocamlformat",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		},
+	],
+	[
+		".go",
+		{
+			formatterNames: ["gofmt"],
+			defaultFormatter: "gofmt",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".rs",
+		{
+			formatterNames: ["rustfmt"],
+			defaultFormatter: "rustfmt",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".sh",
+		{
+			formatterNames: ["shfmt"],
+			defaultFormatter: "shfmt",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".bash",
+		{
+			formatterNames: ["shfmt"],
+			defaultFormatter: "shfmt",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".toml",
+		{
+			formatterNames: ["taplo"],
+			defaultFormatter: "taplo",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".tf",
+		{
+			formatterNames: ["terraform"],
+			defaultFormatter: "terraform",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".tfvars",
+		{
+			formatterNames: ["terraform"],
+			defaultFormatter: "terraform",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".dart",
+		{
+			formatterNames: ["dart"],
+			defaultFormatter: "dart",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".zig",
+		{
+			formatterNames: ["zig"],
+			defaultFormatter: "zig",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
+	[
+		".zon",
+		{
+			formatterNames: ["zig"],
+			defaultFormatter: "zig",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		},
+	],
 ]);
 
 const AUTO_INSTALLABLE_DEFAULT_FORMATTERS = new Map<string, string>([
 	["biome", "biome"],
 	["ruff", "ruff"],
+	["prettier", "prettier"],
+	["shfmt", "shfmt"],
+	["taplo", "taplo"],
 ]);
 
 export function getFormatterPolicyForExtension(
@@ -162,6 +606,20 @@ export function shouldAutoInstallTool(toolId: string): boolean {
 	return getToolExecutionPolicy(toolId)?.autoInstall ?? false;
 }
 
+export function getAutofixCapability(
+	toolId: string,
+): AutofixCapability | undefined {
+	return AUTOFIX_CAPABILITIES.get(toolId);
+}
+
+export function canToolAutoFix(toolId: string): boolean {
+	return getAutofixCapability(toolId)?.toolSupportsFix ?? false;
+}
+
+export function isSafePipelineAutofixTool(toolId: string): boolean {
+	return getAutofixCapability(toolId)?.safePipelineAutofix ?? false;
+}
+
 export function getToolCommandSpec(
 	toolId: string,
 ): ToolCommandSpec | undefined {
@@ -174,7 +632,46 @@ export type AutofixToolName =
 	| "ruff"
 	| "stylelint"
 	| "sqlfluff"
-	| "rubocop";
+	| "rubocop"
+	| "ktlint";
+
+export type LintRunnerName =
+	| JstsLintRunnerName
+	| "ruff-lint"
+	| "stylelint"
+	| "sqlfluff"
+	| "rubocop"
+	| "yamllint"
+	| "markdownlint"
+	| "htmlhint"
+	| "hadolint"
+	| "golangci-lint"
+	| "phpstan"
+	| "ktlint"
+	| "taplo";
+
+export interface LinterPolicy {
+	runnerNames: LintRunnerName[];
+	preferredRunners: LintRunnerName[];
+	defaultRunner?: LintRunnerName;
+	defaultWhenUnconfigured: boolean;
+	gate: ToolGate;
+}
+
+export interface AutofixPolicy {
+	toolNames: AutofixToolName[];
+	preferredTools: AutofixToolName[];
+	defaultTool?: AutofixToolName;
+	defaultWhenUnconfigured: boolean;
+	gate: ToolGate;
+	safe: boolean;
+}
+
+export interface AutofixCapability {
+	toolSupportsFix: boolean;
+	safePipelineAutofix: boolean;
+	fixKind: "pipeline" | "manual" | "suggestion" | "none";
+}
 
 export interface ToolExecutionPolicy {
 	gate: ToolGate;
@@ -187,6 +684,37 @@ export interface ToolCommandSpec {
 	versionArgs?: string[];
 	managedToolId?: string;
 }
+
+const AUTOFIX_CAPABILITIES = new Map<string, AutofixCapability>([
+	[
+		"biome",
+		{ toolSupportsFix: true, safePipelineAutofix: true, fixKind: "pipeline" },
+	],
+	[
+		"eslint",
+		{ toolSupportsFix: true, safePipelineAutofix: true, fixKind: "pipeline" },
+	],
+	[
+		"ruff",
+		{ toolSupportsFix: true, safePipelineAutofix: true, fixKind: "pipeline" },
+	],
+	[
+		"stylelint",
+		{ toolSupportsFix: true, safePipelineAutofix: true, fixKind: "pipeline" },
+	],
+	[
+		"sqlfluff",
+		{ toolSupportsFix: true, safePipelineAutofix: true, fixKind: "pipeline" },
+	],
+	[
+		"rubocop",
+		{ toolSupportsFix: true, safePipelineAutofix: true, fixKind: "pipeline" },
+	],
+	[
+		"ktlint",
+		{ toolSupportsFix: true, safePipelineAutofix: true, fixKind: "pipeline" },
+	],
+]);
 
 const TOOL_EXECUTION_POLICY = new Map<string, ToolExecutionPolicy>([
 	["biome", { gate: "smart-default", autoInstall: true }],
@@ -202,6 +730,8 @@ const TOOL_EXECUTION_POLICY = new Map<string, ToolExecutionPolicy>([
 	["hadolint", { gate: "smart-default", autoInstall: true }],
 	["htmlhint", { gate: "smart-default", autoInstall: true }],
 	["ktlint", { gate: "smart-default", autoInstall: true }],
+	["golangci-lint", { gate: "config-first", autoInstall: true }],
+	["phpstan", { gate: "config-first", autoInstall: false }],
 	["eslint", { gate: "config-first", autoInstall: false }],
 	["prettier", { gate: "smart-default", autoInstall: true }],
 ]);
@@ -244,6 +774,24 @@ const TOOL_COMMAND_SPECS = new Map<string, ToolCommandSpec>([
 		},
 	],
 	[
+		"ruff",
+		{
+			command: "ruff",
+			windowsExt: ".exe",
+			versionArgs: ["--version"],
+			managedToolId: "ruff",
+		},
+	],
+	[
+		"biome",
+		{
+			command: "biome",
+			windowsExt: ".cmd",
+			versionArgs: ["--version"],
+			managedToolId: "biome",
+		},
+	],
+	[
 		"rubocop",
 		{
 			command: "rubocop",
@@ -275,6 +823,15 @@ const TOOL_COMMAND_SPECS = new Map<string, ToolCommandSpec>([
 			command: "mypy",
 			versionArgs: ["--version"],
 			managedToolId: "mypy",
+		},
+	],
+	[
+		"phpstan",
+		{
+			command: "phpstan",
+			windowsExt: ".bat",
+			versionArgs: ["--version"],
+			managedToolId: "phpstan",
 		},
 	],
 	[
@@ -364,6 +921,34 @@ const MARKDOWNLINT_CONFIGS = [
 	".markdownlintrc",
 ];
 
+const PRETTIER_CONFIGS = [
+	".prettierrc",
+	".prettierrc.json",
+	".prettierrc.yml",
+	".prettierrc.yaml",
+	".prettierrc.js",
+	".prettierrc.cjs",
+	".prettierrc.mjs",
+	"prettier.config.js",
+	"prettier.config.cjs",
+	"prettier.config.mjs",
+];
+
+const RUFF_PROJECT_CONFIGS = ["ruff.toml", ".ruff.toml"];
+
+const GOLANGCI_CONFIGS = [
+	".golangci.yml",
+	".golangci.yaml",
+	".golangci.toml",
+	".golangci.json",
+];
+
+const PHPSTAN_CONFIGS = [
+	"phpstan.neon",
+	"phpstan.neon.dist",
+	"phpstan.dist.neon",
+];
+
 export type JstsLintRunnerName = "eslint" | "oxlint" | "biome-check-json";
 
 export interface JstsLintPolicyContext {
@@ -377,43 +962,290 @@ export interface JstsLintPolicy extends Required<JstsLintPolicyContext> {
 	hasExplicitNonBiomeLinter: boolean;
 }
 
-export function getPreferredAutofixTools(
+export interface LinterPolicyContext {
+	hasEslintConfig?: boolean;
+	hasOxlintConfig?: boolean;
+	hasBiomeConfig?: boolean;
+	hasStylelintConfig?: boolean;
+	hasSqlfluffConfig?: boolean;
+	hasRubocopConfig?: boolean;
+	hasYamllintConfig?: boolean;
+	hasMarkdownlintConfig?: boolean;
+	hasGolangciConfig?: boolean;
+	hasPhpstanConfig?: boolean;
+}
+
+export interface AutofixPolicyContext {
+	hasEslintConfig?: boolean;
+	hasStylelintConfig?: boolean;
+	hasSqlfluffConfig?: boolean;
+	hasRubocopConfig?: boolean;
+}
+
+export function getLinterPolicyForFile(
 	filePath: string,
-	context: {
-		hasEslintConfig?: boolean;
-		hasStylelintConfig?: boolean;
-		hasSqlfluffConfig?: boolean;
-		hasRubocopConfig?: boolean;
-	},
-): AutofixToolName[] {
+	context: LinterPolicyContext = {},
+): LinterPolicy | undefined {
 	const ext = path.extname(filePath).toLowerCase();
 
 	if ([".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"].includes(ext)) {
-		if (context.hasEslintConfig) return ["eslint"];
-		return ["biome"];
-	}
-
-	if ([".json", ".jsonc"].includes(ext)) {
-		return ["biome"];
+		const policy = getJstsLintPolicy({
+			hasEslintConfig: context.hasEslintConfig,
+			hasOxlintConfig: context.hasOxlintConfig,
+			hasBiomeConfig: context.hasBiomeConfig,
+		});
+		return {
+			runnerNames: ["eslint", "oxlint", "biome-check-json"],
+			preferredRunners: policy.preferredRunners,
+			defaultRunner: policy.preferredRunners[0],
+			defaultWhenUnconfigured:
+				!policy.hasEslintConfig && !policy.hasOxlintConfig,
+			gate: policy.hasEslintConfig ? "config-first" : "smart-default",
+		};
 	}
 
 	if ([".py", ".pyi"].includes(ext)) {
-		return ["ruff"];
+		return {
+			runnerNames: ["ruff-lint"],
+			preferredRunners: ["ruff-lint"],
+			defaultRunner: "ruff-lint",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		};
 	}
 
 	if ([".css", ".scss", ".sass", ".less"].includes(ext)) {
-		return context.hasStylelintConfig ? ["stylelint"] : ["stylelint"];
+		return {
+			runnerNames: ["stylelint"],
+			preferredRunners: ["stylelint"],
+			defaultRunner: "stylelint",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		};
 	}
 
 	if (ext === ".sql") {
-		return context.hasSqlfluffConfig ? ["sqlfluff"] : ["sqlfluff"];
+		return {
+			runnerNames: ["sqlfluff"],
+			preferredRunners: ["sqlfluff"],
+			defaultRunner: "sqlfluff",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		};
 	}
 
 	if ([".rb", ".rake", ".gemspec", ".ru"].includes(ext)) {
-		return context.hasRubocopConfig ? ["rubocop"] : ["rubocop"];
+		return {
+			runnerNames: ["rubocop"],
+			preferredRunners: ["rubocop"],
+			defaultRunner: "rubocop",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		};
 	}
 
-	return [];
+	if ([".yaml", ".yml"].includes(ext)) {
+		return {
+			runnerNames: ["yamllint"],
+			preferredRunners: ["yamllint"],
+			defaultRunner: "yamllint",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		};
+	}
+
+	if ([".md", ".mdx"].includes(ext)) {
+		return {
+			runnerNames: ["markdownlint"],
+			preferredRunners: ["markdownlint"],
+			defaultRunner: "markdownlint",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		};
+	}
+
+	if ([".html", ".htm"].includes(ext)) {
+		return {
+			runnerNames: ["htmlhint"],
+			preferredRunners: ["htmlhint"],
+			defaultRunner: "htmlhint",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		};
+	}
+
+	if (path.basename(filePath).toLowerCase() === "dockerfile") {
+		return {
+			runnerNames: ["hadolint"],
+			preferredRunners: ["hadolint"],
+			defaultRunner: "hadolint",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		};
+	}
+
+	if ([".kt", ".kts"].includes(ext)) {
+		return {
+			runnerNames: ["ktlint"],
+			preferredRunners: ["ktlint"],
+			defaultRunner: "ktlint",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		};
+	}
+
+	if (ext === ".toml") {
+		return {
+			runnerNames: ["taplo"],
+			preferredRunners: ["taplo"],
+			defaultRunner: "taplo",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+		};
+	}
+
+	if (ext === ".go") {
+		return {
+			runnerNames: ["golangci-lint"],
+			preferredRunners: context.hasGolangciConfig ? ["golangci-lint"] : [],
+			defaultRunner: "golangci-lint",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		};
+	}
+
+	if (ext === ".php") {
+		return {
+			runnerNames: ["phpstan"],
+			preferredRunners: context.hasPhpstanConfig ? ["phpstan"] : [],
+			defaultRunner: "phpstan",
+			defaultWhenUnconfigured: false,
+			gate: "config-first",
+		};
+	}
+
+	return undefined;
+}
+
+export function getLinterPolicyForCwd(
+	filePath: string,
+	cwd: string,
+): LinterPolicy | undefined {
+	return getLinterPolicyForFile(filePath, {
+		hasEslintConfig: hasEslintConfig(cwd),
+		hasOxlintConfig: hasOxlintConfig(cwd),
+		hasBiomeConfig: hasBiomeConfig(cwd),
+		hasStylelintConfig: hasStylelintConfig(cwd),
+		hasSqlfluffConfig: hasSqlfluffConfig(cwd),
+		hasRubocopConfig: hasRubocopConfig(cwd),
+		hasYamllintConfig: hasYamllintConfig(cwd),
+		hasMarkdownlintConfig: hasMarkdownlintConfig(cwd),
+		hasGolangciConfig: hasGolangciConfig(cwd),
+		hasPhpstanConfig: hasPhpstanConfig(cwd),
+	});
+}
+
+export function getAutofixPolicyForFile(
+	filePath: string,
+	context: AutofixPolicyContext = {},
+): AutofixPolicy | undefined {
+	const ext = path.extname(filePath).toLowerCase();
+
+	if ([".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"].includes(ext)) {
+		if (context.hasEslintConfig) {
+			return {
+				toolNames: ["eslint", "biome"],
+				preferredTools: ["eslint"],
+				defaultTool: "eslint",
+				defaultWhenUnconfigured: false,
+				gate: "config-first",
+				safe: true,
+			};
+		}
+		return {
+			toolNames: ["eslint", "biome"],
+			preferredTools: ["biome"],
+			defaultTool: "biome",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+			safe: true,
+		};
+	}
+
+	if ([".json", ".jsonc"].includes(ext)) {
+		return {
+			toolNames: ["biome"],
+			preferredTools: ["biome"],
+			defaultTool: "biome",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+			safe: true,
+		};
+	}
+
+	if ([".py", ".pyi"].includes(ext)) {
+		return {
+			toolNames: ["ruff"],
+			preferredTools: ["ruff"],
+			defaultTool: "ruff",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+			safe: true,
+		};
+	}
+
+	if ([".css", ".scss", ".sass", ".less"].includes(ext)) {
+		return {
+			toolNames: ["stylelint"],
+			preferredTools: ["stylelint"],
+			defaultTool: "stylelint",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+			safe: true,
+		};
+	}
+
+	if (ext === ".sql") {
+		return {
+			toolNames: ["sqlfluff"],
+			preferredTools: ["sqlfluff"],
+			defaultTool: "sqlfluff",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+			safe: true,
+		};
+	}
+
+	if ([".rb", ".rake", ".gemspec", ".ru"].includes(ext)) {
+		return {
+			toolNames: ["rubocop"],
+			preferredTools: ["rubocop"],
+			defaultTool: "rubocop",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+			safe: true,
+		};
+	}
+
+	if ([".kt", ".kts"].includes(ext)) {
+		return {
+			toolNames: ["ktlint"],
+			preferredTools: ["ktlint"],
+			defaultTool: "ktlint",
+			defaultWhenUnconfigured: true,
+			gate: "smart-default",
+			safe: true,
+		};
+	}
+
+	return undefined;
+}
+
+export function getPreferredAutofixTools(
+	filePath: string,
+	context: AutofixPolicyContext,
+): AutofixToolName[] {
+	return getAutofixPolicyForFile(filePath, context)?.preferredTools ?? [];
 }
 
 const ESLINT_CONFIGS = [
@@ -427,6 +1259,55 @@ const ESLINT_CONFIGS = [
 	"eslint.config.mjs",
 	"eslint.config.cjs",
 ];
+
+function findNearestPackageJsonPath(cwd: string): string | undefined {
+	let dir = cwd;
+	const root = path.parse(dir).root;
+	while (true) {
+		const pkgPath = path.join(dir, "package.json");
+		if (fs.existsSync(pkgPath)) return pkgPath;
+		if (dir === root) break;
+		const parent = path.dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return undefined;
+}
+
+export function hasNearestPackageJsonDependency(
+	cwd: string,
+	dependencyName: string,
+): boolean {
+	const pkgPath = findNearestPackageJsonPath(cwd);
+	if (!pkgPath) return false;
+	try {
+		const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as {
+			dependencies?: Record<string, string>;
+			devDependencies?: Record<string, string>;
+		};
+		return Boolean(
+			pkg.dependencies?.[dependencyName] ??
+				pkg.devDependencies?.[dependencyName],
+		);
+	} catch {}
+	return false;
+}
+
+export function hasNearestPackageJsonField(
+	cwd: string,
+	fieldName: string,
+): boolean {
+	const pkgPath = findNearestPackageJsonPath(cwd);
+	if (!pkgPath) return false;
+	try {
+		const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as Record<
+			string,
+			unknown
+		>;
+		return pkg[fieldName] !== undefined;
+	} catch {}
+	return false;
+}
 
 export function hasEslintConfig(cwd: string): boolean {
 	for (const cfg of ESLINT_CONFIGS) {
@@ -442,10 +1323,15 @@ export function hasEslintConfig(cwd: string): boolean {
 }
 
 export function hasBiomeConfig(cwd: string): boolean {
-	return (
-		fs.existsSync(path.join(cwd, "biome.json")) ||
-		fs.existsSync(path.join(cwd, "biome.jsonc"))
-	);
+	return getBiomeConfigPath(cwd) !== undefined;
+}
+
+export function getBiomeConfigPath(cwd: string): string | undefined {
+	const jsoncPath = path.join(cwd, "biome.jsonc");
+	if (fs.existsSync(jsoncPath)) return jsoncPath;
+	const jsonPath = path.join(cwd, "biome.json");
+	if (fs.existsSync(jsonPath)) return jsonPath;
+	return undefined;
 }
 
 export function hasStylelintConfig(cwd: string): boolean {
@@ -566,6 +1452,94 @@ export function hasYamllintConfig(cwd: string): boolean {
 
 export function hasMarkdownlintConfig(cwd: string): boolean {
 	return MARKDOWNLINT_CONFIGS.some((cfg) => fs.existsSync(path.join(cwd, cfg)));
+}
+
+export function hasPrettierConfig(cwd: string): boolean {
+	if (PRETTIER_CONFIGS.some((cfg) => fs.existsSync(path.join(cwd, cfg)))) {
+		return true;
+	}
+	try {
+		const pkg = JSON.parse(
+			fs.readFileSync(path.join(cwd, "package.json"), "utf-8"),
+		);
+		if (pkg.prettier) return true;
+	} catch {}
+	return false;
+}
+
+export function hasBlackConfig(cwd: string): boolean {
+	const pyproject = path.join(cwd, "pyproject.toml");
+	if (fs.existsSync(pyproject)) {
+		try {
+			if (fs.readFileSync(pyproject, "utf-8").includes("[tool.black]")) {
+				return true;
+			}
+		} catch {}
+	}
+
+	for (const depFile of ["requirements.txt", "pyproject.toml", "Pipfile"]) {
+		const depPath = path.join(cwd, depFile);
+		if (!fs.existsSync(depPath)) continue;
+		try {
+			const content = fs.readFileSync(depPath, "utf-8").toLowerCase();
+			if (content.includes("black")) return true;
+		} catch {}
+	}
+
+	return false;
+}
+
+export function hasRuffConfig(cwd: string): boolean {
+	for (const cfg of RUFF_PROJECT_CONFIGS) {
+		if (fs.existsSync(path.join(cwd, cfg))) return true;
+	}
+	const pyproject = path.join(cwd, "pyproject.toml");
+	if (fs.existsSync(pyproject)) {
+		try {
+			return fs.readFileSync(pyproject, "utf-8").includes("[tool.ruff]");
+		} catch {}
+	}
+	return false;
+}
+
+export function hasGolangciConfig(cwd: string): boolean {
+	return GOLANGCI_CONFIGS.some((cfg) => fs.existsSync(path.join(cwd, cfg)));
+}
+
+export function hasClangFormatConfig(cwd: string): boolean {
+	return [".clang-format", "_clang-format"].some((cfg) =>
+		fs.existsSync(path.join(cwd, cfg)),
+	);
+}
+
+export function hasPhpCsFixerConfig(cwd: string): boolean {
+	return [".php-cs-fixer.php", ".php-cs-fixer.dist.php"].some((cfg) =>
+		fs.existsSync(path.join(cwd, cfg)),
+	);
+}
+
+export function hasStyluaConfig(cwd: string): boolean {
+	return ["stylua.toml", ".stylua.toml"].some((cfg) =>
+		fs.existsSync(path.join(cwd, cfg)),
+	);
+}
+
+export function hasOcamlformatConfig(cwd: string): boolean {
+	return fs.existsSync(path.join(cwd, ".ocamlformat"));
+}
+
+export function hasPhpstanConfig(cwd: string): boolean {
+	return PHPSTAN_CONFIGS.some((cfg) => fs.existsSync(path.join(cwd, cfg)));
+}
+
+export function hasStandardrbConfig(cwd: string): boolean {
+	const gemfile = path.join(cwd, "Gemfile");
+	if (fs.existsSync(gemfile)) {
+		try {
+			return fs.readFileSync(gemfile, "utf-8").includes("standard");
+		} catch {}
+	}
+	return false;
 }
 
 export function getRubocopCommand(cwd: string): {

@@ -72,8 +72,12 @@ export interface Diagnostic {
 	rule?: string;
 	/** Normalized defect class for overlap arbitration */
 	defectClass?: DefectClass;
-	/** Whether auto-fix is available */
+	/** Whether some known fix path exists (tool/manual/pipeline) */
 	fixable?: boolean;
+	/** Whether the post-write pipeline can safely auto-fix this issue */
+	autoFixAvailable?: boolean;
+	/** How the fix is expected to be applied */
+	fixKind?: "pipeline" | "manual" | "suggestion";
 	/** Auto-fix command/suggestion */
 	fixSuggestion?: string;
 }

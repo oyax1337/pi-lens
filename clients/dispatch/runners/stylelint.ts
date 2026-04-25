@@ -1,6 +1,9 @@
 import * as path from "node:path";
 import { safeSpawnAsync } from "../../safe-spawn.js";
-import { hasStylelintConfig } from "../../tool-policy.js";
+import {
+	getLinterPolicyForCwd,
+	hasStylelintConfig,
+} from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -63,6 +66,10 @@ const stylelintRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("stylelint")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
 		const fileDir = path.dirname(path.resolve(cwd, ctx.filePath));
 		const hasConfig = hasStylelintConfig(fileDir) || hasStylelintConfig(cwd);
 		if (!hasConfig) {

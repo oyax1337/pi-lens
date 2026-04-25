@@ -1,5 +1,5 @@
 import { safeSpawn } from "../../safe-spawn.js";
-import { hasYamllintConfig } from "../../tool-policy.js";
+import { getLinterPolicyForCwd, hasYamllintConfig } from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -50,6 +50,10 @@ const yamllintRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("yamllint")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
 		const hasConfig = hasYamllintConfig(cwd);
 		if (!hasConfig) {
 			ctx.log("yamllint: no config detected, running with default rules");

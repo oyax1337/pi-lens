@@ -1,5 +1,8 @@
 import { safeSpawn } from "../../safe-spawn.js";
-import { hasMarkdownlintConfig } from "../../tool-policy.js";
+import {
+	getLinterPolicyForCwd,
+	hasMarkdownlintConfig,
+} from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -48,7 +51,12 @@ const markdownlintRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
-		if (!hasMarkdownlintConfig(cwd)) {
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("markdownlint")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
+		const hasConfig = hasMarkdownlintConfig(cwd);
+		if (!hasConfig) {
 			// Run with sensible defaults even without explicit config
 		}
 
@@ -61,7 +69,7 @@ const markdownlintRunner: RunnerDefinition = {
 
 		if (!cmd) return { status: "skipped", diagnostics: [], semantic: "none" };
 
-		const configArgs = hasMarkdownlintConfig(cwd) ? [] : ["--disable", "MD013"];
+		const configArgs = hasConfig ? [] : ["--disable", "MD013"];
 		const result = safeSpawn(cmd, [...configArgs, ctx.filePath], {
 			timeout: 15000,
 			cwd,

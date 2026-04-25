@@ -43,6 +43,7 @@ import { RUNTIME_CONFIG } from "./runtime-config.js";
 import { safeSpawnAsync } from "./safe-spawn.js";
 import { formatSecrets, scanForSecrets } from "./secrets-scanner.js";
 import {
+	getAutofixPolicyForFile,
 	getPreferredAutofixTools,
 	getRubocopCommand,
 	hasEslintConfig,
@@ -175,6 +176,8 @@ const AUTOFIX_EXTS = new Set([
 	".pyi",
 	...RUBY_EXTS,
 	...SQL_EXTS,
+	".kt",
+	".kts",
 ]);
 
 function supportsAutofix(filePath: string): boolean {
@@ -300,6 +303,19 @@ async function tryRubocopFix(filePath: string, cwd: string): Promise<number> {
 	);
 }
 
+async function tryKtlintFix(filePath: string, cwd: string): Promise<number> {
+	const cmd = await resolveToolCommandWithInstallFallback(cwd, "ktlint");
+	if (!cmd) return 0;
+
+	return detectFileChangedAfterCommand(
+		filePath,
+		cmd,
+		["-F", filePath],
+		cwd,
+		[1],
+	);
+}
+
 // --- Pipeline phase helpers ---
 
 async function syncLspFile(
@@ -357,12 +373,16 @@ async function runAutofix(
 	let needsContentRefresh = false;
 
 	if (!fixedThisTurn.has(filePath) && !noAutofix) {
-		const preferredAutofixTools = getPreferredAutofixTools(filePath, {
+		const autofixContext = {
 			hasEslintConfig: hasEslintConfig(cwd),
 			hasStylelintConfig: hasStylelintConfig(cwd),
 			hasSqlfluffConfig: hasSqlfluffConfig(cwd),
 			hasRubocopConfig: hasRubocopConfig(cwd),
-		});
+		};
+		const autofixPolicy = getAutofixPolicyForFile(filePath, autofixContext);
+		const preferredAutofixTools = autofixPolicy?.safe
+			? getPreferredAutofixTools(filePath, autofixContext)
+			: [];
 
 		for (const toolName of preferredAutofixTools) {
 			if (toolName === "ruff") {
@@ -444,6 +464,18 @@ async function runAutofix(
 					autofixTools.push(`rubocop:${rubocopFixed}`);
 					fixedThisTurn.add(filePath);
 					dbg(`autofix: rubocop fixed ${rubocopFixed} issue(s) in ${filePath}`);
+					needsContentRefresh = true;
+				}
+				continue;
+			}
+
+			if (toolName === "ktlint") {
+				const ktlintFixed = await tryKtlintFix(filePath, cwd);
+				if (ktlintFixed > 0) {
+					fixedCount += ktlintFixed;
+					autofixTools.push(`ktlint:${ktlintFixed}`);
+					fixedThisTurn.add(filePath);
+					dbg(`autofix: ktlint fixed ${ktlintFixed} issue(s) in ${filePath}`);
 					needsContentRefresh = true;
 				}
 			}

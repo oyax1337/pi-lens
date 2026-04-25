@@ -6,6 +6,7 @@ import { setupTestEnvironment } from "../../test-utils.js";
 
 const safeSpawnAsync = vi.fn();
 const existsSync = vi.fn();
+const resolveToolCommandWithInstallFallback = vi.fn();
 
 vi.mock("../../../../clients/safe-spawn.js", () => ({
 	safeSpawnAsync,
@@ -18,6 +19,10 @@ vi.mock("node:fs", async () => {
 		existsSync: (...args: unknown[]) => existsSync(...args),
 	};
 });
+
+vi.mock("../../../../clients/dispatch/runners/utils/runner-helpers.js", () => ({
+	resolveToolCommandWithInstallFallback,
+}));
 
 function createCtx(filePath: string, cwd: string) {
 	return {
@@ -40,6 +45,8 @@ describe("biome-check runner", () => {
 		vi.resetModules();
 		safeSpawnAsync.mockReset();
 		existsSync.mockReset();
+		resolveToolCommandWithInstallFallback.mockReset();
+		resolveToolCommandWithInstallFallback.mockResolvedValue("biome");
 		// Default: no biome config found
 		existsSync.mockReturnValue(false);
 	});
