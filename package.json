@@ -2,7 +2,7 @@
 	"name": "pi-lens",
 	"version": "3.8.32",
 	"type": "module",
-	"description": "Real-time code feedback for pi — LSP, linters, formatters, type-checking, structural analysis & booboo",
+	"description": "Real-time code feedback for pi \u2014 LSP, linters, formatters, type-checking, structural analysis & booboo",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/apmantza/pi-lens.git"
@@ -75,7 +75,7 @@
 	},
 	"dependencies": {
 		"@ast-grep/napi": "^0.42.1",
-		"typebox": "^1.0.0",
+		"typebox": "^1.1.24",
 		"minimatch": "^10.2.5",
 		"typescript": "^5.0.0",
 		"vscode-jsonrpc": "^8.2.1"
