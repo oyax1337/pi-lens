@@ -12,8 +12,35 @@ import { logLatency } from "../clients/latency-logger.js";
 import type { LSPCallHierarchyItem } from "../clients/lsp/client.js";
 import { getLSPService } from "../clients/lsp/index.js";
 
+const VALID_OPERATIONS = [
+	"definition",
+	"references",
+	"hover",
+	"signatureHelp",
+	"documentSymbol",
+	"workspaceSymbol",
+	"codeAction",
+	"rename",
+	"implementation",
+	"prepareCallHierarchy",
+	"incomingCalls",
+	"outgoingCalls",
+	"workspaceDiagnostics",
+] as const;
+
+type LspNavigationOperation = (typeof VALID_OPERATIONS)[number];
+
+function normalizeOperation(value: unknown): string {
+	if (typeof value !== "string") return "";
+	return value.trim().replace(/^["']+|["']+$/g, "");
+}
+
+function isValidOperation(value: string): value is LspNavigationOperation {
+	return (VALID_OPERATIONS as readonly string[]).includes(value);
+}
+
 function operationSupportStatus(
-	operation: string,
+	operation: LspNavigationOperation,
 	support: import("../clients/lsp/client.js").LSPOperationSupport | null,
 ): boolean | null {
 	if (!support) return null;
@@ -35,7 +62,7 @@ function operationSupportStatus(
 	return null;
 }
 
-function emptyReasonForOperation(operation: string): string {
+function emptyReasonForOperation(operation: LspNavigationOperation): string {
 	if (operation === "signatureHelp")
 		return "position-sensitive-or-no-signature";
 	if (operation === "codeAction") return "no-applicable-actions";
@@ -185,24 +212,11 @@ export function createLspNavigationTool(
 		promptSnippet:
 			"Use lsp_navigation to find definitions, references, and hover info via LSP",
 		parameters: Type.Object({
-			operation: Type.Union(
-				[
-					Type.Literal("definition"),
-					Type.Literal("references"),
-					Type.Literal("hover"),
-					Type.Literal("signatureHelp"),
-					Type.Literal("documentSymbol"),
-					Type.Literal("workspaceSymbol"),
-					Type.Literal("codeAction"),
-					Type.Literal("rename"),
-					Type.Literal("implementation"),
-					Type.Literal("prepareCallHierarchy"),
-					Type.Literal("incomingCalls"),
-					Type.Literal("outgoingCalls"),
-					Type.Literal("workspaceDiagnostics"),
-				],
-				{ description: "LSP operation to perform" },
-			),
+			operation: Type.String({
+				description:
+					"LSP operation to perform. Valid values: " +
+					VALID_OPERATIONS.join(", "),
+			}),
 			filePath: Type.Optional(
 				Type.String({
 					description:
@@ -347,7 +361,7 @@ export function createLspNavigationTool(
 			}
 
 			const {
-				operation,
+				operation: rawOperation,
 				filePath: rawPath,
 				line,
 				character,
@@ -365,6 +379,34 @@ export function createLspNavigationTool(
 				newName?: string;
 				query?: string;
 			};
+			const normalizedOperation = normalizeOperation(rawOperation);
+			if (!isValidOperation(normalizedOperation)) {
+				return finalize(
+					{
+						content: [
+							{
+								type: "text" as const,
+								text:
+									`Unknown lsp_navigation operation "${normalizedOperation || String(rawOperation ?? "") || ""}". ` +
+									`Valid operations: ${VALID_OPERATIONS.join(", ")}`,
+							},
+						],
+						isError: true,
+						details: {
+							rawOperation,
+							normalizedOperation,
+							validOperations: VALID_OPERATIONS,
+						},
+					},
+					{
+						operation: normalizedOperation || "invalid",
+						filePath: "(workspace)",
+						failureKind: "invalid_operation",
+						resultCount: 0,
+					},
+				);
+			}
+			const operation = normalizedOperation;
 
 			const isCallHierarchyTraversal =
 				operation === "incomingCalls" || operation === "outgoingCalls";
@@ -406,7 +448,7 @@ export function createLspNavigationTool(
 				diagnosticsMode = wsDiagSupport?.mode ?? "unknown";
 
 				if (rawPath) {
-					const hasLSP = await lspService.hasLSP(filePath);
+					const hasLSP = lspService.supportsLSP(filePath);
 					if (!hasLSP) {
 						return finalize(
 							{
@@ -506,7 +548,7 @@ export function createLspNavigationTool(
 				);
 			}
 
-			const hasLSP = filePath ? await lspService.hasLSP(filePath) : false;
+			const hasLSP = filePath ? lspService.supportsLSP(filePath) : false;
 			if (needsFilePath && !hasLSP) {
 				return finalize(
 					{
@@ -683,7 +725,6 @@ export function createLspNavigationTool(
 						"references",
 						"hover",
 						"signatureHelp",
-						"workspaceSymbol",
 						"codeAction",
 						"rename",
 						"implementation",
@@ -695,18 +736,12 @@ export function createLspNavigationTool(
 
 				const stillEmpty =
 					!result || (Array.isArray(result) && result.length === 0);
-				if (
-					stillEmpty &&
-					needsFilePath &&
-					(operation === "definition" || operation === "workspaceSymbol")
-				) {
+				if (stillEmpty && needsFilePath && operation === "definition") {
 					const content = nodeFs.readFileSync(filePath, "utf-8");
 					const token =
-						operation === "workspaceSymbol"
-							? query?.trim() || undefined
-							: line && character
-								? tokenAtPosition(content, line, character)
-								: undefined;
+						line && character
+							? tokenAtPosition(content, line, character)
+							: undefined;
 					if (token) {
 						const docSymbols = (await lspService.documentSymbol(
 							filePath,
@@ -775,7 +810,7 @@ export function createLspNavigationTool(
 
 			const isEmpty = !result || (Array.isArray(result) && result.length === 0);
 			let output = isEmpty
-				? `No results for ${operation} at ${path.basename(filePath)}${line ? `:${line}:${character}` : ""}`
+				? `No results for ${operation}${filePath ? ` at ${path.basename(filePath)}` : ""}${line ? `:${line}:${character}` : ""}`
 				: JSON.stringify(result, null, 2);
 			if (isEmpty && operation === "workspaceSymbol" && !rawPath) {
 				output +=

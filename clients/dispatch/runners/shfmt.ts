@@ -1,13 +1,13 @@
 import { ensureTool } from "../../installer/index.js";
 import { safeSpawn } from "../../safe-spawn.js";
-import { createAvailabilityChecker } from "./utils/runner-helpers.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
+import { createAvailabilityChecker } from "./utils/runner-helpers.js";
 
 const shfmt = createAvailabilityChecker("shfmt", ".exe");
 
@@ -56,7 +56,9 @@ const shfmtRunner: RunnerDefinition = {
 			const diagnostics: Diagnostic[] = [
 				{
 					id: `shfmt-parse-${ctx.filePath}`,
-					message: errMsg ? `shfmt parse error: ${errMsg}` : "shfmt: failed to parse shell script",
+					message: errMsg
+						? `shfmt parse error: ${errMsg}`
+						: "shfmt: failed to parse shell script",
 					filePath: ctx.filePath,
 					line: 1,
 					column: 1,
@@ -87,6 +89,8 @@ const shfmtRunner: RunnerDefinition = {
 				tool: "shfmt",
 				rule: "shfmt-unformatted",
 				fixable: true,
+				autoFixAvailable: false,
+				fixKind: "manual",
 			},
 		];
 		return { status: "succeeded", diagnostics, semantic: "warning" };

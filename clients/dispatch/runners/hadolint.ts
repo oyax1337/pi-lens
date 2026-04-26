@@ -1,14 +1,17 @@
 import * as path from "node:path";
-import { ensureTool } from "../../installer/index.js";
 import { safeSpawnAsync } from "../../safe-spawn.js";
-import { createAvailabilityChecker } from "./utils/runner-helpers.js";
+import { getLinterPolicyForCwd } from "../../tool-policy.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
+import {
+	createAvailabilityChecker,
+	resolveToolCommandWithInstallFallback,
+} from "./utils/runner-helpers.js";
 
 const hadolint = createAvailabilityChecker("hadolint", ".exe");
 
@@ -55,24 +58,27 @@ const hadolintRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("hadolint")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
 
 		let cmd: string | null = null;
 		if (hadolint.isAvailable(cwd)) {
 			cmd = hadolint.getCommand(cwd);
 		} else {
-			const managed = await ensureTool("hadolint");
-			if (managed) cmd = managed;
+			cmd = await resolveToolCommandWithInstallFallback(cwd, "hadolint");
 		}
 
 		if (!cmd) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
-		const result = await safeSpawnAsync(cmd, [
-			"--format", "json",
-			"--no-fail",
-			path.resolve(cwd, ctx.filePath),
-		], { cwd });
+		const result = await safeSpawnAsync(
+			cmd,
+			["--format", "json", "--no-fail", path.resolve(cwd, ctx.filePath)],
+			{ cwd },
+		);
 
 		if (result.error && !result.stdout) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };

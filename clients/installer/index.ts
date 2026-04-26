@@ -4,7 +4,7 @@
  * Minimal auto-install: Core tools that run frequently.
  * Other tools require manual installation with clear instructions.
  *
- * Auto-install (20 tools):
+ * Auto-install (22 tools):
  * - typescript-language-server (TypeScript LSP)
  * - pyright (Python LSP)
  * - bash-language-server (Bash LSP)
@@ -12,6 +12,7 @@
  * - vscode-langservers-extracted (JSON LSP)
  * - ruff (Python linting)
  * - @biomejs/biome (JS/TS/JSON linting/formatting)
+ * - oxlint (JS/TS linting)
  * - madge (circular dependency detection)
  * - jscpd (duplicate code detection)
  * - @ast-grep/cli (structural code search)
@@ -20,6 +21,7 @@
  * - sqlfluff (SQL linting/formatting)
  * - markdownlint-cli2 (Markdown linting)
  * - mypy (Python type checking)
+ * - rubocop (Ruby linting/autofix)
  * - stylelint (CSS/SCSS/Less linting)
  * - shellcheck (shell script linting) [GitHub release]
  * - shfmt (shell script formatting) [GitHub release]
@@ -107,7 +109,7 @@ interface ToolDefinition {
 	name: string;
 	checkCommand: string;
 	checkArgs: string[];
-	installStrategy: "npm" | "pip" | "github";
+	installStrategy: "npm" | "pip" | "gem" | "github";
 	packageName?: string;
 	binaryName?: string;
 	github?: GitHubAssetSpec;
@@ -372,6 +374,15 @@ const TOOLS: ToolDefinition[] = [
 		binaryName: "mypy",
 	},
 	{
+		id: "rubocop",
+		name: "RuboCop",
+		checkCommand: "rubocop",
+		checkArgs: ["--version"],
+		installStrategy: "gem",
+		packageName: "rubocop",
+		binaryName: "rubocop",
+	},
+	{
 		id: "stylelint",
 		name: "Stylelint",
 		checkCommand: "stylelint",
@@ -379,6 +390,15 @@ const TOOLS: ToolDefinition[] = [
 		installStrategy: "npm",
 		packageName: "stylelint",
 		binaryName: "stylelint",
+	},
+	{
+		id: "oxlint",
+		name: "Oxlint",
+		checkCommand: "oxlint",
+		checkArgs: ["--version"],
+		installStrategy: "npm",
+		packageName: "oxlint",
+		binaryName: "oxlint",
 	},
 	// GitHub release binaries
 	{
@@ -716,7 +736,7 @@ export interface ToolStatus {
 	source: ToolSource;
 	path?: string;
 	version?: string;
-	strategy: "npm" | "pip" | "github";
+	strategy: "npm" | "pip" | "gem" | "github";
 }
 
 /**
@@ -1439,18 +1459,13 @@ async function installNpmTool(
 
 		// Install via npm or bun (use .cmd on Windows)
 		const isWindows = process.platform === "win32";
-		const pm = process.env.BUN_INSTALL
-			? isWindows
-				? "bun.exe"
-				: "bun"
-			: isWindows
-				? "npm.cmd"
-				: "npm";
+		let pm = isWindows ? "npm.cmd" : "npm";
+		if (process.env.BUN_INSTALL) {
+			pm = isWindows ? "bun.exe" : "bun";
+		}
 		// Use --ignore-scripts unless the package explicitly needs postinstall
 		// (e.g. biome downloads a platform-specific native binary via postinstall).
-		const needsScripts = NEEDS_POSTINSTALL.has(
-			packageName.split("@")[0] ?? packageName,
-		);
+		const needsScripts = NEEDS_POSTINSTALL.has(packageName);
 		const baseInstallArgs = needsScripts
 			? ["install", packageName]
 			: ["install", "--ignore-scripts", packageName];
@@ -1718,6 +1733,44 @@ async function installPipTool(
 	}
 }
 
+async function installGemTool(
+	packageName: string,
+): Promise<string | undefined> {
+	try {
+		const isWindows = process.platform === "win32";
+		const outcome = await new Promise<{ ok: boolean; error: string }>(
+			(resolve) => {
+				const proc = spawn("gem", ["install", packageName, "--no-document"], {
+					stdio: ["ignore", "pipe", "pipe"],
+					shell: isWindows,
+				});
+
+				let stderr = "";
+				proc.stderr?.on("data", (data) => (stderr += data));
+				proc.on("exit", (code) => {
+					resolve({ ok: code === 0, error: stderr.trim() });
+				});
+				proc.on("error", (err) => {
+					resolve({ ok: false, error: err.message });
+				});
+			},
+		);
+
+		if (!outcome.ok) {
+			throw new Error(
+				`Failed to install ${packageName} via gem: ${outcome.error}`,
+			);
+		}
+
+		return packageName;
+	} catch (err) {
+		logSessionStart(
+			`auto-install gem ${packageName}: exception: ${(err as Error).message}`,
+		);
+		return undefined;
+	}
+}
+
 /**
  * Install a tool by ID
  */
@@ -1749,6 +1802,16 @@ export async function installTool(toolId: string): Promise<boolean> {
 				if (!tool.packageName) return false;
 				const pipPath = await installPipTool(tool.packageName);
 				const ok = pipPath !== undefined;
+				logSessionStart(
+					`auto-install ${tool.id}: ${ok ? "success" : "failed"} (${Date.now() - startedAt}ms)`,
+				);
+				return ok;
+			}
+
+			case "gem": {
+				if (!tool.packageName) return false;
+				const gemPath = await installGemTool(tool.packageName);
+				const ok = gemPath !== undefined;
 				logSessionStart(
 					`auto-install ${tool.id}: ${ok ? "success" : "failed"} (${Date.now() - startedAt}ms)`,
 				);

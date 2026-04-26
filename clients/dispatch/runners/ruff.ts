@@ -7,37 +7,26 @@
  * Supports venv-local installations.
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { ensureTool } from "../../installer/index.js";
 import { resolvePackagePath } from "../../package-root.js";
 import { safeSpawnAsync } from "../../safe-spawn.js";
 import { stripAnsi } from "../../sanitize.js";
+import {
+	getAutofixCapability,
+	getLinterPolicyForCwd,
+	hasRuffConfig,
+} from "../../tool-policy.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
 import { parseRuffOutput } from "./utils/diagnostic-parsers.js";
-import { createAvailabilityChecker } from "./utils/runner-helpers.js";
-
-const RUFF_PROJECT_CONFIGS = ["ruff.toml", ".ruff.toml"];
-
-function hasProjectRuffConfig(cwd: string): boolean {
-	for (const cfg of RUFF_PROJECT_CONFIGS) {
-		if (fs.existsSync(path.join(cwd, cfg))) return true;
-	}
-	// Check pyproject.toml for [tool.ruff]
-	const pyproject = path.join(cwd, "pyproject.toml");
-	if (fs.existsSync(pyproject)) {
-		try {
-			return fs.readFileSync(pyproject, "utf-8").includes("[tool.ruff]");
-		} catch {}
-	}
-	return false;
-}
+import {
+	createAvailabilityChecker,
+	resolveAvailableOrInstall,
+} from "./utils/runner-helpers.js";
 
 const ruff = createAvailabilityChecker("ruff", ".exe");
 
@@ -53,9 +42,11 @@ function parseRuffJson(raw: string, filePath: string): Diagnostic[] {
 		}>;
 		if (!Array.isArray(parsed)) return [];
 
+		const autofix = getAutofixCapability("ruff");
 		return parsed.map((item, index) => {
 			const severity = item.severity === "error" ? "error" : "warning";
 			const code = item.code || "ruff";
+			const toolFixable = Boolean(item.fix);
 			return {
 				id: `ruff-${code}-${item.location?.row ?? index + 1}`,
 				message: item.message || code,
@@ -66,7 +57,13 @@ function parseRuffJson(raw: string, filePath: string): Diagnostic[] {
 				semantic: severity === "error" ? "blocking" : "warning",
 				tool: "ruff",
 				rule: code,
-				fixable: Boolean(item.fix),
+				fixable: toolFixable,
+				autoFixAvailable:
+					toolFixable && (autofix?.safePipelineAutofix ?? false),
+				fixKind:
+					toolFixable && autofix?.fixKind !== "none"
+						? autofix?.fixKind
+						: undefined,
 			};
 		});
 	} catch {
@@ -82,26 +79,21 @@ const ruffRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
-		let cmd: string | null = null;
-
-		// Auto-install ruff if not available (it's one of the 4 auto-install tools)
-		if (ruff.isAvailable(cwd)) {
-			cmd = ruff.getCommand(cwd);
-		} else {
-			const installed = await ensureTool("ruff");
-			if (!installed) {
-				return { status: "skipped", diagnostics: [], semantic: "none" };
-			}
-			cmd = installed;
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("ruff-lint")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
-
+		const cmd = await resolveAvailableOrInstall(ruff, "ruff", cwd);
 		if (!cmd) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
-		const configArgs: string[] = hasProjectRuffConfig(cwd)
+		const configArgs: string[] = hasRuffConfig(cwd)
 			? []
-			: ["--config", resolvePackagePath(import.meta.url, "config/ruff/core.toml")];
+			: [
+					"--config",
+					resolvePackagePath(import.meta.url, "config/ruff/core.toml"),
+				];
 
 		// Step 1: Capture diagnostics (before fixing) — teaching signal for the agent
 		const checkResult = await safeSpawnAsync(

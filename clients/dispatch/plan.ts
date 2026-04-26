@@ -34,17 +34,19 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 		capabilities: ["types", "security", "smells", "format", "lint"],
 		writeGroups: [
 			primary("jsts"),
-			{ mode: "all", runnerIds: ["biome-check-json"], filterKinds: ["jsts"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["jsts"] },
 			{ mode: "all", runnerIds: ["ast-grep-napi"], filterKinds: ["jsts"] },
 			{ mode: "fallback", runnerIds: ["type-safety"], filterKinds: ["jsts"] },
-			{ mode: "fallback", runnerIds: ["similarity"], filterKinds: ["jsts"] },
-			{ mode: "fallback", runnerIds: ["eslint"], filterKinds: ["jsts"] },
+			{
+				mode: "fallback",
+				runnerIds: ["eslint", "oxlint", "biome-check-json"],
+				filterKinds: ["jsts"],
+			},
 		],
 		fullOnlyGroups: [
 			{
 				mode: "fallback",
-				runnerIds: ["biome-lint", "oxlint"],
+				runnerIds: ["biome-lint"],
 				filterKinds: ["jsts"],
 			},
 		],
@@ -55,6 +57,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 		writeGroups: [
 			primary("python"),
 			{ mode: "fallback", runnerIds: ["ruff-lint"], filterKinds: ["python"] },
+			{ mode: "fallback", runnerIds: ["mypy"], filterKinds: ["python"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["python"] },
 		],
 		fullOnlyGroups: [
@@ -171,8 +174,11 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 	},
 	kotlin: {
 		name: "Kotlin Linting",
-		capabilities: ["types", "lint", "format"],
-		writeGroups: [primary("kotlin")],
+		capabilities: ["types", "lint", "format", "smells"],
+		writeGroups: [
+			primary("kotlin"),
+			{ mode: "fallback", runnerIds: ["detekt"], filterKinds: ["kotlin"] },
+		],
 	},
 	swift: {
 		name: "Swift Linting",
@@ -254,8 +260,11 @@ function toFullPlan(kind: FileKind, entry: CapabilityMatrixEntry): ToolPlan {
 				{ mode: "all", runnerIds: ["ast-grep-napi"], filterKinds: ["jsts"] },
 				...(entry.fullOnlyGroups ?? []),
 				{ mode: "fallback", runnerIds: ["type-safety"], filterKinds: ["jsts"] },
-				{ mode: "fallback", runnerIds: ["similarity"], filterKinds: ["jsts"] },
-				{ mode: "fallback", runnerIds: ["eslint"], filterKinds: ["jsts"] },
+				{
+					mode: "fallback",
+					runnerIds: ["eslint", "oxlint", "biome-check-json"],
+					filterKinds: ["jsts"],
+				},
 			],
 		};
 	}

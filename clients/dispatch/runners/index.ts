@@ -9,6 +9,7 @@ import biomeCheckJsonRunner from "./biome-check.js";
 import cppCheckRunner from "./cpp-check.js";
 import credoRunner from "./credo.js";
 import dartAnalyzeRunner from "./dart-analyze.js";
+import detektRunner from "./detekt.js";
 import dotnetBuildRunner from "./dotnet-build.js";
 import elixirCheckRunner from "./elixir-check.js";
 import eslintRunner from "./eslint.js";
@@ -23,9 +24,9 @@ import ktlintRunner from "./ktlint.js";
 import lspRunner from "./lsp.js";
 import markdownlintRunner from "./markdownlint.js";
 import mypyRunner from "./mypy.js";
+import oxlintRunner from "./oxlint.js";
 import phpLintRunner from "./php-lint.js";
 import phpstanRunner from "./phpstan.js";
-import prettierCheckRunner from "./prettier-check.js";
 import prismaValidateRunner from "./prisma-validate.js";
 import psScriptAnalyzerRunner from "./psscriptanalyzer.js";
 import pyrightRunner from "./pyright.js";
@@ -68,6 +69,7 @@ export function registerDefaultRunners(registry: RunnerRegistry): void {
 	// CLI ast-grep kept for ast_grep_search/ast_grep_replace tools only
 	registry.register(similarityRunner); // Semantic reuse detection (priority 35)
 	registry.register(eslintRunner); // ESLint (priority 12, jsts, config-gated)
+	registry.register(oxlintRunner); // Oxlint (priority 12, jsts, config-aware default fallback)
 	registry.register(golangciRunner); // golangci-lint (priority 20, go, config-gated)
 	registry.register(rubocopRunner); // RuboCop lint (priority 10, ruby)
 	registry.register(spellcheckRunner); // Spellcheck for markdown/docs (priority 30)
@@ -86,6 +88,7 @@ export function registerDefaultRunners(registry: RunnerRegistry): void {
 	registry.register(psScriptAnalyzerRunner); // PowerShell linting via PSScriptAnalyzer module (priority 20)
 	registry.register(prismaValidateRunner); // Prisma schema validation via CLI (priority 20)
 	registry.register(ktlintRunner); // Kotlin linting via ktlint (priority 10)
+	registry.register(detektRunner); // Kotlin static analysis via detekt (priority 20, config-gated)
 	registry.register(tflintRunner); // Terraform linting via tflint (priority 20)
 	registry.register(taploRunner); // TOML linting/validation via taplo (priority 10)
 	registry.register(dartAnalyzeRunner); // Dart analysis via dart analyze (priority 20)
@@ -96,6 +99,5 @@ export function registerDefaultRunners(registry: RunnerRegistry): void {
 	registry.register(gleamCheckRunner); // Gleam project diagnostics via gleam check (priority 20)
 	registry.register(credoRunner); // Elixir static analysis via credo (priority 20, mix.exs-gated)
 	registry.register(elixirCheckRunner); // Elixir compile/syntax diagnostics via mix/elixirc (priority 20)
-	registry.register(prettierCheckRunner); // Prettier format check for CSS/HTML (priority 10, config-gated)
 	registry.register(phpstanRunner); // PHP static analysis via phpstan (priority 20, config-gated)
 }

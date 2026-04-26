@@ -12,6 +12,7 @@
 
 import * as fs from "node:fs";
 import { createFileTime, type FileTime } from "./file-time.js";
+import { logReadGuardEvent } from "./read-guard-logger.js";
 
 // --- Types ---
 
@@ -85,8 +86,10 @@ export class ReadGuard {
 	private edits = new Map<string, EditRecord[]>();
 	private fileTime: FileTime;
 	private exemptions = new Set<string>(); // One-time exemptions via /lens-allow-edit
+	private readonly sessionId: string;
 
 	constructor(sessionId: string, config: Partial<ReadGuardConfig> = {}) {
+		this.sessionId = sessionId;
 		this.config = { ...DEFAULT_CONFIG, ...config };
 		this.fileTime = createFileTime(sessionId);
 	}
@@ -101,6 +104,26 @@ export class ReadGuard {
 		const arr = this.reads.get(record.filePath) ?? [];
 		arr.push(record);
 		this.reads.set(record.filePath, arr);
+
+		logReadGuardEvent({
+			event: "read_recorded",
+			sessionId: this.sessionId,
+			filePath: record.filePath,
+			requestedOffset: record.requestedOffset,
+			requestedLimit: record.requestedLimit,
+			effectiveOffset: record.effectiveOffset,
+			effectiveLimit: record.effectiveLimit,
+			symbol: record.enclosingSymbol?.name,
+			symbolKind: record.enclosingSymbol?.kind,
+			symbolStartLine: record.enclosingSymbol?.startLine,
+			symbolEndLine: record.enclosingSymbol?.endLine,
+			metadata: {
+				expandedByLsp: record.expandedByLsp,
+				turnIndex: record.turnIndex,
+				writeIndex: record.writeIndex,
+				readCountForFile: arr.length,
+			},
+		});
 
 		// Also update FileTime stamp for this file
 		this.fileTime.read(record.filePath);
@@ -118,7 +141,9 @@ export class ReadGuard {
 		if (this.exemptions.has(filePath)) {
 			this.exemptions.delete(filePath); // One-time use
 			const verdict = this.allow();
-			this.recordEdit(filePath, "edit", touchedLines ?? [1, 1], verdict);
+			this.recordVerdict(filePath, "edit", touchedLines, verdict, {
+				reasonKind: "manual_exemption",
+			});
 			return verdict;
 		}
 
@@ -126,7 +151,10 @@ export class ReadGuard {
 		const exemptionMode = this.getExemptionMode(filePath);
 		if (exemptionMode === "allow") {
 			const verdict = this.allow();
-			this.recordEdit(filePath, "edit", touchedLines ?? [1, 1], verdict);
+			this.recordVerdict(filePath, "edit", touchedLines, verdict, {
+				reasonKind: "pattern_exemption",
+				exemptionMode,
+			});
 			return verdict;
 		}
 
@@ -135,9 +163,11 @@ export class ReadGuard {
 		if (!fileReads || fileReads.length === 0) {
 			const verdict = this.blockOrWarn(
 				"zero-read",
-				`🔴 BLOCKED — Edit without read\n\nYou are trying to edit \`${filePath}\` but have not read it in this conversation.\n\nTo proceed:\n  1. Read the file first: \`read filePath="${filePath}"\`\n  2. Or run \`/lens-allow-edit ${filePath}\` to override (use sparingly)`,
+				`🔴 BLOCKED — Edit without read\n\nYou are trying to edit \`${filePath}\` but have not read it in this conversation.\n\nTo proceed:\n  1. Read the file first: \`read path="${filePath}"\`\n  2. Or run \`/lens-allow-edit ${filePath}\` to override (use sparingly)`,
 			);
-			this.recordEdit(filePath, "edit", touchedLines ?? [1, 1], verdict);
+			this.recordVerdict(filePath, "edit", touchedLines, verdict, {
+				reasonKind: "zero_read",
+			});
 			return verdict;
 		}
 
@@ -146,16 +176,21 @@ export class ReadGuard {
 			const lastRead = fileReads[fileReads.length - 1];
 			const verdict = this.blockOrWarn(
 				"file-modified",
-				`🔴 BLOCKED — File modified since read\n\nYou last read \`${filePath}\` at ${new Date(lastRead.timestamp).toISOString()}.\nThe file has been modified on disk since then (auto-format, external tool, or previous edit).\n\nYour mental model is out of sync with the actual file content.\nTo proceed:\n  1. Re-read the file: \`read filePath="${filePath}"\``,
+				`🔴 BLOCKED — File modified since read\n\nYou last read \`${filePath}\` at ${new Date(lastRead.timestamp).toISOString()}.\nThe file has been modified on disk since then (auto-format, external tool, or previous edit).\n\nYour mental model is out of sync with the actual file content.\nTo proceed:\n  1. Re-read the file: \`read path="${filePath}"\``,
 			);
-			this.recordEdit(filePath, "edit", touchedLines ?? [1, 1], verdict);
+			this.recordVerdict(filePath, "edit", touchedLines, verdict, {
+				reasonKind: "file_modified",
+				lastReadTimestamp: lastRead.timestamp,
+			});
 			return verdict;
 		}
 
 		// If no line range specified, we can only check zero-read and FileTime
 		if (!touchedLines) {
 			const verdict = this.allow();
-			this.recordEdit(filePath, "edit", [1, 1], verdict);
+			this.recordVerdict(filePath, "edit", touchedLines, verdict, {
+				reasonKind: "no_line_info",
+			});
 			return verdict;
 		}
 
@@ -164,21 +199,25 @@ export class ReadGuard {
 
 		if (coverage.covered) {
 			const verdict = this.allow();
-			this.recordEdit(filePath, "edit", touchedLines, verdict);
+			this.recordVerdict(filePath, "edit", touchedLines, verdict, {
+				reasonKind: coverage.viaSymbol ? "symbol_coverage" : "range_coverage",
+				viaSymbol: coverage.viaSymbol,
+			});
 			return verdict;
 		}
 
 		// Not covered — block or warn
 		const lastRead = fileReads[fileReads.length - 1];
 		const [editStart, editEnd] = touchedLines;
+		const lastReadEnd = lastRead.effectiveOffset + lastRead.effectiveLimit - 1;
 		const verdict = this.blockOrWarn(
 			"out-of-range",
-			`🔴 BLOCKED — Edit outside read range\n\nYou read \`${filePath}\` lines ${lastRead.effectiveOffset}-${lastRead.effectiveOffset + lastRead.effectiveLimit}${lastRead.enclosingSymbol ? ` (${lastRead.enclosingSymbol.kind} \`${lastRead.enclosingSymbol.name}\`)` : ""}, but your edit touches lines ${editStart}-${editEnd}.\n\nThe edit target is outside the context you previously read.\nTo proceed:\n  1. Read the relevant section: \`read filePath="${filePath}" offset=${Math.max(1, editStart - 5)} limit=${Math.min(30, editEnd - editStart + 10)}\`\n  2. Or read the full file: \`read filePath="${filePath}"\``,
+			`🔴 BLOCKED — Edit outside read range\n\nYou read \`${filePath}\` lines ${lastRead.effectiveOffset}-${lastReadEnd}${lastRead.enclosingSymbol ? ` (${lastRead.enclosingSymbol.kind} \`${lastRead.enclosingSymbol.name}\`)` : ""}, but your edit touches lines ${editStart}-${editEnd}.\n\nThe edit target is outside the context you previously read.\nTo proceed:\n  1. Read the relevant section: \`read path="${filePath}" offset=${Math.max(1, editStart - 5)} limit=${Math.min(30, editEnd - editStart + 10)}\`\n  2. Or read the full file: \`read path="${filePath}"\``,
 			{
 				editRange: touchedLines,
 				readRanges: fileReads.map((r) => ({
 					start: r.effectiveOffset,
-					end: r.effectiveOffset + r.effectiveLimit,
+					end: r.effectiveOffset + r.effectiveLimit - 1,
 				})),
 				symbolRanges: fileReads
 					.filter((r) => r.enclosingSymbol)
@@ -189,7 +228,9 @@ export class ReadGuard {
 					})),
 			},
 		);
-		this.recordEdit(filePath, "edit", touchedLines, verdict);
+		this.recordVerdict(filePath, "edit", touchedLines, verdict, {
+			reasonKind: "out_of_range",
+		});
 		return verdict;
 	}
 
@@ -211,6 +252,14 @@ export class ReadGuard {
 	 */
 	addExemption(filePath: string): void {
 		this.exemptions.add(filePath);
+		logReadGuardEvent({
+			event: "exemption_added",
+			sessionId: this.sessionId,
+			filePath,
+			metadata: {
+				source: "lens-allow-edit",
+			},
+		});
 	}
 
 	/**
@@ -245,11 +294,10 @@ export class ReadGuard {
 				}
 
 				// Count LSP expansions that allowed an edit
-				const reads = this.reads.get(filePath) ?? [];
-				const relevantRead = reads.find(
-					(r) => r.timestamp <= record.precedingReads[0]?.timestamp,
-				);
-				if (relevantRead?.expandedByLsp && record.verdict === "allowed") {
+				if (
+					record.precedingReads.some((r) => r.expandedByLsp) &&
+					record.verdict === "allowed"
+				) {
 					lspExpansionsHelped++;
 				}
 			}
@@ -288,27 +336,62 @@ export class ReadGuard {
 
 		const reads = this.reads.get(filePath) ?? [];
 
+		// First pass: check symbol coverage and any single read that covers the edit.
 		for (const read of reads) {
-			// Direct range coverage (read range expanded by context window)
 			const readStart = Math.max(
 				1,
 				read.effectiveOffset - this.config.contextLines,
 			);
 			const readEnd =
-				read.effectiveOffset + read.effectiveLimit + this.config.contextLines;
+				read.effectiveOffset +
+				read.effectiveLimit -
+				1 +
+				this.config.contextLines;
 
 			if (editStart >= readStart && editEnd <= readEnd) {
 				return { covered: true, viaSymbol: false };
 			}
 
-			// Symbol coverage (LSP expansion)
 			if (read.enclosingSymbol) {
 				const symStart = read.enclosingSymbol.startLine;
 				const symEnd = read.enclosingSymbol.endLine;
-
 				if (symStart <= editStart && symEnd >= editEnd) {
 					return { covered: true, viaSymbol: true };
 				}
+			}
+		}
+
+		// Second pass: merge all read intervals and check if their union covers
+		// [editStart, editEnd]. Handles multi-chunk reads (e.g. 1-100 + 101-200).
+		const intervals = reads.map(
+			(read) =>
+				[
+					Math.max(1, read.effectiveOffset - this.config.contextLines),
+					read.effectiveOffset +
+						read.effectiveLimit -
+						1 +
+						this.config.contextLines,
+				] as [number, number],
+		);
+
+		intervals.sort((a, b) => a[0] - b[0]);
+
+		// Merge overlapping/adjacent intervals
+		const merged: Array<[number, number]> = [];
+		for (const [s, e] of intervals) {
+			if (merged.length > 0 && s <= merged[merged.length - 1][1] + 1) {
+				merged[merged.length - 1][1] = Math.max(
+					merged[merged.length - 1][1],
+					e,
+				);
+			} else {
+				merged.push([s, e]);
+			}
+		}
+
+		for (const [s, e] of merged) {
+			if (editStart >= s && editEnd <= e) {
+				return { covered: true, viaSymbol: false };
 			}
 		}
 
@@ -373,6 +456,46 @@ export class ReadGuard {
 			reason: verdict.reason,
 		});
 		this.edits.set(filePath, arr);
+	}
+
+	private recordVerdict(
+		filePath: string,
+		tool: "write" | "edit",
+		touchedLines: [number, number] | undefined,
+		verdict: ReadGuardVerdict,
+		metadata: Record<string, unknown> = {},
+	): void {
+		const normalizedTouchedLines = touchedLines ?? [1, 1];
+		this.recordEdit(filePath, tool, normalizedTouchedLines, verdict);
+		const reads = this.reads.get(filePath) ?? [];
+		logReadGuardEvent({
+			event:
+				verdict.action === "allow"
+					? "edit_allowed"
+					: verdict.action === "warn"
+						? "edit_warned"
+						: "edit_blocked",
+			sessionId: this.sessionId,
+			filePath,
+			metadata: {
+				tool,
+				touchedLines: touchedLines ?? null,
+				normalizedTouchedLines,
+				readCount: reads.length,
+				reads: reads.map((read) => ({
+					requestedOffset: read.requestedOffset,
+					requestedLimit: read.requestedLimit,
+					effectiveOffset: read.effectiveOffset,
+					effectiveLimit: read.effectiveLimit,
+					expandedByLsp: read.expandedByLsp,
+					enclosingSymbol: read.enclosingSymbol ?? null,
+					timestamp: read.timestamp,
+				})),
+				verdictAction: verdict.action,
+				details: verdict.details,
+				...metadata,
+			},
+		});
 	}
 }
 

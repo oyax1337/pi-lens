@@ -8,6 +8,7 @@
  * - Resource cleanup
  */
 
+import * as nodeFs from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -43,6 +44,28 @@ const TOUCH_DEBOUNCE_MS = Math.max(
 	Number.parseInt(process.env.PI_LENS_LSP_TOUCH_DEBOUNCE_MS ?? "1500", 10) ||
 		1500,
 );
+const DIAGNOSTICS_AGGREGATE_WAIT_MS = Math.max(
+	0,
+	Number.parseInt(
+		process.env.PI_LENS_LSP_DIAGNOSTICS_AGGREGATE_WAIT_MS ?? "1500",
+		10,
+	) || 1500,
+);
+const DIAGNOSTICS_SEMANTIC_SETTLE_THRESHOLD_MS = Math.max(
+	0,
+	Number.parseInt(
+		process.env.PI_LENS_LSP_DIAGNOSTICS_SEMANTIC_THRESHOLD_MS ?? "250",
+		10,
+	) || 250,
+);
+const DIAGNOSTICS_SEMANTIC_SETTLE_WAIT_MS = Math.max(
+	0,
+	Number.parseInt(
+		process.env.PI_LENS_LSP_DIAGNOSTICS_SEMANTIC_SETTLE_MS ?? "400",
+		10,
+	) || 400,
+);
+const CASCADE_DIAGNOSTICS_TTL_MS = 240_000;
 const SESSIONSTART_LOG_DIR = path.join(os.homedir(), ".pi-lens");
 const SESSIONSTART_LOG = path.join(SESSIONSTART_LOG_DIR, "sessionstart.log");
 
@@ -429,13 +452,22 @@ export class LSPService {
 	/**
 	 * Open a file in LSP (sends textDocument/didOpen)
 	 */
-	async openFile(filePath: string, content: string): Promise<void> {
+	async openFile(
+		filePath: string,
+		content: string,
+		options?: { preserveDiagnostics?: boolean },
+	): Promise<void> {
 		if (this.checkDestroyed()) return;
 		const spawned = await this.getClientForFile(filePath);
 		if (!spawned) return;
 
 		const languageId = getLanguageId(filePath) ?? "plaintext";
-		await spawned.client.notify.open(filePath, content, languageId);
+		await spawned.client.notify.open(
+			filePath,
+			content,
+			languageId,
+			options?.preserveDiagnostics,
+		);
 	}
 
 	/**
@@ -569,25 +601,26 @@ export class LSPService {
 			return [];
 		}
 
-		// TypeScript LSP pushes two diagnostic batches: syntactic first (fast, often
-		// empty), semantic second (~500ms later). If the first wait resolves quickly
-		// with no results, do a second short wait to catch the semantic batch.
-		const SEMANTIC_SETTLE_THRESHOLD_MS = 200;
-		const SEMANTIC_SETTLE_WAIT_MS = 800;
-
+		// TypeScript LSP often pushes syntactic diagnostics first (sometimes empty)
+		// and semantic diagnostics shortly after. Keep the aggregate wait short for
+		// interactive edits, then do one brief settle pass only when the first
+		// response was empty and arrived quickly.
 		const perServer = await Promise.all(
 			spawned.map(async (entry) => {
 				const waitStart = Date.now();
-				await entry.client.waitForDiagnostics(filePath, 5000);
+				await entry.client.waitForDiagnostics(
+					filePath,
+					DIAGNOSTICS_AGGREGATE_WAIT_MS,
+				);
 				let diagnostics = entry.client.getDiagnostics(filePath);
 				const firstWaitMs = Date.now() - waitStart;
 				if (
 					diagnostics.length === 0 &&
-					firstWaitMs < SEMANTIC_SETTLE_THRESHOLD_MS
+					firstWaitMs < DIAGNOSTICS_SEMANTIC_SETTLE_THRESHOLD_MS
 				) {
 					await entry.client.waitForDiagnostics(
 						filePath,
-						SEMANTIC_SETTLE_WAIT_MS,
+						DIAGNOSTICS_SEMANTIC_SETTLE_WAIT_MS,
 					);
 					diagnostics = entry.client.getDiagnostics(filePath);
 				}
@@ -884,7 +917,12 @@ export class LSPService {
 			string,
 			{ diags: import("./client.js").LSPDiagnostic[]; ts: number }
 		>();
+		const now = Date.now();
 		for (const [_key, client] of this.state.clients) {
+			client.pruneDiagnostics(
+				(filePath, ts) =>
+					!nodeFs.existsSync(filePath) || now - ts > CASCADE_DIAGNOSTICS_TTL_MS,
+			);
 			const clientDiags = client.getAllDiagnostics();
 			for (const [filePath, entry] of clientDiags) {
 				const existing = all.get(filePath);
@@ -900,7 +938,26 @@ export class LSPService {
 	}
 
 	/**
-	 * Check if LSP is available for a file
+	 * Check whether a file type/root has any configured LSP support.
+	 * Pure capability check — does not spawn or wait for clients.
+	 */
+	supportsLSP(filePath: string): boolean {
+		return getServersForFileWithConfig(filePath).length > 0;
+	}
+
+	/**
+	 * Check whether an LSP client is already alive for a file.
+	 * Lightweight — does not spawn or wait for a client.
+	 */
+	async hasWarmLSP(filePath: string): Promise<boolean> {
+		const spawned = await this.getWarmClientForFile(filePath);
+		return Boolean(spawned);
+	}
+
+	/**
+	 * Check if LSP is available for a file.
+	 * May spawn a client; prefer supportsLSP()/hasWarmLSP() when you only need
+	 * a capability or warm-state check.
 	 */
 	async hasLSP(filePath: string): Promise<boolean> {
 		const spawned = await this.getClientForFile(filePath);

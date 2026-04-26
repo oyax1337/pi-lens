@@ -8,7 +8,7 @@ describe("dispatch integration groups", () => {
 		});
 
 		expect(groups.length).toBeGreaterThan(0);
-		expect(groups[0].runnerIds).toEqual(["lsp", "stylelint", "prettier-check"]);
+		expect(groups[0].runnerIds).toEqual(["lsp", "stylelint"]);
 		expect(groups[0].filterKinds).toEqual(["css"]);
 	});
 
@@ -37,6 +37,6 @@ describe("dispatch integration groups", () => {
 		});
 
 		expect(groups).toHaveLength(1);
-		expect(groups[0].runnerIds).toEqual(["stylelint", "prettier-check"]);
+		expect(groups[0].runnerIds).toEqual(["stylelint"]);
 	});
 });

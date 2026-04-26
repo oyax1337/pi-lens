@@ -103,9 +103,9 @@ const lspRunner: RunnerDefinition = {
 
 		const lspService = getLSPService();
 
-		// Check if we have LSP available for this file
-		const hasLSP = await lspService.hasLSP(ctx.filePath);
-		if (!hasLSP) {
+		// Fast capability check only — actual client creation happens when we
+		// open the file below.
+		if (!lspService.supportsLSP(ctx.filePath)) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
@@ -204,32 +204,40 @@ const lspRunner: RunnerDefinition = {
 			}
 		}
 
-		const diagnostics: Diagnostic[] = validLspDiags.map((d, idx) => ({
-			id: `lsp:${d.code ?? "unknown"}:${d.range.start.line}`,
-			message: d.message,
-			filePath: diagnosticPath,
-			line: d.range.start.line + 1,
-			column: d.range.start.character + 1,
-			severity:
-				d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info",
-			semantic:
-				d.severity === 1 ? "blocking" : d.severity === 2 ? "warning" : "none",
-			tool: "lsp",
-			code: String(d.code ?? ""),
-			fixable: fixSuggestionByIndex.has(idx),
-			fixSuggestion: fixSuggestionByIndex.get(idx),
-		}));
+		const diagnostics: Diagnostic[] = validLspDiags.map((d, idx) => {
+			const severity =
+				d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "info";
+			const semantic =
+				d.severity === 1 ? "blocking" : d.severity === 2 ? "warning" : "none";
+			const hasSuggestion = fixSuggestionByIndex.has(idx);
+			return {
+				id: `lsp:${d.code ?? "unknown"}:${d.range.start.line}`,
+				message: d.message,
+				filePath: diagnosticPath,
+				line: d.range.start.line + 1,
+				column: d.range.start.character + 1,
+				severity,
+				semantic,
+				tool: "lsp",
+				code: String(d.code ?? ""),
+				fixable: hasSuggestion,
+				autoFixAvailable: false,
+				fixKind: hasSuggestion ? "suggestion" : undefined,
+				fixSuggestion: fixSuggestionByIndex.get(idx),
+			};
+		});
 
 		const hasErrors = diagnostics.some((d) => d.semantic === "blocking");
+		const resultSemantic = hasErrors
+			? "blocking"
+			: diagnostics.length > 0
+				? "warning"
+				: "none";
 
 		return {
 			status: hasErrors ? "failed" : "succeeded",
 			diagnostics,
-			semantic: hasErrors
-				? "blocking"
-				: diagnostics.length > 0
-					? "warning"
-					: "none",
+			semantic: resultSemantic,
 		};
 	},
 };

@@ -15,16 +15,18 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	biomeFormatter,
 	blackFormatter,
+	clearFormatterRuntimeState,
+	getFormattersForFile,
 	phpCsFixerFormatter,
 	prettierFormatter,
 	rubocopFormatter,
 	ruffFormatter,
 	standardrbFormatter,
-} from "../../clients/formatters.js";
+} from "../../clients/formatters.ts";
 import { createTempFile, setupTestEnvironment } from "./test-utils.js";
 
 // ---------------------------------------------------------------------------
@@ -69,6 +71,22 @@ function fileIn(dir: string, name = "index.ts"): string {
 	return path.join(dir, name);
 }
 
+async function withPathShim(
+	binaryName: string,
+	fn: () => Promise<void> | void,
+): Promise<void> {
+	const shimDir = path.join(tmpDir, "shims");
+	const exeName = isWin ? `${binaryName}.cmd` : binaryName;
+	makeFakeExe(path.join(shimDir, exeName));
+	const origPath = process.env.PATH;
+	process.env.PATH = `${shimDir}${path.delimiter}${origPath}`;
+	try {
+		await fn();
+	} finally {
+		process.env.PATH = origPath;
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -81,6 +99,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	clearFormatterRuntimeState();
 	cleanup();
 });
 
@@ -134,15 +153,18 @@ describe("resolveCommand — .venv", () => {
 		expect(cmd).toContain(filePath);
 	});
 
-	it.skipIf(process.env.CI === "true")("ruff: falls back to discovered global install when no venv binary", async () => {
-		const cmd = await ruffFormatter.resolveCommand!(
-			fileIn(tmpDir, "main.py"),
-			tmpDir,
-		);
-		expect(cmd).not.toBeNull();
-		expect(String(cmd![0]).toLowerCase()).toContain("ruff");
-		expect(cmd).toContain("format");
-	});
+	it.skipIf(process.env.CI === "true")(
+		"ruff: falls back to discovered global install when no venv binary",
+		async () => {
+			const cmd = await ruffFormatter.resolveCommand!(
+				fileIn(tmpDir, "main.py"),
+				tmpDir,
+			);
+			expect(cmd).not.toBeNull();
+			expect(String(cmd![0]).toLowerCase()).toContain("ruff");
+			expect(cmd).toContain("format");
+		},
+	);
 
 	it("black: returns venv binary when present", async () => {
 		const binPath = venvBin(tmpDir, "black");
@@ -306,6 +328,230 @@ describe("resolveCommand — walk-up from subdirectory", () => {
 // 6: nearest-wins package.json detection
 // ---------------------------------------------------------------------------
 
+describe("getFormattersForFile — policy selection", () => {
+	it("uses biome as the smart default for unconfigured TypeScript files", async () => {
+		const filePath = fileIn(tmpDir, "index.ts");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["biome"]);
+	});
+
+	it("uses biome as the smart default for unconfigured CSS files", async () => {
+		const filePath = fileIn(tmpDir, "styles.css");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["biome"]);
+	});
+
+	it("uses ruff as the smart default for unconfigured Python files", async () => {
+		const filePath = fileIn(tmpDir, "main.py");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["ruff"]);
+	});
+
+	it("does not force a formatter for unconfigured JSON files", async () => {
+		const filePath = fileIn(tmpDir, "config.json");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters).toEqual([]);
+	});
+
+	it("uses prettier as the smart default for unconfigured HTML files", async () => {
+		const filePath = fileIn(tmpDir, "page.html");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["prettier"]);
+	});
+
+	it("uses prettier as the smart default for unconfigured YAML files", async () => {
+		const filePath = fileIn(tmpDir, "config.yaml");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["prettier"]);
+	});
+
+	it("uses prettier as the smart default for unconfigured Markdown files", async () => {
+		const filePath = fileIn(tmpDir, "README.md");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["prettier"]);
+	});
+
+	it("does not force a formatter for unconfigured SQL files", async () => {
+		const filePath = fileIn(tmpDir, "query.sql");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters).toEqual([]);
+	});
+
+	it("enables config-gated SQL formatter when sqlfluff config is present", async () => {
+		createTempFile(tmpDir, ".sqlfluff", "[sqlfluff]\ndialect = postgres\n");
+		const filePath = fileIn(tmpDir, "query.sql");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["sqlfluff"]);
+	});
+
+	it("enables config-gated black formatter when black config is present", async () => {
+		createTempFile(
+			tmpDir,
+			"pyproject.toml",
+			"[tool.black]\nline-length = 88\n",
+		);
+		const filePath = fileIn(tmpDir, "main.py");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["black"]);
+	});
+
+	it("uses shfmt as the smart default for shell files when available", async () => {
+		await withPathShim("shfmt", async () => {
+			const filePath = fileIn(tmpDir, "script.sh");
+			const formatters = await getFormattersForFile(filePath, tmpDir);
+			expect(formatters.map((f) => f.name)).toEqual(["shfmt"]);
+		});
+	});
+
+	it("uses ktlint as the smart default for Kotlin files when available", async () => {
+		await withPathShim("ktlint", async () => {
+			const filePath = fileIn(tmpDir, "App.kt");
+			const formatters = await getFormattersForFile(filePath, tmpDir);
+			expect(formatters.map((f) => f.name)).toEqual(["ktlint"]);
+		});
+	});
+
+	it("uses swiftformat as the smart default for Swift files when available", async () => {
+		await withPathShim("swiftformat", async () => {
+			const filePath = fileIn(tmpDir, "App.swift");
+			const formatters = await getFormattersForFile(filePath, tmpDir);
+			expect(formatters.map((f) => f.name)).toEqual(["swiftformat"]);
+		});
+	});
+
+	it("uses fantomas as the smart default for F# files when available", async () => {
+		await withPathShim("fantomas", async () => {
+			const filePath = fileIn(tmpDir, "App.fs");
+			const formatters = await getFormattersForFile(filePath, tmpDir);
+			expect(formatters.map((f) => f.name)).toEqual(["fantomas"]);
+		});
+	});
+
+	it("uses nixfmt as the smart default for Nix files when available", async () => {
+		await withPathShim("nixfmt", async () => {
+			const filePath = fileIn(tmpDir, "flake.nix");
+			const formatters = await getFormattersForFile(filePath, tmpDir);
+			expect(formatters.map((f) => f.name)).toEqual(["nixfmt"]);
+		});
+	});
+
+	it("uses mix as the smart default for Elixir files when available in an Elixir project", async () => {
+		createTempFile(tmpDir, "mix.exs", "defmodule Demo.MixProject do\nend\n");
+		await withPathShim("mix", async () => {
+			const filePath = path.join(tmpDir, "lib", "app.ex");
+			const formatters = await getFormattersForFile(filePath, tmpDir);
+			expect(formatters.map((f) => f.name)).toEqual(["mix"]);
+		});
+	});
+
+	it("uses gleam as the smart default for Gleam files when available in a Gleam project", async () => {
+		createTempFile(tmpDir, "gleam.toml", 'name = "demo"\nversion = "1.0.0"\n');
+		await withPathShim("gleam", async () => {
+			const filePath = path.join(tmpDir, "src", "app.gleam");
+			const formatters = await getFormattersForFile(filePath, tmpDir);
+			expect(formatters.map((f) => f.name)).toEqual(["gleam"]);
+		});
+	});
+
+	it("uses csharpier as the smart default for C# files when dotnet csharpier is available", async () => {
+		await withPathShim("dotnet", async () => {
+			const filePath = fileIn(tmpDir, "Program.cs");
+			const formatters = await getFormattersForFile(filePath, tmpDir);
+			expect(formatters.map((f) => f.name)).toEqual(["csharpier"]);
+		});
+	});
+
+	it("uses ormolu as the smart default for Haskell files when available", async () => {
+		await withPathShim("ormolu", async () => {
+			const filePath = fileIn(tmpDir, "Main.hs");
+			const formatters = await getFormattersForFile(filePath, tmpDir);
+			expect(formatters.map((f) => f.name)).toEqual(["ormolu"]);
+		});
+	});
+
+	it("does not force clang-format without config", async () => {
+		const filePath = fileIn(tmpDir, "main.cpp");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters).toEqual([]);
+	});
+
+	it("enables clang-format when explicit config is present", async () => {
+		createTempFile(tmpDir, ".clang-format", "BasedOnStyle: LLVM\n");
+		const filePath = fileIn(tmpDir, "main.cpp");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["clang-format"]);
+	});
+
+	it("does not force php-cs-fixer without config", async () => {
+		const filePath = fileIn(tmpDir, "index.php");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters).toEqual([]);
+	});
+
+	it("enables php-cs-fixer when explicit config is present", async () => {
+		createTempFile(tmpDir, ".php-cs-fixer.dist.php", "<?php return [];\n");
+		const filePath = fileIn(tmpDir, "index.php");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["php-cs-fixer"]);
+	});
+
+	it("does not force stylua without config", async () => {
+		const filePath = fileIn(tmpDir, "init.lua");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters).toEqual([]);
+	});
+
+	it("enables stylua when explicit config is present", async () => {
+		createTempFile(tmpDir, "stylua.toml", "column_width = 100\n");
+		const filePath = fileIn(tmpDir, "init.lua");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["stylua"]);
+	});
+
+	it("does not force ocamlformat without config", async () => {
+		const filePath = fileIn(tmpDir, "main.ml");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters).toEqual([]);
+	});
+
+	it("enables ocamlformat when explicit config is present", async () => {
+		createTempFile(tmpDir, ".ocamlformat", "profile = conventional\n");
+		const filePath = fileIn(tmpDir, "main.ml");
+		const formatters = await getFormattersForFile(filePath, tmpDir);
+		expect(formatters.map((f) => f.name)).toEqual(["ocamlformat"]);
+	});
+
+	it("uses taplo as the smart default for TOML files when available", async () => {
+		await withPathShim("taplo", async () => {
+			const filePath = fileIn(tmpDir, "config.toml");
+			const formatters = await getFormattersForFile(filePath, tmpDir);
+			expect(formatters.map((f) => f.name)).toEqual(["taplo"]);
+		});
+	});
+
+	it("taplo resolveCommand falls back to managed install when not on PATH", async () => {
+		const managedPath = isWin
+			? path.join(tmpDir, "managed", "taplo.exe")
+			: path.join(tmpDir, "managed", "taplo");
+		makeFakeExe(managedPath);
+		const installer = await import("../../clients/installer/index.js");
+		const spy = vi
+			.spyOn(installer, "ensureTool")
+			.mockResolvedValue(managedPath);
+		try {
+			const formatters = await import("../../clients/formatters.ts");
+			const cmd = await formatters.taploFormatter.resolveCommand!(
+				fileIn(tmpDir, "config.toml"),
+				tmpDir,
+			);
+			expect(spy).toHaveBeenCalledWith("taplo");
+			expect(cmd).toEqual([managedPath, "fmt", fileIn(tmpDir, "config.toml")]);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+});
+
 describe("detect — nearest-wins package.json", () => {
 	it("biome: subpackage without biome is NOT detected even if root has it", async () => {
 		createTempFile(
@@ -330,6 +576,15 @@ describe("detect — nearest-wins package.json", () => {
 			JSON.stringify({ devDependencies: { "@biomejs/biome": "^2.0.0" } }),
 		);
 		expect(await biomeFormatter.detect(tmpDir)).toBe(true);
+	});
+
+	it("prettier: detected when nearest package.json has prettier dependency", async () => {
+		createTempFile(
+			tmpDir,
+			"package.json",
+			JSON.stringify({ devDependencies: { prettier: "^3.0.0" } }),
+		);
+		expect(await prettierFormatter.detect(tmpDir)).toBe(true);
 	});
 
 	it("prettier: subpackage without prettier is NOT detected even if root has it", async () => {

@@ -1,42 +1,22 @@
-import * as nodeFs from "node:fs";
 import * as path from "node:path";
-import { ensureTool } from "../../installer/index.js";
 import { safeSpawnAsync } from "../../safe-spawn.js";
-import { createAvailabilityChecker } from "./utils/runner-helpers.js";
+import {
+	getLinterPolicyForCwd,
+	hasStylelintConfig,
+} from "../../tool-policy.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
+import {
+	createAvailabilityChecker,
+	resolveToolCommandWithInstallFallback,
+} from "./utils/runner-helpers.js";
 
 const stylelint = createAvailabilityChecker("stylelint", ".cmd");
-
-const STYLELINT_CONFIGS = [
-	".stylelintrc",
-	".stylelintrc.json",
-	".stylelintrc.jsonc",
-	".stylelintrc.yaml",
-	".stylelintrc.yml",
-	".stylelintrc.js",
-	".stylelintrc.cjs",
-	"stylelint.config.js",
-	"stylelint.config.cjs",
-	"stylelint.config.mjs",
-];
-
-function hasStylelintConfig(cwd: string): boolean {
-	if (STYLELINT_CONFIGS.some((cfg) => nodeFs.existsSync(path.join(cwd, cfg))))
-		return true;
-	try {
-		const pkg = JSON.parse(
-			nodeFs.readFileSync(path.join(cwd, "package.json"), "utf-8"),
-		);
-		if (pkg.stylelint) return true;
-	} catch {}
-	return false;
-}
 
 interface StylelintWarning {
 	line: number;
@@ -51,10 +31,7 @@ interface StylelintResult {
 	warnings: StylelintWarning[];
 }
 
-function parseStylelintJson(
-	raw: string,
-	filePath: string,
-): Diagnostic[] {
+function parseStylelintJson(raw: string, filePath: string): Diagnostic[] {
 	try {
 		const results: StylelintResult[] = JSON.parse(raw);
 		const diagnostics: Diagnostic[] = [];
@@ -89,32 +66,21 @@ const stylelintRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
-		const fileDir = path.dirname(path.resolve(cwd, ctx.filePath));
-
-		if (!hasStylelintConfig(fileDir) && !hasStylelintConfig(cwd)) {
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("stylelint")) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
+		const fileDir = path.dirname(path.resolve(cwd, ctx.filePath));
+		const hasConfig = hasStylelintConfig(fileDir) || hasStylelintConfig(cwd);
+		if (!hasConfig) {
+			ctx.log("stylelint: no config detected, running with default rules");
 		}
 
 		let cmd: string | null = null;
 		if (stylelint.isAvailable(cwd)) {
 			cmd = stylelint.getCommand(cwd);
 		} else {
-			// Try local node_modules first
-			const local = path.join(
-				cwd,
-				"node_modules",
-				".bin",
-				process.platform === "win32" ? "stylelint.cmd" : "stylelint",
-			);
-			if (nodeFs.existsSync(local)) {
-				cmd = local;
-			} else {
-				const installed = await ensureTool("stylelint");
-				if (!installed) {
-					return { status: "skipped", diagnostics: [], semantic: "none" };
-				}
-				cmd = installed;
-			}
+			cmd = await resolveToolCommandWithInstallFallback(cwd, "stylelint");
 		}
 
 		if (!cmd) return { status: "skipped", diagnostics: [], semantic: "none" };

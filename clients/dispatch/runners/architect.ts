@@ -11,13 +11,13 @@
 
 import * as path from "node:path";
 import { ArchitectClient } from "../../architect-client.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
 import { readFileContent } from "./utils.js";
 
 // Module-level singleton — loadConfig once per cwd, not on every file write
@@ -92,6 +92,8 @@ const architectRunner: RunnerDefinition = {
 				tool: "architect",
 				rule: v.pattern,
 				fixable: !!v.fix,
+				autoFixAvailable: false,
+				fixKind: v.fix ? "suggestion" : undefined,
 				fixSuggestion,
 			});
 		}

@@ -13,6 +13,7 @@ vi.mock("../../../clients/lsp/client.js", () => ({
 
 describe("LSPService race hardening", () => {
 	beforeEach(() => {
+		vi.resetModules();
 		getServersForFileWithConfig.mockReset();
 		createLSPClient.mockReset();
 		createLSPClient.mockResolvedValue({
@@ -23,6 +24,7 @@ describe("LSPService race hardening", () => {
 
 	afterEach(() => {
 		vi.useRealTimers();
+		vi.restoreAllMocks();
 	});
 
 	it("deduplicates concurrent spawn for same server/root key", async () => {
@@ -93,7 +95,7 @@ describe("LSPService race hardening", () => {
 		await service.getClientForFile(file);
 		expect(spawn).toHaveBeenCalledTimes(2);
 		now.mockRestore();
-	});
+	}, 15000);
 
 	it("uses a server-specific wait budget override for slow startup", async () => {
 		const { LSPService } = await import("../../../clients/lsp/index.js");

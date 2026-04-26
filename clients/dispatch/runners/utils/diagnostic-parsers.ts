@@ -5,6 +5,7 @@
  * Supports the common `file:line:col: message` format used by most linters.
  */
 
+import { getAutofixCapability } from "../../../tool-policy.js";
 import type { Diagnostic } from "../../types.js";
 
 export interface LineParserConfig {
@@ -25,6 +26,12 @@ export interface LineParserConfig {
 	) => "error" | "warning" | "info";
 	/** Whether this diagnostic is fixable (defaults to false) */
 	fixable?: boolean | ((match: RegExpMatchArray) => boolean);
+	/** Whether safe pipeline autofix is available */
+	autoFixAvailable?: boolean | ((match: RegExpMatchArray) => boolean);
+	/** How the fix is expected to be applied */
+	fixKind?:
+		| Diagnostic["fixKind"]
+		| ((match: RegExpMatchArray) => Diagnostic["fixKind"]);
 	/** Strip ANSI escape codes before parsing (defaults to true) */
 	stripAnsi?: boolean;
 }
@@ -58,6 +65,14 @@ export function createLineParser(config: LineParserConfig) {
 				typeof config.fixable === "function"
 					? config.fixable(match)
 					: (config.fixable ?? false);
+			const autoFixAvailable =
+				typeof config.autoFixAvailable === "function"
+					? config.autoFixAvailable(match)
+					: (config.autoFixAvailable ?? false);
+			const fixKind =
+				typeof config.fixKind === "function"
+					? config.fixKind(match)
+					: config.fixKind;
 
 			diagnostics.push({
 				id: config.generateId(match),
@@ -70,6 +85,8 @@ export function createLineParser(config: LineParserConfig) {
 				tool: config.tool,
 				rule: config.extractRule?.(match),
 				fixable,
+				autoFixAvailable,
+				fixKind,
 			});
 		}
 
@@ -84,6 +101,8 @@ export function createLineParser(config: LineParserConfig) {
 /**
  * Parse Ruff output: file:line:col: CODE message
  */
+const ruffAutofix = getAutofixCapability("ruff");
+
 export const parseRuffOutput = createLineParser({
 	tool: "ruff",
 	regex: /^(.+?):(\d+):(\d+):\s*(\w+)\s*(.+)/,
@@ -91,6 +110,8 @@ export const parseRuffOutput = createLineParser({
 	extractRule: (m) => m[4],
 	generateId: (m) => `ruff-${m[4]}`,
 	fixable: true, // Ruff can fix most issues
+	autoFixAvailable: ruffAutofix?.safePipelineAutofix ?? false,
+	fixKind: ruffAutofix?.fixKind === "none" ? undefined : ruffAutofix?.fixKind,
 });
 
 /**
@@ -108,6 +129,7 @@ export const parseGoVetOutput = createLineParser({
  * With autofix support for fix suggestions
  */
 export function createBiomeParser(_autofix: boolean = false) {
+	const biomeAutofix = getAutofixCapability("biome");
 	return createLineParser({
 		tool: "biome",
 		regex: /^(.+?):(\d+):(\d+)\s+(.+?)\s*\((.+?)\)/,
@@ -116,6 +138,9 @@ export function createBiomeParser(_autofix: boolean = false) {
 		generateId: (m) => `biome-${m[2]}-${m[5]}`,
 		getSeverity: (line) => (line.includes("error") ? "error" : "warning"),
 		fixable: true,
+		autoFixAvailable: biomeAutofix?.safePipelineAutofix ?? false,
+		fixKind:
+			biomeAutofix?.fixKind === "none" ? undefined : biomeAutofix?.fixKind,
 	});
 }
 

@@ -5,7 +5,9 @@ import { FactStore } from "../../../../clients/dispatch/fact-store.js";
 import { setupTestEnvironment } from "../../test-utils.js";
 
 const safeSpawnAsync = vi.fn();
+const safeSpawn = vi.fn();
 const tryLazyInstall = vi.fn(async () => true);
+const supportsLSP = vi.fn();
 const hasLSP = vi.fn();
 const openFile = vi.fn();
 const getDiagnostics = vi.fn();
@@ -13,6 +15,7 @@ const codeAction = vi.fn();
 const readFileContent = vi.fn(() => "const x = 1;\n");
 
 vi.mock("../../../../clients/safe-spawn.js", () => ({
+	safeSpawn,
 	safeSpawnAsync,
 }));
 
@@ -22,6 +25,7 @@ vi.mock("../../../../clients/dispatch/runners/utils/lazy-installer.js", () => ({
 
 vi.mock("../../../../clients/lsp/index.js", () => ({
 	getLSPService: () => ({
+		supportsLSP,
 		hasLSP,
 		openFile,
 		getDiagnostics,
@@ -52,43 +56,53 @@ function ctx(filePath: string, cwd: string) {
 
 describe("runner status/semantic edge cases", () => {
 	beforeEach(() => {
+		safeSpawn.mockReset();
 		safeSpawnAsync.mockReset();
 		tryLazyInstall.mockClear();
+		supportsLSP.mockReset();
 		hasLSP.mockReset();
 		openFile.mockReset();
 		getDiagnostics.mockReset();
 		codeAction.mockReset();
 		readFileContent.mockReset();
 		readFileContent.mockReturnValue("const x = 1;\n");
+		supportsLSP.mockReturnValue(true);
 	});
 
 	it("golangci-lint returns failed/blocking for error diagnostics", async () => {
-		const runner = (await import(
-			"../../../../clients/dispatch/runners/golangci-lint.js"
-		)).default;
+		const runner = (
+			await import("../../../../clients/dispatch/runners/golangci-lint.js")
+		).default;
 		const env = setupTestEnvironment("pi-lens-go-");
 		try {
 			const filePath = path.join(env.tmpDir, "main.go");
-			fs.writeFileSync(path.join(env.tmpDir, ".golangci.yml"), "run:\n  timeout: 1m\n");
+			fs.writeFileSync(
+				path.join(env.tmpDir, ".golangci.yml"),
+				"run:\n  timeout: 1m\n",
+			);
 			fs.writeFileSync(filePath, "package main\n");
 
-			safeSpawnAsync
-				.mockResolvedValueOnce({ error: null, status: 0, stdout: "ok", stderr: "" })
-				.mockResolvedValueOnce({
-					error: null,
-					status: 1,
-					stdout: JSON.stringify({
-						Issues: [
-							{
-								FromLinter: "govet",
-								Text: "suspicious",
-								Severity: "error",
-								Pos: { Filename: filePath, Line: 2, Column: 1 },
-							},
-						],
-					}),
-					stderr: "",
-				});
+			safeSpawn.mockReturnValueOnce({
+				error: null,
+				status: 0,
+				stdout: "ok",
+				stderr: "",
+			});
+			safeSpawnAsync.mockResolvedValueOnce({
+				error: null,
+				status: 1,
+				stdout: JSON.stringify({
+					Issues: [
+						{
+							FromLinter: "govet",
+							Text: "suspicious",
+							Severity: "error",
+							Pos: { Filename: filePath, Line: 2, Column: 1 },
+						},
+					],
+				}),
+				stderr: "",
+			});
 
 			const result = await runner.run(ctx(filePath, env.tmpDir) as never);
 			expect(result.status).toBe("failed");
@@ -99,9 +113,9 @@ describe("runner status/semantic edge cases", () => {
 	});
 
 	it("rust-clippy returns warning semantic for non-parseable output", async () => {
-		const runner = (await import(
-			"../../../../clients/dispatch/runners/rust-clippy.js"
-		)).default;
+		const runner = (
+			await import("../../../../clients/dispatch/runners/rust-clippy.js")
+		).default;
 		const env = setupTestEnvironment("pi-lens-rs-");
 		try {
 			const cargoToml = path.join(env.tmpDir, "Cargo.toml");
@@ -111,8 +125,18 @@ describe("runner status/semantic edge cases", () => {
 			fs.writeFileSync(filePath, "fn main() {}\n");
 
 			safeSpawnAsync
-				.mockResolvedValueOnce({ error: null, status: 0, stdout: "cargo", stderr: "" })
-				.mockResolvedValueOnce({ error: null, status: 0, stdout: "clippy", stderr: "" })
+				.mockResolvedValueOnce({
+					error: null,
+					status: 0,
+					stdout: "cargo",
+					stderr: "",
+				})
+				.mockResolvedValueOnce({
+					error: null,
+					status: 0,
+					stdout: "clippy",
+					stderr: "",
+				})
 				.mockResolvedValueOnce({
 					error: null,
 					status: 1,
@@ -129,16 +153,21 @@ describe("runner status/semantic edge cases", () => {
 	});
 
 	it("rubocop returns failed/blocking for error offenses", async () => {
-		const runner = (await import(
-			"../../../../clients/dispatch/runners/rubocop.js"
-		)).default;
+		const runner = (
+			await import("../../../../clients/dispatch/runners/rubocop.js")
+		).default;
 		const env = setupTestEnvironment("pi-lens-rb-");
 		try {
 			const filePath = path.join(env.tmpDir, "main.rb");
 			fs.writeFileSync(filePath, "puts 'hi'\n");
 
 			safeSpawnAsync
-				.mockResolvedValueOnce({ error: null, status: 0, stdout: "rubocop", stderr: "" })
+				.mockResolvedValueOnce({
+					error: null,
+					status: 0,
+					stdout: "rubocop",
+					stderr: "",
+				})
 				.mockResolvedValueOnce({
 					error: null,
 					status: 1,
@@ -170,14 +199,14 @@ describe("runner status/semantic edge cases", () => {
 	});
 
 	it("lsp runner returns warning semantic when server open fails", async () => {
-		const runner = (await import(
-			"../../../../clients/dispatch/runners/lsp.js"
-		)).default;
+		const runner = (await import("../../../../clients/dispatch/runners/lsp.js"))
+			.default;
 		const env = setupTestEnvironment("pi-lens-lsp-");
 		try {
 			const filePath = path.join(env.tmpDir, "main.ts");
 			fs.writeFileSync(filePath, "const x = 1;\n");
 
+			supportsLSP.mockReturnValue(true);
 			hasLSP.mockResolvedValue(true);
 			openFile.mockRejectedValue(new Error("connection failed"));
 			getDiagnostics.mockResolvedValue([]);
@@ -192,9 +221,8 @@ describe("runner status/semantic edge cases", () => {
 	});
 
 	it("lsp runner surfaces codeAction guidance for blocking diagnostics", async () => {
-		const runner = (await import(
-			"../../../../clients/dispatch/runners/lsp.js"
-		)).default;
+		const runner = (await import("../../../../clients/dispatch/runners/lsp.js"))
+			.default;
 		const env = setupTestEnvironment("pi-lens-lsp-fix-");
 		try {
 			const filePath = path.join(env.tmpDir, "main.ts");
@@ -234,9 +262,8 @@ describe("runner status/semantic edge cases", () => {
 	});
 
 	it("lsp runner ignores refactor-only code actions for fix guidance", async () => {
-		const runner = (await import(
-			"../../../../clients/dispatch/runners/lsp.js"
-		)).default;
+		const runner = (await import("../../../../clients/dispatch/runners/lsp.js"))
+			.default;
 		const env = setupTestEnvironment("pi-lens-lsp-refactor-");
 		try {
 			const filePath = path.join(env.tmpDir, "main.ts");

@@ -105,7 +105,7 @@ describe("language-policy", () => {
 		expect(sql?.runnerIds).toEqual(["sqlfluff"]);
 
 		const html = getPrimaryDispatchGroup("html", true);
-		expect(html?.runnerIds).toEqual(["lsp", "htmlhint", "prettier-check"]);
+		expect(html?.runnerIds).toEqual(["lsp", "htmlhint"]);
 
 		const powershell = getPrimaryDispatchGroup("powershell", false);
 		expect(powershell?.runnerIds).toEqual(["psscriptanalyzer"]);

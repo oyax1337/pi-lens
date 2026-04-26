@@ -484,6 +484,7 @@ const treeSitterRunner: RunnerDefinition = {
 										? defaultFixSuggestion(defectClass, query.id)
 										: undefined;
 
+							const hasSuggestedFix = !!query.has_fix;
 							queryDiagnostics.push({
 								id: `tree-sitter:${query.id}:${line}`,
 								message: query.message,
@@ -497,7 +498,9 @@ const treeSitterRunner: RunnerDefinition = {
 								defectClass,
 								// Surface fix intent to agent — tree-sitter never auto-applies;
 								// linters (biome/ruff/eslint) own the autofix phase.
-								fixable: query.has_fix,
+								fixable: hasSuggestedFix,
+								autoFixAvailable: false,
+								fixKind: hasSuggestedFix ? "suggestion" : undefined,
 								fixSuggestion: suggestion,
 							});
 						}
@@ -564,7 +567,12 @@ const treeSitterRunner: RunnerDefinition = {
 						});
 					} else {
 						blastCooldownByFile.set(filePath, Date.now());
-						runBlastRadiusInBackground(ctx.cwd, filePath, languageId, ctx.facts);
+						runBlastRadiusInBackground(
+							ctx.cwd,
+							filePath,
+							languageId,
+							ctx.facts,
+						);
 					}
 				}
 			} catch {

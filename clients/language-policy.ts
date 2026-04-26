@@ -85,13 +85,13 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 		filterKinds: ["jsts"],
 	},
 	python: {
-		mode: "fallback",
+		mode: "all",
 		runnerIds: ["lsp", "pyright"],
 		filterKinds: ["python"],
 	},
-	go: { mode: "fallback", runnerIds: ["lsp", "go-vet"], filterKinds: ["go"] },
+	go: { mode: "all", runnerIds: ["lsp", "go-vet"], filterKinds: ["go"] },
 	rust: {
-		mode: "fallback",
+		mode: "all",
 		runnerIds: ["lsp", "rust-clippy"],
 		filterKinds: ["rust"],
 	},
@@ -101,13 +101,13 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 		filterKinds: ["ruby"],
 	},
 	cxx: {
-		mode: "fallback",
+		mode: "all",
 		runnerIds: ["lsp", "cpp-check"],
 		filterKinds: ["cxx"],
 	},
 	cmake: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["cmake"] },
 	shell: {
-		mode: "fallback",
+		mode: "all",
 		runnerIds: ["lsp", "shellcheck"],
 		filterKinds: ["shell"],
 	},
@@ -119,7 +119,7 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 	},
 	css: {
 		mode: "fallback",
-		runnerIds: ["lsp", "stylelint", "prettier-check"],
+		runnerIds: ["lsp", "stylelint"],
 		filterKinds: ["css"],
 	},
 	yaml: {
@@ -134,7 +134,7 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 	},
 	html: {
 		mode: "fallback",
-		runnerIds: ["lsp", "htmlhint", "prettier-check"],
+		runnerIds: ["lsp", "htmlhint"],
 		filterKinds: ["html"],
 	},
 	docker: {
@@ -148,12 +148,12 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 		filterKinds: ["php"],
 	},
 	powershell: {
-		mode: "fallback",
+		mode: "all",
 		runnerIds: ["lsp", "psscriptanalyzer"],
 		filterKinds: ["powershell"],
 	},
 	prisma: {
-		mode: "fallback",
+		mode: "all",
 		runnerIds: ["lsp", "prisma-validate"],
 		filterKinds: ["prisma"],
 	},
@@ -175,7 +175,7 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 	},
 	swift: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["swift"] },
 	dart: {
-		mode: "fallback",
+		mode: "all",
 		runnerIds: ["lsp", "dart-analyze"],
 		filterKinds: ["dart"],
 	},
@@ -183,19 +183,19 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 	zig: { mode: "all", runnerIds: ["lsp", "zig-check"], filterKinds: ["zig"] },
 	haskell: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["haskell"] },
 	elixir: {
-		mode: "fallback",
+		mode: "all",
 		runnerIds: ["lsp", "elixir-check", "credo"],
 		filterKinds: ["elixir"],
 	},
 	gleam: {
-		mode: "fallback",
+		mode: "all",
 		runnerIds: ["lsp", "gleam-check"],
 		filterKinds: ["gleam"],
 	},
 	ocaml: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["ocaml"] },
 	clojure: { mode: "fallback", runnerIds: ["lsp"], filterKinds: ["clojure"] },
 	terraform: {
-		mode: "fallback",
+		mode: "all",
 		runnerIds: ["lsp", "tflint"],
 		filterKinds: ["terraform"],
 	},

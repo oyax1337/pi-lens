@@ -13,16 +13,23 @@ import {
 	getLatencyReports,
 	resetDispatchBaselines,
 } from "./clients/dispatch/integration.js";
+import { detectFileKind } from "./clients/file-kinds.js";
 import { resetFormatService } from "./clients/format-service.js";
 import {
 	evaluateGitGuard,
 	isGitCommitOrPushAttempt,
 } from "./clients/git-guard.js";
 import { getAllToolStatuses } from "./clients/installer/index.js";
+import { LANGUAGE_POLICY } from "./clients/language-policy.js";
 import { logLatency } from "./clients/latency-logger.js";
 import type { LSPSymbol } from "./clients/lsp/client.js";
 import { initLSPConfig } from "./clients/lsp/config.js";
 import { getLSPService, resetLSPService } from "./clients/lsp/index.js";
+import { logReadGuardEvent } from "./clients/read-guard-logger.js";
+import {
+	countFileLines,
+	getTouchedLinesForGuard,
+} from "./clients/read-guard-tool-lines.js";
 import {
 	consumeSessionStartGuidance,
 	consumeTestFindings,
@@ -31,7 +38,7 @@ import {
 import { RuntimeCoordinator } from "./clients/runtime-coordinator.js";
 import { handleSessionStart } from "./clients/runtime-session.js";
 import { handleToolResult } from "./clients/runtime-tool-result.js";
-import { handleTurnEnd } from "./clients/runtime-turn.js";
+import { cancelLSPIdleReset, handleTurnEnd } from "./clients/runtime-turn.js";
 import { handleBooboo } from "./commands/booboo.js";
 import { createAstGrepReplaceTool } from "./tools/ast-grep-replace.js";
 import { createAstGrepSearchTool } from "./tools/ast-grep-search.js";
@@ -72,6 +79,10 @@ const LSP_TOOLCALL_NAV_TOUCH_BUDGET_MS = Math.max(
 		10,
 	) || 1500,
 );
+const LSP_TOOLCALL_TOUCH_BUDGET_MS = Math.max(
+	0,
+	Number.parseInt(process.env.PI_LENS_TOOLCALL_TOUCH_MS ?? "750", 10) || 750,
+);
 
 async function ensureLSPConfigInitialized(cwd: string): Promise<void> {
 	const normalizedCwd = path.resolve(cwd);
@@ -93,6 +104,124 @@ function updateRuntimeIdentityFromEvent(event: unknown): void {
 		model: raw.model,
 		sessionId: raw.sessionId ?? raw.session?.id ?? raw.id,
 	});
+}
+
+function normalizeCommandArgs(args: unknown): string[] {
+	if (Array.isArray(args)) {
+		return args.filter((arg): arg is string => typeof arg === "string");
+	}
+	if (typeof args === "string") {
+		return args.trim().split(/\s+/).filter(Boolean);
+	}
+	return [];
+}
+
+function getToolCallRawFilePath(
+	toolName: string,
+	event: { input?: unknown },
+): string | undefined {
+	const inputObj = (event.input ?? {}) as Record<string, unknown>;
+
+	if (
+		isToolCallEventType("write", event as any) ||
+		isToolCallEventType("edit", event as any)
+	) {
+		const filePath = (event.input as { path?: unknown }).path;
+		return typeof filePath === "string" ? filePath : undefined;
+	}
+
+	if (toolName === "read") {
+		if (typeof inputObj.path === "string") return inputObj.path;
+		if (typeof inputObj.filePath === "string") return inputObj.filePath;
+		return undefined;
+	}
+
+	if (toolName === "lsp_navigation") {
+		return typeof inputObj.filePath === "string"
+			? inputObj.filePath
+			: undefined;
+	}
+
+	return undefined;
+}
+
+function resolveToolCallFilePath(
+	rawFilePath: string | undefined,
+	cwd: string | undefined,
+	projectRoot: string,
+): string | undefined {
+	if (!rawFilePath) return undefined;
+	if (path.isAbsolute(rawFilePath)) return rawFilePath;
+	return path.resolve(cwd ?? projectRoot, rawFilePath);
+}
+
+type ReadToolInput = {
+	path?: string;
+	filePath?: string;
+	offset?: number;
+	limit?: number;
+};
+
+function getReadToolInput(
+	toolName: string,
+	input: unknown,
+): ReadToolInput | undefined {
+	if (toolName !== "read") return undefined;
+	return input as ReadToolInput;
+}
+
+function getEffectiveReadLimit(
+	filePath: string | undefined,
+	readInput: ReadToolInput | undefined,
+): number | undefined {
+	if (!filePath || !readInput) return undefined;
+	const requestedOffset = readInput.offset ?? 1;
+	const requestedLimit = readInput.limit;
+	return (
+		requestedLimit ??
+		Math.max(1, countFileLines(filePath) - requestedOffset + 1)
+	);
+}
+
+function isLspCapableFile(filePath: string): boolean {
+	const kind = detectFileKind(filePath);
+	if (!kind) return false;
+	return LANGUAGE_POLICY[kind]?.lspCapable !== false;
+}
+
+function shouldSkipLspAutoTouch(filePath: string): boolean {
+	const normalized = path.resolve(filePath).replace(/\\/g, "/").toLowerCase();
+	const base = path.basename(filePath).toLowerCase();
+
+	if (normalized.includes("/.pi-lens/")) return true;
+	if (normalized.includes("/.harness/")) return true;
+	if (
+		base === "stdout.jsonl" ||
+		base === "stderr.txt" ||
+		base === "prompt.txt"
+	) {
+		return true;
+	}
+	if (base === "case.json" && normalized.includes("/cases/")) {
+		return true;
+	}
+	return false;
+}
+
+function getNewContentFromToolCall(event: unknown): string | undefined {
+	if (isToolCallEventType("write", event as any)) {
+		return ((event as { input?: unknown }).input as { content?: string })
+			.content;
+	}
+	if (isToolCallEventType("edit", event as any)) {
+		const edits = (
+			(event as { input?: unknown }).input as {
+				edits?: Array<{ newText?: string }>;
+			}
+		).edits;
+		return edits?.map((edit) => edit.newText ?? "").join("\n");
+	}
+	return undefined;
 }
 
 /**
@@ -285,6 +414,12 @@ export default function (pi: ExtensionAPI) {
 			const history = loadHistory();
 			const tdi = computeTDI(history);
 
+			let summary = "🔴 High debt - run /lens-booboo-refactor";
+			if (tdi.score <= 30) {
+				summary = "✅ Codebase is healthy!";
+			} else if (tdi.score <= 60) {
+				summary = "⚠️ Moderate debt - consider refactoring";
+			}
 			const lines = [
 				`📊 TECHNICAL DEBT INDEX: ${tdi.score}/100 (${tdi.grade})`,
 				``,
@@ -300,11 +435,7 @@ export default function (pi: ExtensionAPI) {
 				`  Max Cyclomatic: ${tdi.byCategory.maxCyclomatic}% (worst function)`,
 				`  Entropy: ${tdi.byCategory.entropy}% (code unpredictability)`,
 				``,
-				tdi.score <= 30
-					? "✅ Codebase is healthy!"
-					: tdi.score <= 60
-						? "⚠️ Moderate debt - consider refactoring"
-						: "🔴 High debt - run /lens-booboo-refactor",
+				summary,
 			];
 
 			ctx.ui.notify(lines.join("\n"), "info");
@@ -502,6 +633,27 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	pi.registerCommand("lens-allow-edit", {
+		description:
+			"Allow one edit to a file without a prior read. Usage: /lens-allow-edit <path>",
+		handler: async (args, ctx) => {
+			const [rawTarget] = normalizeCommandArgs(args);
+			if (!rawTarget) {
+				ctx.ui.notify("Usage: /lens-allow-edit <path>", "warning");
+				return;
+			}
+
+			const targetPath = path.isAbsolute(rawTarget)
+				? rawTarget
+				: path.resolve(ctx.cwd ?? runtime.projectRoot, rawTarget);
+			runtime.readGuard.addExemption(targetPath);
+			ctx.ui.notify(
+				`Read guard override armed for next edit: ${targetPath}`,
+				"info",
+			);
+		},
+	});
+
 	// --- Tools (extracted to tools/) ---
 	pi.registerTool(createAstGrepSearchTool(astGrepClient) as any);
 	pi.registerTool(createAstGrepReplaceTool(astGrepClient) as any);
@@ -602,20 +754,12 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		const inputObj = (event.input ?? {}) as Record<string, unknown>;
-		const rawFilePath =
-			isToolCallEventType("write", event) || isToolCallEventType("edit", event)
-				? (event.input as { path: string }).path
-				: toolName === "read" || toolName === "lsp_navigation"
-					? typeof inputObj.filePath === "string"
-						? inputObj.filePath
-						: undefined
-					: undefined;
-		const filePath = rawFilePath
-			? path.isAbsolute(rawFilePath)
-				? rawFilePath
-				: path.resolve(ctx.cwd ?? runtime.projectRoot, rawFilePath)
-			: undefined;
+		const rawFilePath = getToolCallRawFilePath(toolName, event);
+		const filePath = resolveToolCallFilePath(
+			rawFilePath,
+			ctx.cwd,
+			runtime.projectRoot,
+		);
 
 		if (!pi.getFlag("no-lsp")) {
 			try {
@@ -635,21 +779,48 @@ export default function (pi: ExtensionAPI) {
 		);
 		if (!nodeFs.existsSync(filePath)) return;
 
-		// Only pre-touch LSP for read and lsp_navigation — these need the server
-		// warmed up before the tool executes.  Do NOT pre-touch for write/edit:
-		// the file hasn't been modified yet, so we'd send stale content to the LS
-		// which caches stale diagnostics that the pipeline then returns immediately.
-		// The pipeline's own syncLspFile step handles write/edit with correct content.
+		const lspCapableFile = isLspCapableFile(filePath);
+		const lspAutoTouchSkipped = shouldSkipLspAutoTouch(filePath);
+		const lspAutoTouchEligible = lspCapableFile && !lspAutoTouchSkipped;
+		const shouldWarmReadLsp =
+			toolName === "read" &&
+			lspAutoTouchEligible &&
+			runtime.shouldWarmLspOnRead(filePath);
 		const shouldAutoTouch =
-			(toolName === "read" || toolName === "lsp_navigation") &&
-			!pi.getFlag("no-lsp");
+			(toolName === "write" ||
+				toolName === "edit" ||
+				toolName === "lsp_navigation" ||
+				shouldWarmReadLsp) &&
+			!pi.getFlag("no-lsp") &&
+			lspAutoTouchEligible;
+		if (!lspCapableFile && !pi.getFlag("no-lsp")) {
+			dbg(
+				`lsp auto-touch skipped: ${path.basename(filePath)} (file kind not LSP-capable)`,
+			);
+		} else if (lspAutoTouchSkipped && !pi.getFlag("no-lsp")) {
+			dbg(
+				`lsp auto-touch skipped: ${path.basename(filePath)} (internal/support artifact)`,
+			);
+		}
+		if (toolName === "read" && !pi.getFlag("no-lsp") && !shouldWarmReadLsp) {
+			const readSkipReason = !lspAutoTouchEligible
+				? "file not eligible for LSP warm"
+				: "already warming or warmed recently";
+			dbg(
+				`lsp read warm skipped: ${path.basename(filePath)} (${readSkipReason})`,
+			);
+		}
 		if (shouldAutoTouch) {
 			try {
 				const fileContent = nodeFs.readFileSync(filePath, "utf-8");
 				const maxClientWaitMs =
 					toolName === "lsp_navigation"
 						? LSP_TOOLCALL_NAV_TOUCH_BUDGET_MS
-						: undefined;
+						: LSP_TOOLCALL_TOUCH_BUDGET_MS;
+				if (toolName === "read") {
+					runtime.markLspReadWarmStarted(filePath);
+					dbg(`lsp read warm started: ${path.basename(filePath)}`);
+				}
 				void getLSPService()
 					.touchFile(
 						filePath,
@@ -660,50 +831,66 @@ export default function (pi: ExtensionAPI) {
 						maxClientWaitMs,
 					)
 					.then(() => {
+						if (toolName === "read") {
+							runtime.markLspReadWarmCompleted(filePath);
+							dbg(`lsp read warm completed: ${path.basename(filePath)}`);
+						}
 						if (ctx.ui) {
 							ctx.ui && updateLspStatus(ctx.ui.setStatus, ctx.ui.theme);
 						}
 					})
-					.catch((err) => dbg(`lsp auto-touch failed for ${filePath}: ${err}`));
+					.catch((err) => {
+						if (toolName === "read") {
+							runtime.clearLspReadWarmState(filePath);
+						}
+						dbg(`lsp auto-touch failed for ${filePath}: ${err}`);
+					});
 			} catch {
+				if (toolName === "read") {
+					runtime.clearLspReadWarmState(filePath);
+				}
 				// Best effort only; never block tool calls.
 			}
 		}
 
+		const readInput = getReadToolInput(toolName, event.input);
+		const requestedReadOffset = readInput?.offset ?? 1;
+		const requestedReadLimit = readInput?.limit;
+		const effectiveReadLimit = getEffectiveReadLimit(filePath, readInput);
+
 		// --- Read-Before-Edit Guard: record reads ---
 		if (toolName === "read" && filePath) {
-			const readInput = event.input as {
-				filePath?: string;
-				offset?: number;
-				limit?: number;
-			};
-			const rawOffset = readInput.offset ?? 1;
-			const rawLimit = readInput.limit ?? 1;
-
-			// Record read immediately (before LSP expansion);
-			// LSP expansion data is captured below
 			runtime.readGuard.recordRead({
 				filePath,
-				requestedOffset: rawOffset,
-				requestedLimit: rawLimit,
-				effectiveOffset: rawOffset,
-				effectiveLimit: rawLimit,
+				requestedOffset: requestedReadOffset,
+				requestedLimit: requestedReadLimit ?? effectiveReadLimit!,
+				effectiveOffset: requestedReadOffset,
+				effectiveLimit: effectiveReadLimit!,
 				expandedByLsp: false,
 				turnIndex: runtime.turnIndex,
 				writeIndex: runtime.nextWriteIndex(),
 				timestamp: Date.now(),
 			});
+			logReadGuardEvent({
+				event: "read_recorded_bridge",
+				sessionId: runtime.telemetrySessionId,
+				filePath,
+				requestedOffset: requestedReadOffset,
+				requestedLimit: requestedReadLimit ?? effectiveReadLimit!,
+				effectiveOffset: requestedReadOffset,
+				effectiveLimit: effectiveReadLimit!,
+				metadata: {
+					tool: "read",
+					turnIndex: runtime.turnIndex,
+				},
+			});
 		}
 
 		// --- Opportunistic LSP range expansion for single-line reads ---
 		if (toolName === "read" && !pi.getFlag("no-lsp") && filePath) {
-			const readInput = event.input as {
-				filePath?: string;
-				offset?: number;
-				limit?: number;
-			};
+			const readGuard = runtime.readGuard;
 			const isSingleLine =
-				readInput.offset != null &&
+				readInput?.offset != null &&
 				(readInput.limit == null || readInput.limit <= 1);
 			if (isSingleLine) {
 				const lsp = getLSPService();
@@ -715,13 +902,14 @@ export default function (pi: ExtensionAPI) {
 						return spawned.client.documentSymbol(filePath).then((symbols) => {
 							const match = findSymbolAtLine(symbols, readInput.offset!);
 							if (match) {
+								const originalOffset = readInput.offset!;
 								const newOffset = match.range.start.line + 1;
 								const endLine = match.range.end.line + 1;
 								readInput.offset = newOffset;
 								readInput.limit = endLine - newOffset + 1;
 
 								// Update read guard with expanded range
-								const reads = runtime.readGuard.getReadHistory(filePath);
+								const reads = readGuard.getReadHistory(filePath);
 								const lastRead = reads[reads.length - 1];
 								if (lastRead) {
 									lastRead.effectiveOffset = newOffset;
@@ -733,6 +921,19 @@ export default function (pi: ExtensionAPI) {
 										startLine: match.range.start.line + 1,
 										endLine: match.range.end.line + 1,
 									};
+									logReadGuardEvent({
+										event: "lsp_range_expanded",
+										sessionId: runtime.telemetrySessionId,
+										filePath,
+										requestedOffset: requestedReadOffset,
+										requestedLimit: requestedReadLimit ?? 1,
+										effectiveOffset: newOffset,
+										effectiveLimit: endLine - newOffset + 1,
+										symbol: match.name,
+										symbolKind: String(match.kind),
+										symbolStartLine: match.range.start.line + 1,
+										symbolEndLine: match.range.end.line + 1,
+									});
 								}
 
 								logLatency({
@@ -743,13 +944,13 @@ export default function (pi: ExtensionAPI) {
 									metadata: {
 										symbol: match.name,
 										kind: match.kind,
-										fromLine: readInput.offset,
+										fromLine: originalOffset,
 										toRange: `${newOffset}-${endLine}`,
 										serverId: spawned.info.id,
 									},
 								});
 								dbg(
-									`lsp expanded read range: ${path.basename(filePath)} line ${readInput.offset} → ${match.name} (${newOffset}-${endLine})`,
+									`lsp expanded read range: ${path.basename(filePath)} line ${originalOffset} → ${match.name} (${newOffset}-${endLine})`,
 								);
 							}
 						});
@@ -788,38 +989,30 @@ export default function (pi: ExtensionAPI) {
 		const isWriteOrEdit =
 			isToolCallEventType("write", event) || isToolCallEventType("edit", event);
 		if (isWriteOrEdit && filePath && !pi.getFlag("no-read-guard")) {
-			const isNewFile = runtime.readGuard.isNewFile(filePath);
-			if (!isNewFile) {
-				// Compute touched lines for the edit
-				let touchedLines: [number, number] | undefined;
-				if (isToolCallEventType("edit", event)) {
-					const editInput = event.input as {
-						oldRange?: { start: { line: number }; end: { line: number } };
-						edits?: Array<{
-							range?: { start: { line: number }; end: { line: number } };
-						}>;
-					};
-					if (editInput.oldRange) {
-						touchedLines = [
-							editInput.oldRange.start.line,
-							editInput.oldRange.end.line,
-						];
-					} else if (editInput.edits?.length) {
-						// Find min/max line from all edits
-						const lines = editInput.edits.flatMap((e) => [
-							e.range?.start?.line ?? 1,
-							e.range?.end?.line ?? 1,
-						]);
-						touchedLines = [Math.min(...lines), Math.max(...lines)];
-					}
-				} else if (isToolCallEventType("write", event)) {
-					// For write, we consider the whole file
-					// This will be checked against any previous read of the file
-					// If the file was never read, it will be blocked by zero-read check
-					touchedLines = [1, Number.MAX_SAFE_INTEGER];
-				}
-
-				const verdict = runtime.readGuard.checkEdit(filePath, touchedLines);
+			const readGuard = runtime.readGuard;
+			const isExistingFile =
+				typeof readGuard?.isNewFile !== "function" ||
+				!readGuard.isNewFile(filePath);
+			if (readGuard && isExistingFile) {
+				const touchedLines = getTouchedLinesForGuard(
+					event,
+					filePath,
+					runtime.telemetrySessionId,
+				);
+				logReadGuardEvent({
+					event: "edit_check_started",
+					sessionId: runtime.telemetrySessionId,
+					filePath,
+					metadata: {
+						tool: isToolCallEventType("write", event) ? "write" : "edit",
+						touchedLines: touchedLines ?? null,
+						isExistingFile,
+					},
+				});
+				const verdict =
+					typeof readGuard.checkEdit === "function"
+						? readGuard.checkEdit(filePath, touchedLines)
+						: { action: "allow" as const };
 				if (verdict.action === "block") {
 					return {
 						block: true,
@@ -833,11 +1026,7 @@ export default function (pi: ExtensionAPI) {
 		// Check if new content redefines functions that already exist elsewhere.
 		// Uses cachedExports (populated at session_start via ast-grep scan).
 		if (isWriteOrEdit && runtime.cachedExports.size > 0) {
-			const newContent = isToolCallEventType("write", event)
-				? (event.input as { content?: string }).content
-				: (event.input as { edits?: Array<{ newText?: string }> }).edits
-						?.map((e) => e.newText ?? "")
-						.join("\n");
+			const newContent = getNewContentFromToolCall(event);
 			if (newContent) {
 				const INLINE_SIMILARITY_THRESHOLD = 0.9;
 				const INLINE_SIMILARITY_MAX_HINTS = 3;
@@ -845,9 +1034,8 @@ export default function (pi: ExtensionAPI) {
 				const dupeWarnings: string[] = [];
 				const exportRe =
 					/export\s+(?:async\s+)?(?:function|class|const|let|type|interface)\s+(\w+)/g;
-				let m: RegExpExecArray | null;
-				while ((m = exportRe.exec(newContent))) {
-					const name = m[1];
+				for (const match of newContent.matchAll(exportRe)) {
+					const name = match[1];
 					const existingFile = runtime.cachedExports.get(name);
 					if (
 						existingFile &&
@@ -1002,6 +1190,14 @@ export default function (pi: ExtensionAPI) {
 			dbg(`turn_end crashed: ${turnEndErr}`);
 			dbg(`turn_end crash stack: ${(turnEndErr as Error).stack}`);
 		}
+	});
+
+	// --- Session shutdown: release all handles so subagent processes exit cleanly ---
+	// The LSP idle-reset timer (240s) is unref'd but we cancel it explicitly here
+	// so it does not fire after shutdown. resetLSPService shuts down any live clients.
+	(pi as any).on("session_shutdown", () => {
+		cancelLSPIdleReset();
+		resetLSPService();
 	});
 
 	// --- Inject turn-end findings into next agent turn ---

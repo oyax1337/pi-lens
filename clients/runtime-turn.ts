@@ -40,6 +40,17 @@ function scheduleLSPIdleReset(resetFn: () => void, delayMs: number): void {
 		resetFn();
 		lspIdleResetTimeout = null;
 	}, delayMs);
+	// unref so this timer does not prevent the process from exiting naturally
+	// (critical for subagent / --mode json -p usage where the process should
+	// exit after completing its work, not wait 240 seconds for this to fire)
+	lspIdleResetTimeout.unref();
+}
+
+export function cancelLSPIdleReset(): void {
+	if (lspIdleResetTimeout) {
+		clearTimeout(lspIdleResetTimeout);
+		lspIdleResetTimeout = null;
+	}
 }
 
 function capTurnEndMessage(content: string): string {

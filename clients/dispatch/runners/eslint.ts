@@ -7,9 +7,8 @@
  * Gate: skips when no ESLint config is detected (project uses Biome/OxLint instead).
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { safeSpawnAsync } from "../../safe-spawn.js";
+import { getAutofixCapability, hasEslintConfig } from "../../tool-policy.js";
 import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
@@ -17,44 +16,7 @@ import type {
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-
-const ESLINT_CONFIGS = [
-	".eslintrc",
-	".eslintrc.js",
-	".eslintrc.cjs",
-	".eslintrc.json",
-	".eslintrc.yaml",
-	".eslintrc.yml",
-	"eslint.config.js",
-	"eslint.config.mjs",
-	"eslint.config.cjs",
-];
-
-function hasEslintConfig(cwd: string): boolean {
-	for (const cfg of ESLINT_CONFIGS) {
-		if (fs.existsSync(path.join(cwd, cfg))) return true;
-	}
-	try {
-		const pkg = JSON.parse(
-			fs.readFileSync(path.join(cwd, "package.json"), "utf-8"),
-		);
-		if (pkg.eslintConfig) return true;
-	} catch {}
-	return false;
-}
-
-function findEslint(cwd: string): string {
-	const isWin = process.platform === "win32";
-	const local = path.join(
-		cwd,
-		"node_modules",
-		".bin",
-		isWin ? "eslint.cmd" : "eslint",
-	);
-	if (fs.existsSync(local)) return local;
-	// fall back to global
-	return "eslint";
-}
+import { resolveToolCommand } from "./utils/runner-helpers.js";
 
 interface EslintMessage {
 	ruleId: string | null;
@@ -76,6 +38,7 @@ function parseEslintJson(
 ): { diagnostics: Diagnostic[]; parseError?: string } {
 	try {
 		const results: EslintFileResult[] = JSON.parse(raw);
+		const autofix = getAutofixCapability("eslint");
 		const diagnostics: Diagnostic[] = [];
 
 		for (const fileResult of results) {
@@ -92,6 +55,12 @@ function parseEslintJson(
 					tool: "eslint",
 					rule: msg.ruleId ?? undefined,
 					fixable: !!msg.fix,
+					autoFixAvailable:
+						!!msg.fix && (autofix?.safePipelineAutofix ?? false),
+					fixKind:
+						!!msg.fix && autofix?.fixKind !== "none"
+							? autofix?.fixKind
+							: undefined,
 				});
 			}
 		}
@@ -120,7 +89,7 @@ const eslintRunner: RunnerDefinition = {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 
-		const cmd = findEslint(cwd);
+		const cmd = resolveToolCommand(cwd, "eslint") ?? "eslint";
 
 		// Verify ESLint is actually executable
 		const versionCheck = await safeSpawnAsync(cmd, ["--version"], {

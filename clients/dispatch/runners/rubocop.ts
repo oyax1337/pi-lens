@@ -8,31 +8,20 @@
  * Supports bundle exec (preferred in Bundler projects).
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { safeSpawnAsync } from "../../safe-spawn.js";
-import { tryLazyInstall } from "./utils/lazy-installer.js";
+import {
+	getAutofixCapability,
+	getLinterPolicyForCwd,
+	getRubocopCommand,
+} from "../../tool-policy.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
-
-function findRubocop(cwd: string): { cmd: string; args: string[] } {
-	// Prefer bundle exec if Gemfile exists
-	const gemfile = path.join(cwd, "Gemfile");
-	if (fs.existsSync(gemfile)) {
-		try {
-			const content = fs.readFileSync(gemfile, "utf-8");
-			if (content.includes("rubocop")) {
-				return { cmd: "bundle", args: ["exec", "rubocop"] };
-			}
-		} catch {}
-	}
-	return { cmd: "rubocop", args: [] };
-}
+import { resolveCommandArgsWithInstallFallback } from "./utils/runner-helpers.js";
 
 interface RubocopOffense {
 	severity: string;
@@ -65,6 +54,7 @@ const SEVERITY_MAP: Record<string, "error" | "warning" | "info"> = {
 function parseRubocopJson(raw: string, filePath: string): Diagnostic[] {
 	try {
 		const output: RubocopOutput = JSON.parse(raw);
+		const autofix = getAutofixCapability("rubocop");
 		const diagnostics: Diagnostic[] = [];
 
 		for (const file of output.files) {
@@ -81,6 +71,12 @@ function parseRubocopJson(raw: string, filePath: string): Diagnostic[] {
 					tool: "rubocop",
 					rule: offense.cop_name,
 					fixable: offense.correctable,
+					autoFixAvailable:
+						offense.correctable && (autofix?.safePipelineAutofix ?? false),
+					fixKind:
+						offense.correctable && autofix?.fixKind !== "none"
+							? autofix?.fixKind
+							: undefined,
 				});
 			}
 		}
@@ -99,23 +95,21 @@ const rubocopRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
-		const { cmd, args } = findRubocop(cwd);
-
-		// Check availability
-		const versionCheck = await safeSpawnAsync(cmd, [...args, "--version"], {
-			timeout: 10000,
-			cwd,
-		});
-		if (versionCheck.error || versionCheck.status !== 0) {
-			await tryLazyInstall("rubocop", cwd);
-			const retry = await safeSpawnAsync(cmd, [...args, "--version"], {
-				timeout: 10000,
-				cwd,
-			});
-			if (retry.error || retry.status !== 0) {
-				return { status: "skipped", diagnostics: [], semantic: "none" };
-			}
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("rubocop")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
+		const resolved = await resolveCommandArgsWithInstallFallback(
+			getRubocopCommand(cwd),
+			"rubocop",
+			cwd,
+			["--version"],
+			10000,
+		);
+		if (!resolved) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
+		const { cmd, args } = resolved;
 
 		// Lint only — no auto-correct (formatter handles that)
 		const result = await safeSpawnAsync(

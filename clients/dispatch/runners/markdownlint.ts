@@ -1,31 +1,21 @@
-import * as nodeFs from "node:fs";
-import * as path from "node:path";
-import { ensureTool } from "../../installer/index.js";
 import { safeSpawn } from "../../safe-spawn.js";
-import { createAvailabilityChecker } from "./utils/runner-helpers.js";
+import {
+	getLinterPolicyForCwd,
+	hasMarkdownlintConfig,
+} from "../../tool-policy.js";
+import { PRIORITY } from "../priorities.js";
 import type {
 	Diagnostic,
 	DispatchContext,
 	RunnerDefinition,
 	RunnerResult,
 } from "../types.js";
-import { PRIORITY } from "../priorities.js";
+import {
+	createAvailabilityChecker,
+	resolveToolCommandWithInstallFallback,
+} from "./utils/runner-helpers.js";
 
 const markdownlint = createAvailabilityChecker("markdownlint-cli2", ".cmd");
-
-const MARKDOWNLINT_CONFIGS = [
-	".markdownlint.json",
-	".markdownlint.jsonc",
-	".markdownlint.yaml",
-	".markdownlint.yml",
-	".markdownlintrc",
-];
-
-function hasMarkdownlintConfig(cwd: string): boolean {
-	return MARKDOWNLINT_CONFIGS.some((cfg) =>
-		nodeFs.existsSync(path.join(cwd, cfg)),
-	);
-}
 
 // markdownlint-cli output: path/to/file.md:10:3 MD013/line-length Line length
 function parseMarkdownlintOutput(raw: string, filePath: string): Diagnostic[] {
@@ -33,9 +23,7 @@ function parseMarkdownlintOutput(raw: string, filePath: string): Diagnostic[] {
 	for (const line of raw.split(/\r?\n/)) {
 		if (!line.trim()) continue;
 		// Format: filePath:line[:col] ruleCode/ruleName message
-		const match = line.match(
-			/^.*?:(\d+)(?::(\d+))?\s+(MD\d+\/[\w-]+)\s+(.+)$/,
-		);
+		const match = line.match(/^.*?:(\d+)(?::(\d+))?\s+(MD\d+\/[\w-]+)\s+(.+)$/);
 		if (!match) continue;
 		const [, lineNum, col, ruleCode, message] = match;
 		const ruleName = ruleCode.split("/")[0];
@@ -63,7 +51,12 @@ const markdownlintRunner: RunnerDefinition = {
 
 	async run(ctx: DispatchContext): Promise<RunnerResult> {
 		const cwd = ctx.cwd || process.cwd();
-		if (!hasMarkdownlintConfig(cwd)) {
+		const policy = getLinterPolicyForCwd(ctx.filePath, cwd);
+		if (policy && !policy.preferredRunners.includes("markdownlint")) {
+			return { status: "skipped", diagnostics: [], semantic: "none" };
+		}
+		const hasConfig = hasMarkdownlintConfig(cwd);
+		if (!hasConfig) {
 			// Run with sensible defaults even without explicit config
 		}
 
@@ -71,16 +64,12 @@ const markdownlintRunner: RunnerDefinition = {
 		if (markdownlint.isAvailable(cwd)) {
 			cmd = markdownlint.getCommand(cwd);
 		} else {
-			const installed = await ensureTool("markdownlint");
-			if (!installed) {
-				return { status: "skipped", diagnostics: [], semantic: "none" };
-			}
-			cmd = installed;
+			cmd = await resolveToolCommandWithInstallFallback(cwd, "markdownlint");
 		}
 
 		if (!cmd) return { status: "skipped", diagnostics: [], semantic: "none" };
 
-		const configArgs = hasMarkdownlintConfig(cwd) ? [] : ["--disable", "MD013"];
+		const configArgs = hasConfig ? [] : ["--disable", "MD013"];
 		const result = safeSpawn(cmd, [...configArgs, ctx.filePath], {
 			timeout: 15000,
 			cwd,

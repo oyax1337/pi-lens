@@ -82,6 +82,20 @@ Detection rules:
 
 pi-lens builds a review graph (`file → symbol → dependency`) during session and uses it at turn end to render an impact cascade: which files were affected by a change and how diagnostics propagated through the dependency graph. Nodes track kind, language, and export status; edges track contains/imports/calls/references.
 
+### Read-Before-Edit Guard
+
+pi-lens enforces a **read-before-edit** policy on all file writes and edits. Before allowing a `write` or `edit` tool call on an existing file, it verifies that the agent has previously read sufficient context:
+
+- **Zero-read block** — blocks any edit to a file not read in the current session
+- **File-modified block** — blocks if the file changed on disk since the last read (auto-format, external tool, or a previous edit that was then reformatted)
+- **Out-of-range block** — blocks if the edit target lines fall outside the ranges previously read, ensuring the agent cannot modify code it hasn't seen
+
+Coverage is tracked across multiple reads: two reads of lines 1–100 and 101–200 together satisfy a full-file write. LSP-expanded reads (single-line reads silently widened to the enclosing symbol) count toward coverage. Markdown, text, and log files are exempt.
+
+Override for a single edit: `/lens-allow-edit <path>`
+
+Configure behavior with `--no-read-guard` to disable entirely, or set mode to `warn` instead of `block`.
+
 ### Opportunistic Read Expansion
 
 When the agent reads a single line of a file and a warm LSP client is already running for that language, pi-lens transparently expands the read to the full enclosing symbol (function, method, or class). This happens without blocking the read — if LSP responds in time, the agent sees the full context; otherwise the original line is returned unchanged.
@@ -191,19 +205,23 @@ pi --lens-guard           # Block git commit/push when unresolved blockers exist
 
 ## Language Coverage
 
-pi-lens supports **35+ languages** through dispatch runners and LSP integration:
+pi-lens supports **35+ languages** through dispatch runners and LSP integration.
+
+Formatting uses a single selected formatter per file: explicit project config wins, otherwise pi-lens uses a smart default where supported, and config-first ecosystems do not autoformat without config.
+
+Dispatch is diagnostics-oriented: automatic formatting and safe autofix happen in the post-write pipeline rather than through dispatch format-check runners.
 
 | Language | LSP | Dispatch Runners | Formatter |
 |---|---|---|---|
-| JavaScript/TypeScript | ✓ | lsp, ts-lsp, biome-check-json, tree-sitter, ast-grep-napi, type-safety, similarity, fact-rules, eslint | biome, prettier |
+| JavaScript/TypeScript | ✓ | lsp, ts-lsp, biome-check-json, tree-sitter, ast-grep-napi, type-safety, similarity, fact-rules, eslint, oxlint | biome, prettier |
 | Python | ✓ | lsp, pyright, ruff-lint, tree-sitter, python-slop | ruff, black |
 | Go | ✓ | lsp, go-vet, golangci-lint, tree-sitter | gofmt |
 | Rust | ✓ | lsp, rust-clippy, tree-sitter | rustfmt |
 | Ruby | ✓ | lsp, rubocop, tree-sitter | rubocop, standardrb |
 | C/C++ | ✓ | lsp, cpp-check | clang-format |
 | Shell | ✓ | lsp, shellcheck | shfmt |
-| CSS/SCSS/Less | ✓ | lsp, stylelint, prettier-check | biome, prettier |
-| HTML | ✓ | lsp, htmlhint, prettier-check | prettier |
+| CSS/SCSS/Less | ✓ | lsp, stylelint | biome, prettier |
+| HTML | ✓ | lsp, htmlhint | prettier |
 | YAML | ✓ | lsp, yamllint | prettier |
 | JSON | ✓ | lsp | biome, prettier |
 | SQL | — | sqlfluff | sqlfluff |
