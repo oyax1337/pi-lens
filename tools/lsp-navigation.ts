@@ -448,7 +448,7 @@ export function createLspNavigationTool(
 				diagnosticsMode = wsDiagSupport?.mode ?? "unknown";
 
 				if (rawPath) {
-					const hasLSP = await lspService.hasLSP(filePath);
+					const hasLSP = lspService.supportsLSP(filePath);
 					if (!hasLSP) {
 						return finalize(
 							{
@@ -548,7 +548,7 @@ export function createLspNavigationTool(
 				);
 			}
 
-			const hasLSP = filePath ? await lspService.hasLSP(filePath) : false;
+			const hasLSP = filePath ? lspService.supportsLSP(filePath) : false;
 			if (needsFilePath && !hasLSP) {
 				return finalize(
 					{

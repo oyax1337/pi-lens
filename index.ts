@@ -185,8 +185,27 @@ function getEffectiveReadLimit(
 
 function isLspCapableFile(filePath: string): boolean {
 	const kind = detectFileKind(filePath);
-	if (!kind) return true;
+	if (!kind) return false;
 	return LANGUAGE_POLICY[kind]?.lspCapable !== false;
+}
+
+function shouldSkipLspAutoTouch(filePath: string): boolean {
+	const normalized = path.resolve(filePath).replace(/\\/g, "/").toLowerCase();
+	const base = path.basename(filePath).toLowerCase();
+
+	if (normalized.includes("/.pi-lens/")) return true;
+	if (normalized.includes("/.harness/")) return true;
+	if (
+		base === "stdout.jsonl" ||
+		base === "stderr.txt" ||
+		base === "prompt.txt"
+	) {
+		return true;
+	}
+	if (base === "case.json" && normalized.includes("/cases/")) {
+		return true;
+	}
+	return false;
 }
 
 function getNewContentFromToolCall(event: unknown): string | undefined {
@@ -761,9 +780,11 @@ export default function (pi: ExtensionAPI) {
 		if (!nodeFs.existsSync(filePath)) return;
 
 		const lspCapableFile = isLspCapableFile(filePath);
+		const lspAutoTouchSkipped = shouldSkipLspAutoTouch(filePath);
+		const lspAutoTouchEligible = lspCapableFile && !lspAutoTouchSkipped;
 		const shouldWarmReadLsp =
 			toolName === "read" &&
-			lspCapableFile &&
+			lspAutoTouchEligible &&
 			runtime.shouldWarmLspOnRead(filePath);
 		const shouldAutoTouch =
 			(toolName === "write" ||
@@ -771,15 +792,22 @@ export default function (pi: ExtensionAPI) {
 				toolName === "lsp_navigation" ||
 				shouldWarmReadLsp) &&
 			!pi.getFlag("no-lsp") &&
-			lspCapableFile;
+			lspAutoTouchEligible;
 		if (!lspCapableFile && !pi.getFlag("no-lsp")) {
 			dbg(
 				`lsp auto-touch skipped: ${path.basename(filePath)} (file kind not LSP-capable)`,
 			);
+		} else if (lspAutoTouchSkipped && !pi.getFlag("no-lsp")) {
+			dbg(
+				`lsp auto-touch skipped: ${path.basename(filePath)} (internal/support artifact)`,
+			);
 		}
 		if (toolName === "read" && !pi.getFlag("no-lsp") && !shouldWarmReadLsp) {
+			const readSkipReason = !lspAutoTouchEligible
+				? "file not eligible for LSP warm"
+				: "already warming or warmed recently";
 			dbg(
-				`lsp read warm skipped: ${path.basename(filePath)} (already warming or warmed recently)`,
+				`lsp read warm skipped: ${path.basename(filePath)} (${readSkipReason})`,
 			);
 		}
 		if (shouldAutoTouch) {

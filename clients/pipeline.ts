@@ -404,8 +404,7 @@ async function syncLspFile(
 
 	try {
 		const lspService = getLSPService();
-		const hasLSP = await lspService.hasLSP(filePath);
-		if (hasLSP) {
+		if (lspService.supportsLSP(filePath)) {
 			await lspService.openFile(filePath, fileContent);
 		}
 	} catch (err) {
@@ -602,7 +601,9 @@ async function runAutofix(
 				fixedCount += clippyFixed;
 				autofixTools.push(`rust-clippy:${clippyFixed}`);
 				fixedThisTurn.add(filePath);
-				dbg(`autofix: rust-clippy fixed ${clippyFixed} issue(s) in ${filePath}`);
+				dbg(
+					`autofix: rust-clippy fixed ${clippyFixed} issue(s) in ${filePath}`,
+				);
 				needsContentRefresh = true;
 			}
 			continue;
@@ -651,8 +652,7 @@ async function resyncLspFile(
 
 	try {
 		const lspService = getLSPService();
-		const hasLSP = await lspService.hasLSP(filePath);
-		if (hasLSP) {
+		if (lspService.supportsLSP(filePath)) {
 			// Format-only resyncs preserve the existing diagnostics cache so
 			// waitForDiagnostics fast-paths instead of sitting the full 5s timeout
 			// waiting for TypeScript to re-confirm what it already knows.

@@ -103,9 +103,9 @@ const lspRunner: RunnerDefinition = {
 
 		const lspService = getLSPService();
 
-		// Check if we have LSP available for this file
-		const hasLSP = await lspService.hasLSP(ctx.filePath);
-		if (!hasLSP) {
+		// Fast capability check only — actual client creation happens when we
+		// open the file below.
+		if (!lspService.supportsLSP(ctx.filePath)) {
 			return { status: "skipped", diagnostics: [], semantic: "none" };
 		}
 

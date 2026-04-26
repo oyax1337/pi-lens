@@ -16,6 +16,8 @@ All notable changes to pi-lens will be documented in this file.
 
 ### Fixed
 
+- **Unknown/support files no longer trigger opportunistic LSP auto-touch** — `tool_call` LSP warming now defaults unknown file kinds to non-LSP-capable and explicitly skips internal/support artifacts such as `.pi-lens/*`, `.harness/*`, `stdout.jsonl`, `stderr.txt`, `prompt.txt`, and harness `case.json` files. This removes pointless `lsp_touch_file` `no_clients` waits on logs, prompts, and turn-state sidecars.
+- **Spawn-heavy LSP capability checks removed from hot paths** — added a pure `supportsLSP(filePath)` check and a lightweight `hasWarmLSP(filePath)` helper so hot write/read paths no longer use `hasLSP()` merely to ask whether a file type is supported. `pipeline` sync/resync, the unified LSP runner, and `lsp_navigation` unsupported-file messaging now avoid accidental client spawns during simple capability checks.
 - **`ktlint` autofix case missing `continue`** — the `ktlint` branch in `runAutofix` lacked a `continue` guard, causing fall-through into the next tool match on every ktlint run.
 
 ## [Unreleased — mypy + detekt]

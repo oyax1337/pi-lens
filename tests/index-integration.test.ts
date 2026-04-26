@@ -514,6 +514,172 @@ describe("index.ts integration", () => {
 		expect(clearLspReadWarmState).not.toHaveBeenCalled();
 	}, 15_000);
 
+	it("tool_call does not warm LSP for unknown non-code file kinds", async () => {
+		const touchFileMock = vi.fn().mockResolvedValue(undefined);
+		const shouldWarmLspOnRead = vi.fn();
+		const notesFile = path.join(tmpDir, "notes", "stderr.txt");
+		fs.mkdirSync(path.dirname(notesFile), { recursive: true });
+		fs.writeFileSync(notesFile, "plain text\n");
+
+		vi.doMock("../clients/runtime-coordinator.js", () => ({
+			RuntimeCoordinator: class {
+				projectRoot = tmpDir;
+				turnIndex = 0;
+				complexityBaselines = new Map();
+				cachedExports = new Map();
+				cachedProjectIndex = null;
+				readGuard = {
+					recordRead: () => {},
+					getReadHistory: () => [],
+					isNewFile: () => false,
+					checkEdit: () => ({ action: "allow" as const }),
+				};
+				shouldWarmLspOnRead = shouldWarmLspOnRead;
+				markLspReadWarmStarted() {}
+				markLspReadWarmCompleted() {}
+				clearLspReadWarmState() {}
+				nextWriteIndex() {
+					return 1;
+				}
+				beginTurn() {}
+				resetForSession() {}
+				setTelemetryIdentity() {}
+				telemetrySessionId = "test-session";
+			},
+		}));
+		vi.doMock("../clients/bootstrap.js", () => ({
+			loadBootstrapClients: async () => ({
+				metricsClient: { reset: () => {} },
+				todoScanner: {},
+				biomeClient: { isAvailable: () => false },
+				ruffClient: { isAvailable: () => false },
+				knipClient: { isAvailable: () => false },
+				jscpdClient: { isAvailable: () => false },
+				typeCoverageClient: { isAvailable: () => false },
+				depChecker: { isAvailable: () => false },
+				architectClient: { loadConfig: () => false },
+				testRunnerClient: { detectRunner: () => null },
+				goClient: { isGoAvailable: () => false },
+				rustClient: { isAvailable: () => false },
+				agentBehaviorClient: {
+					recordToolCall: () => {},
+					formatWarnings: () => "",
+				},
+				complexityClient: {
+					isSupportedFile: () => false,
+					analyzeFile: () => null,
+				},
+			}),
+		}));
+		vi.doMock("../clients/lsp/index.js", async () => ({
+			getLSPService: () => ({ touchFile: touchFileMock }),
+		}));
+
+		const { default: registerExtension } = await import("../index.ts");
+		const { pi, handlers } = createMockPi({ "no-lsp": false });
+		registerExtension(pi as any);
+
+		const toolCall = handlers.tool_call?.[0];
+		expect(toolCall).toBeTypeOf("function");
+
+		await toolCall?.(
+			{
+				toolName: "read",
+				input: {
+					path: notesFile,
+				},
+			},
+			{ cwd: tmpDir },
+		);
+		await Promise.resolve();
+
+		expect(shouldWarmLspOnRead).not.toHaveBeenCalled();
+		expect(touchFileMock).not.toHaveBeenCalled();
+	}, 15_000);
+
+	it("tool_call does not warm LSP for internal support artifacts", async () => {
+		const touchFileMock = vi.fn().mockResolvedValue(undefined);
+		const shouldWarmLspOnRead = vi.fn();
+		const turnStateFile = path.join(tmpDir, ".pi-lens", "turn-state.json");
+		fs.mkdirSync(path.dirname(turnStateFile), { recursive: true });
+		fs.writeFileSync(turnStateFile, '{"files":{}}\n');
+
+		vi.doMock("../clients/runtime-coordinator.js", () => ({
+			RuntimeCoordinator: class {
+				projectRoot = tmpDir;
+				turnIndex = 0;
+				complexityBaselines = new Map();
+				cachedExports = new Map();
+				cachedProjectIndex = null;
+				readGuard = {
+					recordRead: () => {},
+					getReadHistory: () => [],
+					isNewFile: () => false,
+					checkEdit: () => ({ action: "allow" as const }),
+				};
+				shouldWarmLspOnRead = shouldWarmLspOnRead;
+				markLspReadWarmStarted() {}
+				markLspReadWarmCompleted() {}
+				clearLspReadWarmState() {}
+				nextWriteIndex() {
+					return 1;
+				}
+				beginTurn() {}
+				resetForSession() {}
+				setTelemetryIdentity() {}
+				telemetrySessionId = "test-session";
+			},
+		}));
+		vi.doMock("../clients/bootstrap.js", () => ({
+			loadBootstrapClients: async () => ({
+				metricsClient: { reset: () => {} },
+				todoScanner: {},
+				biomeClient: { isAvailable: () => false },
+				ruffClient: { isAvailable: () => false },
+				knipClient: { isAvailable: () => false },
+				jscpdClient: { isAvailable: () => false },
+				typeCoverageClient: { isAvailable: () => false },
+				depChecker: { isAvailable: () => false },
+				architectClient: { loadConfig: () => false },
+				testRunnerClient: { detectRunner: () => null },
+				goClient: { isGoAvailable: () => false },
+				rustClient: { isAvailable: () => false },
+				agentBehaviorClient: {
+					recordToolCall: () => {},
+					formatWarnings: () => "",
+				},
+				complexityClient: {
+					isSupportedFile: () => false,
+					analyzeFile: () => null,
+				},
+			}),
+		}));
+		vi.doMock("../clients/lsp/index.js", async () => ({
+			getLSPService: () => ({ touchFile: touchFileMock }),
+		}));
+
+		const { default: registerExtension } = await import("../index.ts");
+		const { pi, handlers } = createMockPi({ "no-lsp": false });
+		registerExtension(pi as any);
+
+		const toolCall = handlers.tool_call?.[0];
+		expect(toolCall).toBeTypeOf("function");
+
+		await toolCall?.(
+			{
+				toolName: "read",
+				input: {
+					path: turnStateFile,
+				},
+			},
+			{ cwd: tmpDir },
+		);
+		await Promise.resolve();
+
+		expect(shouldWarmLspOnRead).not.toHaveBeenCalled();
+		expect(touchFileMock).not.toHaveBeenCalled();
+	}, 15_000);
+
 	it("lens-health command reports crash, latency, diagnostics, and slop telemetry", async () => {
 		vi.doMock("../clients/runtime-coordinator.js", () => ({
 			RuntimeCoordinator: class {

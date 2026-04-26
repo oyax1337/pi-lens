@@ -938,7 +938,26 @@ export class LSPService {
 	}
 
 	/**
-	 * Check if LSP is available for a file
+	 * Check whether a file type/root has any configured LSP support.
+	 * Pure capability check — does not spawn or wait for clients.
+	 */
+	supportsLSP(filePath: string): boolean {
+		return getServersForFileWithConfig(filePath).length > 0;
+	}
+
+	/**
+	 * Check whether an LSP client is already alive for a file.
+	 * Lightweight — does not spawn or wait for a client.
+	 */
+	async hasWarmLSP(filePath: string): Promise<boolean> {
+		const spawned = await this.getWarmClientForFile(filePath);
+		return Boolean(spawned);
+	}
+
+	/**
+	 * Check if LSP is available for a file.
+	 * May spawn a client; prefer supportsLSP()/hasWarmLSP() when you only need
+	 * a capability or warm-state check.
 	 */
 	async hasLSP(filePath: string): Promise<boolean> {
 		const spawned = await this.getClientForFile(filePath);
