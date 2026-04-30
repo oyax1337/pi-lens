@@ -1642,21 +1642,28 @@ export function hasPrettierConfig(cwd: string): boolean {
 }
 
 export function hasBlackConfig(cwd: string): boolean {
-	const pyproject = path.join(cwd, "pyproject.toml");
-	if (fs.existsSync(pyproject)) {
-		try {
-			if (fs.readFileSync(pyproject, "utf-8").includes("[tool.black]")) {
-				return true;
-			}
-		} catch {}
+	// Walk up looking for pyproject.toml with [tool.black]
+	let dir = cwd;
+	const root = path.parse(dir).root;
+	while (true) {
+		const pyproject = path.join(dir, "pyproject.toml");
+		if (fs.existsSync(pyproject)) {
+			try {
+				if (fs.readFileSync(pyproject, "utf-8").includes("[tool.black]")) return true;
+			} catch {}
+		}
+		if (dir === root) break;
+		const parent = path.dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
 	}
 
-	for (const depFile of ["requirements.txt", "pyproject.toml", "Pipfile"]) {
+	// Dependency file checks are cwd-only (weaker signal, avoid false positives up the tree)
+	for (const depFile of ["requirements.txt", "Pipfile"]) {
 		const depPath = path.join(cwd, depFile);
 		if (!fs.existsSync(depPath)) continue;
 		try {
-			const content = fs.readFileSync(depPath, "utf-8").toLowerCase();
-			if (content.includes("black")) return true;
+			if (fs.readFileSync(depPath, "utf-8").toLowerCase().includes("black")) return true;
 		} catch {}
 	}
 
@@ -1664,14 +1671,22 @@ export function hasBlackConfig(cwd: string): boolean {
 }
 
 export function hasRuffConfig(cwd: string): boolean {
-	for (const cfg of RUFF_PROJECT_CONFIGS) {
-		if (fs.existsSync(path.join(cwd, cfg))) return true;
-	}
-	const pyproject = path.join(cwd, "pyproject.toml");
-	if (fs.existsSync(pyproject)) {
-		try {
-			return fs.readFileSync(pyproject, "utf-8").includes("[tool.ruff]");
-		} catch {}
+	let dir = cwd;
+	const root = path.parse(dir).root;
+	while (true) {
+		for (const cfg of RUFF_PROJECT_CONFIGS) {
+			if (fs.existsSync(path.join(dir, cfg))) return true;
+		}
+		const pyproject = path.join(dir, "pyproject.toml");
+		if (fs.existsSync(pyproject)) {
+			try {
+				if (fs.readFileSync(pyproject, "utf-8").includes("[tool.ruff]")) return true;
+			} catch {}
+		}
+		if (dir === root) break;
+		const parent = path.dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
 	}
 	return false;
 }

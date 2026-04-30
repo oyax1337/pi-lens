@@ -443,6 +443,42 @@ describe("tool-policy", () => {
 		}
 	});
 
+	it("hasBlackConfig detects [tool.black] in a parent directory pyproject.toml", () => {
+		const env = setupTestEnvironment("pi-lens-tool-policy-black-walkup-");
+		try {
+			createTempFile(env.tmpDir, "pyproject.toml", "[tool.black]\nline-length = 88\n");
+			const subDir = path.join(env.tmpDir, "src");
+			fs.mkdirSync(subDir, { recursive: true });
+			expect(hasBlackConfig(subDir)).toBe(true);
+		} finally {
+			env.cleanup();
+		}
+	});
+
+	it("hasRuffConfig detects ruff.toml in a parent directory", () => {
+		const env = setupTestEnvironment("pi-lens-tool-policy-ruff-walkup-toml-");
+		try {
+			createTempFile(env.tmpDir, "ruff.toml", "line-length = 100\n");
+			const subDir = path.join(env.tmpDir, "src");
+			fs.mkdirSync(subDir, { recursive: true });
+			expect(hasRuffConfig(subDir)).toBe(true);
+		} finally {
+			env.cleanup();
+		}
+	});
+
+	it("hasRuffConfig detects [tool.ruff] in a parent directory pyproject.toml", () => {
+		const env = setupTestEnvironment("pi-lens-tool-policy-ruff-walkup-pyproject-");
+		try {
+			createTempFile(env.tmpDir, "pyproject.toml", "[tool.ruff]\nline-length = 100\n");
+			const subDir = path.join(env.tmpDir, "src");
+			fs.mkdirSync(subDir, { recursive: true });
+			expect(hasRuffConfig(subDir)).toBe(true);
+		} finally {
+			env.cleanup();
+		}
+	});
+
 	it("exposes centralized tool execution policy for auto-install behavior", () => {
 		expect(getToolExecutionPolicy("oxlint")).toMatchObject({
 			gate: "smart-default",
