@@ -48,7 +48,7 @@ export type FileKind =
 
 // --- Extension Maps ---
 
-const KIND_EXTENSIONS: Record<FileKind, readonly string[]> = {
+export const KIND_EXTENSIONS: Record<FileKind, readonly string[]> = {
 	clojure: [
 		".clj",
 		".cljc",
