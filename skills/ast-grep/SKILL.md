@@ -12,7 +12,7 @@ Use `ast_grep_search` and `ast_grep_replace` for semantic code search/replace. a
 - Function calls, imports, class methods (structured code)
 - Safe replacements across files
 - "X inside Y" patterns (e.g., console.log inside classes)
-- **Use grep for:** string content, import paths, comments, URLs, or when ast-grep fails twice
+- **Use grep for:** partial string patterns, comments, URLs, or when ast-grep fails twice
 
 ## Golden Rules
 
@@ -53,8 +53,9 @@ inside:
 ## Common Gotchas
 
 ```
-❌ $VAR inside quotes — not a metavariable
-   from "$PATH"  →  use grep instead
+❌ $VAR inside quotes — not a metavariable, matches literal text "$PATH"
+   from "$PATH"  →  use grep for wildcard path matching
+   from "./utils"  →  ✅ exact string literal works fine
 
 ❌ Trailing comma in objects
    { type: $T, }  →  use { type: $T }
