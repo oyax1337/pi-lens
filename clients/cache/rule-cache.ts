@@ -8,6 +8,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { getProjectDataDir } from "../file-utils.js";
 
 const CACHE_VERSION = "v1";
 
@@ -34,7 +35,7 @@ export class RuleCache {
 	private cacheDir: string;
 
 	constructor(language: string, rootDir = process.cwd()) {
-		this.cacheDir = path.join(rootDir, ".pi-lens", "cache");
+		this.cacheDir = path.join(getProjectDataDir(rootDir), "cache");
 		this.cacheFile = path.join(
 			this.cacheDir,
 			`${language}-rules-${CACHE_VERSION}.json`,
