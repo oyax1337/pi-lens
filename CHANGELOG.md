@@ -24,6 +24,8 @@ All notable changes to pi-lens will be documented in this file.
 
 ### Fixed
 
+- **booboo project root detection** — `resolveProjectRoot` now walks up to the nearest ancestor with a root marker (`package.json`, `tsconfig.json`, `.git`, etc.), then falls back to walking down one level if exactly one immediate subdirectory has a root marker. Fixes scans running against the wrong directory in nested-project layouts (e.g. `pi-models/pi-models/`).
+
 - **Switch-case false positives eliminated** — replaced naive `switch-fall-through` rules with `switch-case-termination` rules that properly recognize `return`, `throw`, and `continue` as valid case terminators. Reduced false positive hits from 174 to 0.
 - **Self-assignment false positives fixed** — changed from `post_filter: same_identifier` to inline `#eq?` predicate so `wave = nextWave` is no longer flagged as self-assignment
 

@@ -37,6 +37,38 @@ import type { TypeCoverageClient } from "../clients/type-coverage-client.js";
 // Side-effect import: registers all fact providers and fact rules
 import "../clients/dispatch/integration.js";
 
+const ROOT_MARKERS = ["package.json", "tsconfig.json", ".git", "Cargo.toml", "go.mod", "pyproject.toml"];
+
+function hasRootMarker(dir: string): boolean {
+	return ROOT_MARKERS.some((m) => nodeFs.existsSync(path.join(dir, m)));
+}
+
+function resolveProjectRoot(startDir: string): string {
+	// Walk up: find nearest ancestor with a root marker
+	let dir = startDir;
+	const fsRoot = path.parse(dir).root;
+	while (dir !== fsRoot) {
+		if (hasRootMarker(dir)) return dir;
+		const parent = path.dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+
+	// Walk down one level: if exactly one immediate subdir has a root marker, use it
+	try {
+		const entries = nodeFs.readdirSync(startDir, { withFileTypes: true });
+		const candidates = entries
+			.filter((e) => e.isDirectory())
+			.map((e) => path.join(startDir, e.name))
+			.filter(hasRootMarker);
+		if (candidates.length === 1) return candidates[0];
+	} catch {
+		// unreadable dir — fall through
+	}
+
+	return startDir;
+}
+
 // Module-level singleton — web-tree-sitter WASM must only be initialized once per process
 let _sharedTreeSitterClient: TreeSitterClient | null = null;
 function getSharedTreeSitterClient(): TreeSitterClient {
@@ -91,7 +123,7 @@ export async function handleBooboo(
 	pi: ExtensionAPI,
 ) {
 	const requestedPath = args.trim() || ctx.cwd || process.cwd();
-	const targetPath = path.resolve(requestedPath);
+	const targetPath = resolveProjectRoot(path.resolve(requestedPath));
 	const reviewRoot = targetPath;
 
 	const categoryKey = (name: string) => name.toLowerCase().replace(/\s+/g, "-");
