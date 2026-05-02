@@ -725,7 +725,7 @@ export async function runFormatPhase(
 		if (result.anyChanged) {
 			formatChanged = true;
 			dbg(
-				`autoformat: ${result.formatters.map((f) => `${f.name}(${f.changed ? "changed" : "unchanged"})`).join(", ")}`,
+				"autoformat: " + result.formatters.map((f) => f.name + "(" + (f.changed ? "changed" : "unchanged") + ")").join(", "),
 			);
 		}
 		if (!result.allSucceeded) {

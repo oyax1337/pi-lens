@@ -125,7 +125,7 @@ const eslintRunner: RunnerDefinition = {
 				diagnostics: [
 					{
 						id: "eslint:parse-error:1",
-						message: `ESLint JSON parse failed: ${parsed.parseError}${preview ? ` (output preview: ${preview})` : ""}`,
+						message: "ESLint JSON parse failed: " + parsed.parseError + (preview ? " (output preview: " + preview + ")" : ""),
 						filePath: ctx.filePath,
 						line: 1,
 						column: 1,

@@ -135,13 +135,13 @@ export interface LSPTouchFileOptions {
 
 export class LSPService {
 	private state: LSPState;
-	private workspaceProbeLogged = new Set<string>();
-	private warmStartLogged = new Set<string>();
-	private optionalFailureLogged = new Set<string>();
-	private optionalDisabled = new Set<string>();
+	private readonly workspaceProbeLogged = new Set<string>();
+	private readonly warmStartLogged = new Set<string>();
+	private readonly optionalFailureLogged = new Set<string>();
+	private readonly optionalDisabled = new Set<string>();
 	/** Consecutive failure counts for exponential backoff circuit breaker */
-	private failureCounts = new Map<string, number>();
-	private recentTouches = new Map<
+	private readonly failureCounts = new Map<string, number>();
+	private readonly recentTouches = new Map<
 		string,
 		{ fingerprint: string; touchedAt: number; clientScope: "primary" | "all" }
 	>();
@@ -309,7 +309,7 @@ export class LSPService {
 			if (!root) continue;
 			const key = `${server.id}:${normalizeMapKey(root)}`;
 			const existing = this.state.clients.get(key);
-			if (existing && existing.isAlive()) {
+			if (existing?.isAlive()) {
 				return { client: existing, info: server };
 			}
 		}
@@ -392,9 +392,7 @@ export class LSPService {
 		}
 	}
 
-	private shouldAllowInstall(filePath: string, root: string): boolean {
-		void filePath;
-		void root;
+	private shouldAllowInstall(_filePath: string, _root: string): boolean {
 		return process.env.PI_LENS_DISABLE_LSP_INSTALL !== "1";
 	}
 

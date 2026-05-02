@@ -1148,7 +1148,7 @@ export default function (pi: ExtensionAPI) {
 				if (dupeWarnings.length > 0) {
 					return {
 						block: true,
-						reason: `🔴 STOP - Redefining existing export(s). Import instead:\n${dupeWarnings.map((w) => `  • ${w}`).join("\n")}`,
+						reason: "🔴 STOP - Redefining existing export(s). Import instead:\n" + dupeWarnings.map((w) => "  • " + w).join("\n"),
 					};
 				}
 

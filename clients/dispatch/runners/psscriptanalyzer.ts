@@ -86,7 +86,7 @@ function parsePSAnalyzerOutput(raw: string, filePath: string): Diagnostic[] {
 		.map((item) => {
 			const sev = (item.Severity ?? "Warning").toLowerCase();
 			const severity: "error" | "warning" | "info" =
-				sev === "error" || sev === "parseerror" ? "error" : sev === "information" ? "info" : "warning";
+				(sev === "error" || sev === "parseerror") ? "error" : (sev === "information" ? "info" : "warning");
 			const rule = item.RuleName ?? "PSScriptAnalyzer";
 			return {
 				id: `psscriptanalyzer-${rule}-${item.Line}`,

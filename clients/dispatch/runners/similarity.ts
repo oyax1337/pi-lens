@@ -394,10 +394,7 @@ function getArrowSignature(
 		| import("typescript").ArrowFunction
 		| import("typescript").FunctionExpression,
 ): string {
-	const params = node.parameters
-		.map((p) => (tsModule.isIdentifier(p.name) ? p.name.text : "param"))
-		.join(", ");
-	return `(${params})`;
+	return getSignature(tsModule, node as unknown as import("typescript").FunctionDeclaration);
 }
 
 // ============================================================================

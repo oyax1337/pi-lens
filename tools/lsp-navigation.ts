@@ -495,12 +495,11 @@ export function createLspNavigationTool(
 							count: diagnostics.length,
 						},
 					];
-					const note =
-						diagnosticsMode === "pull"
-							? "Note: filePath mode requests pull diagnostics for this file and returns the aggregated result."
-							: diagnosticsMode === "push-only"
-								? "Note: server is push-only; result depends on published diagnostics for this file."
-								: "Note: workspace diagnostics mode unknown (no active capability snapshot).";
+					const noteMap: Record<string, string> = {
+						"pull": "Note: filePath mode requests pull diagnostics for this file and returns the aggregated result.",
+						"push-only": "Note: server is push-only; result depends on published diagnostics for this file.",
+					};
+					const note = noteMap[diagnosticsMode] ?? "Note: workspace diagnostics mode unknown (no active capability snapshot).";
 					const resultCount = diagnostics.length;
 					return finalize(
 						{
@@ -534,12 +533,11 @@ export function createLspNavigationTool(
 						count: diags.length,
 					}),
 				);
-				const note =
-					diagnosticsMode === "push-only"
-						? "Note: push-only tracked diagnostics snapshot (not full workspace pull diagnostics)."
-						: diagnosticsMode === "pull"
-							? "Note: tracked diagnostics snapshot from active clients. Provide filePath to force file-level diagnostics collection."
-							: "Note: workspace diagnostics mode unknown (no active capability snapshot).";
+				const noteMap2: Record<string, string> = {
+					"push-only": "Note: push-only tracked diagnostics snapshot (not full workspace pull diagnostics).",
+					"pull": "Note: tracked diagnostics snapshot from active clients. Provide filePath to force file-level diagnostics collection.",
+				};
+				const note = noteMap2[diagnosticsMode] ?? "Note: workspace diagnostics mode unknown (no active capability snapshot).";
 				return finalize(
 					{
 						content: [
@@ -878,11 +876,7 @@ export function createLspNavigationTool(
 				}
 			}
 
-			const resultCount = Array.isArray(result)
-				? result.length
-				: result
-					? 1
-					: 0;
+			const resultCount = Array.isArray(result) ? result.length : (result ? 1 : 0);
 			return finalize(
 				{
 					content: [{ type: "text" as const, text: output }],

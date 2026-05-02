@@ -402,7 +402,7 @@ function _attachErrorHandler(
 	proc.on("error", (err) => {
 		if (logContext) {
 			logSessionStart(
-				`lsp process ${context}: spawn-error command=${logContext.command} args=${JSON.stringify(logContext.args)} cwd=${logContext.cwd} pid=${logContext.pid ?? 0} error=${err.message}${stderrPreview ? ` stderr=${compactLogValue(stderrPreview)}` : ""}`,
+				"lsp process " + context + ": spawn-error command=" + logContext.command + " args=" + JSON.stringify(logContext.args) + " cwd=" + logContext.cwd + " pid=" + (logContext.pid ?? 0) + " error=" + err.message + (stderrPreview ? " stderr=" + compactLogValue(stderrPreview) : ""),
 			);
 		}
 
@@ -422,12 +422,12 @@ function _attachErrorHandler(
 		if (code !== 0 && code !== null) {
 			if (logContext) {
 				logSessionStart(
-					`lsp process ${context}: closed code=${code}${signal ? ` signal=${signal}` : ""} command=${logContext.command} args=${JSON.stringify(logContext.args)} cwd=${logContext.cwd} pid=${logContext.pid ?? 0}${stderrPreview ? ` stderr=${compactLogValue(stderrPreview)}` : ""}`,
+					"lsp process " + context + ": closed code=" + code + (signal ? " signal=" + signal : "") + " command=" + logContext.command + " args=" + JSON.stringify(logContext.args) + " cwd=" + logContext.cwd + " pid=" + (logContext.pid ?? 0) + (stderrPreview ? " stderr=" + compactLogValue(stderrPreview) : ""),
 				);
 			}
 		} else if (signal && logContext) {
 			logSessionStart(
-				`lsp process ${context}: closed signal=${signal} command=${logContext.command} args=${JSON.stringify(logContext.args)} cwd=${logContext.cwd} pid=${logContext.pid ?? 0}${stderrPreview ? ` stderr=${compactLogValue(stderrPreview)}` : ""}`,
+				"lsp process " + context + ": closed signal=" + signal + " command=" + logContext.command + " args=" + JSON.stringify(logContext.args) + " cwd=" + logContext.cwd + " pid=" + (logContext.pid ?? 0) + (stderrPreview ? " stderr=" + compactLogValue(stderrPreview) : ""),
 			);
 		}
 	});
@@ -467,11 +467,8 @@ export async function launchLSP(
 	// - If already absolute, use as-is
 	// - If it's a simple command (no path separators), let system find it via PATH
 	// - Otherwise, resolve relative to cwd
-	const explicitCommand = path.isAbsolute(command)
-		? command
-		: command.includes(path.sep) || command.includes("/")
-			? path.resolve(cwd, command)
-			: command;
+	const isRelativePath = !path.isAbsolute(command) && (command.includes(path.sep) || command.includes("/"));
+	const explicitCommand = isRelativePath ? path.resolve(cwd, command) : command;
 	const resolvedCommand =
 		!path.isAbsolute(command) &&
 		!command.includes(path.sep) &&

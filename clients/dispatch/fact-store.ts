@@ -1,7 +1,5 @@
 import { normalizeMapKey } from "../path-utils.js";
 
-type FactValue = unknown;
-
 export interface ReadonlyFactStore {
   getFileFact<T>(filePath: string, factId: string): T | undefined;
   hasFileFact(filePath: string, factId: string): boolean;
@@ -10,8 +8,8 @@ export interface ReadonlyFactStore {
 }
 
 export class FactStore implements ReadonlyFactStore {
-  private readonly fileFacts = new Map<string, Map<string, FactValue>>();
-  private readonly sessionFacts = new Map<string, FactValue>();
+  private readonly fileFacts = new Map<string, Map<string, unknown>>();
+  private readonly sessionFacts = new Map<string, unknown>();
 
   // All file-keyed methods normalize the path internally via normalizeMapKey().
   // Callers always pass raw/resolved paths — normalization is not their concern.
@@ -20,7 +18,7 @@ export class FactStore implements ReadonlyFactStore {
     return this.fileFacts.get(normalizeMapKey(filePath))?.get(factId) as T | undefined;
   }
 
-  setFileFact(filePath: string, factId: string, value: FactValue): void {
+  setFileFact(filePath: string, factId: string, value: unknown): void {
     const key = normalizeMapKey(filePath);
     let facts = this.fileFacts.get(key);
     if (!facts) {
@@ -51,7 +49,7 @@ export class FactStore implements ReadonlyFactStore {
     return this.sessionFacts.get(factId) as T | undefined;
   }
 
-  setSessionFact(factId: string, value: FactValue): void {
+  setSessionFact(factId: string, value: unknown): void {
     this.sessionFacts.set(factId, value);
   }
 

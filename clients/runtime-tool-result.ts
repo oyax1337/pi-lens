@@ -108,9 +108,7 @@ export async function handleToolResult(deps: ToolResultDeps): Promise<{
 	const rawFilePath = (event.input as { path?: string }).path;
 	const workspaceRoot = runtime.projectRoot || process.cwd();
 	const filePath = rawFilePath
-		? path.isAbsolute(rawFilePath)
-			? rawFilePath
-			: path.resolve(workspaceRoot, rawFilePath)
+		? (path.isAbsolute(rawFilePath) ? rawFilePath : path.resolve(workspaceRoot, rawFilePath))
 		: rawFilePath;
 	const behaviorWarnings = agentBehaviorRecord(event.toolName, filePath);
 

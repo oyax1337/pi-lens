@@ -89,7 +89,7 @@ function logSessionStart(message: string): void {
 		return;
 	}
 	const line = `[${new Date().toISOString()}] ${message}\n`;
-	void mkdir(SESSIONSTART_LOG_DIR, { recursive: true })
+	mkdir(SESSIONSTART_LOG_DIR, { recursive: true })
 		.then(() => appendFile(SESSIONSTART_LOG, line))
 		.catch(() => {
 			// best-effort logging

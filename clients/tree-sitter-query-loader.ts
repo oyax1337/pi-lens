@@ -243,8 +243,9 @@ export class TreeSitterQueryLoader {
 						const nestedMatch = nextLine.match(/^\s+(\w+):\s*(.+)$/);
 						if (nestedMatch) {
 							let nv = nestedMatch[2].trim();
-							if (nv.startsWith('"') && nv.endsWith('"')) nv = nv.slice(1, -1);
-							else if (nv.startsWith("'") && nv.endsWith("'")) nv = nv.slice(1, -1);
+							if ((nv.startsWith('"') && nv.endsWith('"')) || (nv.startsWith("'") && nv.endsWith("'"))) {
+								nv = nv.slice(1, -1);
+							}
 							nestedObj[nestedMatch[1]] = nv;
 						}
 					}

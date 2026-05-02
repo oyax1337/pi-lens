@@ -149,21 +149,16 @@ export const noBooleanParamsRule: FactRule = {
 					ts.isIdentifier(param.name) ? param.name.text : "";
 				if (BOOLEAN_PREFIX_OK.test(name)) continue;
 
-				let isBoolean = false;
-				if (param.type.kind === ts.SyntaxKind.BooleanKeyword) {
-					isBoolean = true;
-				} else if (
-					ts.isUnionTypeNode(param.type) &&
-					param.type.types.every(
-						(t) =>
-							t.kind === ts.SyntaxKind.BooleanKeyword ||
-							(ts.isLiteralTypeNode(t) &&
-								(t.literal.kind === ts.SyntaxKind.TrueKeyword ||
-									t.literal.kind === ts.SyntaxKind.FalseKeyword)),
-					)
-				) {
-					isBoolean = true;
-				}
+				const isBoolean =
+					param.type.kind === ts.SyntaxKind.BooleanKeyword ||
+					(ts.isUnionTypeNode(param.type) &&
+						param.type.types.every(
+							(t) =>
+								t.kind === ts.SyntaxKind.BooleanKeyword ||
+								(ts.isLiteralTypeNode(t) &&
+									(t.literal.kind === ts.SyntaxKind.TrueKeyword ||
+										t.literal.kind === ts.SyntaxKind.FalseKeyword)),
+						));
 
 				if (!isBoolean) continue;
 				const { line, character } = sf.getLineAndCharacterOfPosition(param.getStart(sf));

@@ -61,7 +61,8 @@ export function scheduleProviders(providers: FactProvider[]): FactProvider[] {
         }
       }
     }
-    wave = nextWave.sort((a, b) => a.id.localeCompare(b.id));
+    nextWave.sort((a, b) => a.id.localeCompare(b.id));
+    wave = nextWave;
   }
 
   if (result.length < providers.length) {

@@ -126,7 +126,7 @@ const SECRET_PATTERNS: SecretPattern[] = [
 	},
 	{
 		pattern:
-			/\b(secret|api_?key|token|access_?key)\b\s*[:=]\s*["']([a-zA-Z0-9_\-/.]{8,})["']/gi,
+			/\b(secret|api_?key|token|access_?key)\b\s*[:=]\s*["']([a-zA-Z0-9_./-]{8,})["']/gi,
 		name: "hardcoded-secret",
 		message: "Possible hardcoded secret or API key",
 	},

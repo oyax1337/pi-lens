@@ -44,7 +44,7 @@ export class RuntimeCoordinator {
 	};
 	private _complexityBaselines = new Map<string, FileComplexity>();
 	private _fixedThisTurn = new Set<string>();
-	private _reportedThisTurn = new Set<string>();
+	private readonly _reportedThisTurn = new Set<string>();
 	private _projectRulesScan: RuleScanResult = {
 		rules: [],
 		hasCustomRules: false,

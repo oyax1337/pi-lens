@@ -1149,9 +1149,7 @@ export async function handleBooboo(
 						inner.spans?.[0];
 					if (!span) continue;
 					const absFile = span.file_name
-						? path.isAbsolute(span.file_name)
-							? span.file_name
-							: path.join(targetPath, span.file_name)
+						? (path.isAbsolute(span.file_name) ? span.file_name : path.join(targetPath, span.file_name))
 						: targetPath;
 					issues.push({
 						file: path.relative(targetPath, absFile),
@@ -1183,9 +1181,7 @@ export async function handleBooboo(
 					for (const diag of json?.generalDiagnostics ?? []) {
 						if (!["error", "warning"].includes(diag.severity)) continue;
 						const absFile = diag.file
-							? path.isAbsolute(diag.file)
-								? diag.file
-								: path.join(targetPath, diag.file)
+							? (path.isAbsolute(diag.file) ? diag.file : path.join(targetPath, diag.file))
 							: targetPath;
 						if (shouldIncludeFile(absFile)) {
 							issues.push({
