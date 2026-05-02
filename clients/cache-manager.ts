@@ -307,10 +307,13 @@ export class CacheManager {
 
 	/**
 	 * Get files that need jscpd re-scan (any edit).
+	 * Only returns source code files jscpd can meaningfully analyse.
 	 */
 	getFilesForJscpd(cwd: string): string[] {
 		const state = this.readTurnState(cwd);
-		return Object.keys(state.files);
+		return Object.keys(state.files).filter((f) =>
+			/\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|rb|java|cs|php|cpp|c|h|hpp|swift|kt)$/.test(f),
+		);
 	}
 
 	/**
