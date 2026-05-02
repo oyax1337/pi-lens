@@ -35,6 +35,7 @@ All notable changes to pi-lens will be documented in this file.
 - **jscpd no longer runs on YAML/JSON/Markdown files** — `getFilesForJscpd` now filters to source code extensions only, preventing multi-second delays at `turn_end` when editing rule YAMLs or config files.
 - **ReDoS S5852 final (gleam/zig parsers)** — rewrote `gleamRe` and `zigRe` as line-by-line parsers, eliminating the multiline flag that SonarCloud continued to flag despite `[ \t]*` substitution.
 - **SonarCloud MAJOR code smells (batch 1 & 2)** — `readonly` members, `void` operator removals, nested ternaries, nested template literals, optional chains, duplicate branches, and redundant type alias across 15+ files.
+- **Type-narrow `severityMap` for `Diagnostic.severity` union** — properly satisfies the union type for diagnostic severity mapping.
 - **9 tree-sitter query bugs in new rule files** — predicate outside outermost parens (`cpp/no-auto-ptr`); false-positive `post_filter` gate added (`cpp/no-confused-move-forward`); leaf-node child match removed (`php/this-in-static-context`); invalid node name `class_hereditary` replaced (`java/no-field-shadowing`); field order corrected (`java/no-wait-notify-on-thread`); duplicate `modifiers` blocks merged (`java/spring-session-attributes-setcomplete`); invalid anonymous-node field label removed (`csharp/is-with-this`); inline alternation replaced with two patterns (`python/in-operator-unsupported`); adjacent sibling requirement removed, delegated to `post_filter` (`python/return-in-generator`).
 
 ## [3.8.38] - 2026-05-02
