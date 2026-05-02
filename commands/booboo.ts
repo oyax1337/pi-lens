@@ -1394,10 +1394,13 @@ export async function handleBooboo(
 					timeout: 60_000,
 				});
 				const output = (result.stdout || "") + (result.stderr || "");
-				const gleamRe =
-					/^([^:\n]+):(\d+):(\d+)[ \t]*(?:error|warning)[^\n]*\n([^\n]+)/gm;
-				for (const m of output.matchAll(gleamRe)) {
-					const [, file, line, col, msg] = m;
+				const gleamLines = output.split("\n");
+				const gleamHeaderRe = /^([^:]+):(\d+):(\d+)[ \t]*(?:error|warning)/;
+				for (let i = 0; i < gleamLines.length; i++) {
+					const m = gleamHeaderRe.exec(gleamLines[i]);
+					if (!m) continue;
+					const [, file, line, col] = m;
+					const msg = gleamLines[i + 1]?.trim() ?? "";
 					const absFile = path.isAbsolute(file)
 						? file
 						: path.join(targetPath, file);
@@ -1408,7 +1411,7 @@ export async function handleBooboo(
 							col: parseInt(col, 10),
 							severity: "error",
 							code: "gleam",
-							message: msg.trim(),
+							message: msg,
 							compiler: "gleam check",
 						});
 					}
@@ -1426,8 +1429,10 @@ export async function handleBooboo(
 					timeout: 120_000,
 				});
 				const output = (result.stdout || "") + (result.stderr || "");
-				const zigRe = /^([^:\n]+):(\d+):(\d+):[ \t]*(error|warning|note):[ \t]*([^\n]+)/gm;
-				for (const m of output.matchAll(zigRe)) {
+				const zigLineRe = /^([^:]+):(\d+):(\d+):[ \t]*(error|warning|note):[ \t]*(.+)/;
+				for (const zigLine of output.split("\n")) {
+					const m = zigLineRe.exec(zigLine);
+					if (!m) continue;
 					const [, file, line, col, sev, msg] = m;
 					const absFile = path.isAbsolute(file)
 						? file
