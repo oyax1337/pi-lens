@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { RuleCache } from "../../clients/cache/rule-cache.js";
 import { getProjectDataDir } from "../../clients/file-utils.js";
 import { appendToWorklog } from "../../clients/fix-worklog.js";
 
@@ -80,6 +81,23 @@ describe("getProjectDataDir", () => {
 		expect(fs.existsSync(path.join(cwd, ".pi-lens"))).toBe(false);
 		expect(
 			fs.existsSync(path.join(getProjectDataDir(cwd), "worklog.jsonl")),
+		).toBe(true);
+	});
+
+	it("stores rule cache under the configured data directory", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-rule-cache-"));
+		process.env.PILENS_DATA_DIR = fs.mkdtempSync(
+			path.join(os.tmpdir(), "pi-lens-global-data-"),
+		);
+		const cache = new RuleCache("typescript", cwd);
+
+		cache.set([], []);
+
+		expect(fs.existsSync(path.join(cwd, ".pi-lens"))).toBe(false);
+		expect(
+			fs.existsSync(
+				path.join(getProjectDataDir(cwd), "cache", "typescript-rules-v1.json"),
+			),
 		).toBe(true);
 	});
 });
