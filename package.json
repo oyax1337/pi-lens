@@ -55,7 +55,8 @@
 		"tsconfig.json",
 		"README.md",
 		"CHANGELOG.md",
-		"banner.svg"
+		"banner.svg",
+		"banner.png"
 	],
 	"peerDependencies": {
 		"@mariozechner/pi-coding-agent": "*"

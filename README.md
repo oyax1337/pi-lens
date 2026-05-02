@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/apmantza/pi-lens/master/banner.svg" alt="pi-lens" width="1100">
+  <img src="https://raw.githubusercontent.com/apmantza/pi-lens/master/banner.png" alt="pi-lens" width="1100">
 </p>
 
 # pi-lens
