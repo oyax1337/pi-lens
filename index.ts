@@ -1149,12 +1149,30 @@ export default function (pi: ExtensionAPI) {
 				const dupeWarnings: string[] = [];
 				const exportRe =
 					/export\s+(?:async\s+)?(?:function|class|const|let|type|interface)\s+(\w+)/g;
+				// Read current on-disk content once so we can check whether the file
+				// being written already owns a given export (e.g. it IS the source and
+				// another file merely re-exports from it). cachedExports only tracks one
+				// file per name — whichever was scanned first — so a re-exporter can
+				// win the slot and incorrectly shadow the original definition.
+				let currentFileExports: Set<string> | undefined;
+				if (filePath && nodeFs.existsSync(filePath)) {
+					try {
+						const currentContent = nodeFs.readFileSync(filePath, "utf-8");
+						currentFileExports = new Set<string>();
+						for (const m of currentContent.matchAll(exportRe)) {
+							currentFileExports.add(m[1]);
+						}
+					} catch {
+						// non-fatal — fall back to no current-export knowledge
+					}
+				}
 				for (const match of newContent.matchAll(exportRe)) {
 					const name = match[1];
 					const existingFile = runtime.cachedExports.get(name);
 					if (
 						existingFile &&
-						path.resolve(existingFile) !== path.resolve(filePath)
+						path.resolve(existingFile) !== path.resolve(filePath) &&
+						!currentFileExports?.has(name)
 					) {
 						dupeWarnings.push(
 							`\`${name}\` already exists in ${path.relative(runtime.projectRoot, existingFile)}`,
