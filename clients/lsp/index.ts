@@ -12,6 +12,7 @@ import * as nodeFs from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { emitDashboardLspEvent } from "../dashboard-bus.js";
 import { logLatency } from "../latency-logger.js";
 import { normalizeMapKey, uriToPath } from "../path-utils.js";
 import type { LSPClientInfo } from "./client.js";
@@ -422,12 +423,25 @@ export class LSPService {
 		logSessionStart(
 			`lsp spawn ${server.id}: start root=${root} install=${allowInstall ? "enabled" : "disabled"} file=${filePath}`,
 		);
+		emitDashboardLspEvent({
+			serverId: server.id,
+			root,
+			status: "spawn_start",
+			filePath,
+		});
 		try {
 			const spawned = await server.spawn(root, { allowInstall });
 			if (!spawned) {
 				logSessionStart(
 					`lsp spawn ${server.id}: unavailable (${Date.now() - startedAt}ms)`,
 				);
+				emitDashboardLspEvent({
+					serverId: server.id,
+					root,
+					status: "unavailable",
+					filePath,
+					durationMs: Date.now() - startedAt,
+				});
 				const uCount = (this.failureCounts.get(key) ?? 0) + 1;
 				this.failureCounts.set(key, uCount);
 				const uCooldown = Math.min(
@@ -468,6 +482,14 @@ export class LSPService {
 			logSessionStart(
 				`lsp spawn ${server.id}: success source=${spawned.source ?? "unknown"} (${Date.now() - startedAt}ms)`,
 			);
+			emitDashboardLspEvent({
+				serverId: server.id,
+				root,
+				status: "spawn_success",
+				filePath,
+				durationMs: Date.now() - startedAt,
+				source: spawned.source,
+			});
 			if (!this.workspaceProbeLogged.has(key)) {
 				logSessionStart(
 					`lsp workspace-diag probe ${server.id}: advertised=${wsDiag.advertised} mode=${wsDiag.mode} provider=${wsDiag.diagnosticProviderKind}`,
@@ -476,6 +498,14 @@ export class LSPService {
 			}
 			return { client, info: server };
 		} catch (err) {
+			emitDashboardLspEvent({
+				serverId: server.id,
+				root,
+				status: "spawn_failed",
+				filePath,
+				durationMs: Date.now() - startedAt,
+				error: err instanceof Error ? err.message : String(err),
+			});
 			if (!isOptionalServer || !this.optionalFailureLogged.has(key)) {
 				logSessionStart(
 					`lsp spawn ${server.id}: failed (${Date.now() - startedAt}ms) error=${err instanceof Error ? err.message : String(err)}`,

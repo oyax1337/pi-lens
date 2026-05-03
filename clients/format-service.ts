@@ -12,6 +12,7 @@
  */
 
 import * as path from "node:path";
+import { emitDashboardFormatterRun } from "./dashboard-bus.js";
 import { FileTime } from "./file-time.js";
 import {
 	clearFormatterRuntimeState,
@@ -113,6 +114,16 @@ export class FormatService {
 
 		// Record new file state after formatting
 		this.fileTime.read(absolutePath);
+
+		for (const [index, result] of results.entries()) {
+			emitDashboardFormatterRun({
+				filePath: absolutePath,
+				formatter: formatters[index]?.name ?? "unknown",
+				success: result.success,
+				changed: result.changed,
+				error: result.error,
+			});
+		}
 
 		// Build summary
 		const anyChanged = results.some((r) => r.changed);

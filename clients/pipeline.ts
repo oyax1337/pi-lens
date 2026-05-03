@@ -15,6 +15,7 @@
 import * as nodeFs from "node:fs";
 import * as path from "node:path";
 import type { BiomeClient } from "./biome-client.js";
+import { emitDashboardDiagnostics } from "./dashboard-bus.js";
 import { getDiagnosticLogger } from "./diagnostic-logger.js";
 import { getDiagnosticTracker } from "./diagnostic-tracker.js";
 import {
@@ -897,6 +898,10 @@ export async function runPipeline(
 			writeIndex: ctx.telemetry?.writeIndex ?? 0,
 		},
 	);
+	emitDashboardDiagnostics({
+		filePath,
+		diagnostics: dispatchResult.diagnostics,
+	});
 	const hasBlockers = dispatchResult.hasBlockers;
 
 	if (dispatchResult.diagnostics.length > 0) {

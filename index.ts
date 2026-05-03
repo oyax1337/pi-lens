@@ -7,6 +7,14 @@ import { isToolCallEventType } from "@mariozechner/pi-coding-agent";
 import { AstGrepClient } from "./clients/ast-grep-client.js";
 import { loadBootstrapClients } from "./clients/bootstrap.js";
 import { CacheManager } from "./clients/cache-manager.js";
+import {
+	configureDashboardBus,
+	emitDashboardEvent,
+	emitDashboardToolEnd,
+	emitDashboardToolStart,
+	emitDashboardToolUpdate,
+	shutdownDashboardBus,
+} from "./clients/dashboard-bus.js";
 import { getDiagnosticTracker } from "./clients/diagnostic-tracker.js";
 import {
 	getCascadeSessionStats,
@@ -346,6 +354,13 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerFlag("no-read-guard", {
 		description: "Disable read-before-edit behavior monitor",
+		type: "boolean",
+		default: false,
+	});
+
+	pi.registerFlag("lens-dashboard", {
+		description:
+			"Experimental: stream pi-lens session telemetry for the external dashboard",
 		type: "boolean",
 		default: false,
 	});
@@ -765,10 +780,42 @@ export default function (pi: ExtensionAPI) {
 				resetLSPService,
 			});
 			ctx.ui && updateLspStatus(ctx.ui.setStatus, ctx.ui.theme);
+			configureDashboardBus({
+				enabled:
+					!!pi.getFlag("lens-dashboard") ||
+					process.env.PI_LENS_DASHBOARD === "1",
+				projectRoot: runtime.projectRoot,
+				sessionId: runtime.telemetrySessionId,
+			});
 		} catch (sessionErr) {
 			dbg(`session_start crashed: ${sessionErr}`);
 			dbg(`session_start crash stack: ${(sessionErr as Error).stack}`);
 		}
+	});
+
+	(pi as any).on("tool_execution_start", async (event: any) => {
+		emitDashboardToolStart({
+			toolCallId: event.toolCallId,
+			toolName: event.toolName ?? "unknown",
+			args: event.args,
+		});
+	});
+
+	(pi as any).on("tool_execution_update", async (event: any) => {
+		emitDashboardToolUpdate({
+			toolCallId: event.toolCallId,
+			toolName: event.toolName ?? "unknown",
+			partialResult: event.partialResult,
+		});
+	});
+
+	(pi as any).on("tool_execution_end", async (event: any) => {
+		emitDashboardToolEnd({
+			toolCallId: event.toolCallId,
+			toolName: event.toolName ?? "unknown",
+			isError: event.isError,
+			result: event.result,
+		});
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
@@ -1278,15 +1325,15 @@ export default function (pi: ExtensionAPI) {
 				agentBehaviorClient.recordToolCall(toolName, filePath),
 			formatBehaviorWarnings: (warnings) =>
 				agentBehaviorClient.formatWarnings(warnings as any),
-			readGuard: runtime.readGuard,
 		});
 	});
 
 	// --- Turn end: batch jscpd/madge on collected files, then clear state ---
 	// Clear cascade snapshot at start of each new turn so stale data never leaks
-	pi.on("turn_start", () => {
+	pi.on("turn_start", (event: any) => {
 		runtime.beginTurn();
 		clearLastAnalyzedStateCache();
+		emitDashboardEvent({ type: "pi.turn.start", turnIndex: event?.turnIndex });
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {
@@ -1308,7 +1355,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	pi.on("turn_end", async (_event, ctx) => {
+	pi.on("turn_end", async (event: any, ctx) => {
 		try {
 			const { jscpdClient, knipClient, depChecker, testRunnerClient } =
 				await loadBootstrapClients();
@@ -1325,6 +1372,11 @@ export default function (pi: ExtensionAPI) {
 				resetLSPService,
 				resetFormatService,
 			});
+			emitDashboardEvent({
+				type: "pi.turn.end",
+				turnIndex: event?.turnIndex,
+				toolResultCount: event?.toolResults?.length,
+			});
 			ctx.ui && updateLspStatus(ctx.ui.setStatus, ctx.ui.theme);
 		} catch (turnEndErr) {
 			dbg(`turn_end crashed: ${turnEndErr}`);
@@ -1336,6 +1388,7 @@ export default function (pi: ExtensionAPI) {
 	// The LSP idle-reset timer (240s) is unref'd but we cancel it explicitly here
 	// so it does not fire after shutdown. resetLSPService shuts down any live clients.
 	(pi as any).on("session_shutdown", () => {
+		shutdownDashboardBus();
 		cancelLSPIdleReset();
 		resetLSPService();
 	});
