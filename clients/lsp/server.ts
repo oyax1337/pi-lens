@@ -489,56 +489,89 @@ export function NearestRoot(
 	excludePatterns?: string[],
 	stopDir?: string,
 ): RootFunction {
+	// Per-instance caches — each NearestRoot(markers) call gets its own Map so
+	// different servers (e.g. TypeScript vs Go) with different marker sets never
+	// share entries. vi.resetModules() in tests resets module state between cases.
+	const cache = new Map<string, string>();
+	const inFlight = new Map<string, Promise<string | undefined>>();
+
 	return async (file: string): Promise<string | undefined> => {
-		let currentDir = path.resolve(path.dirname(file));
-		const fsRoot = path.parse(currentDir).root;
-		const stop = stopDir ? path.resolve(stopDir) : fsRoot;
+		// Cache key is the resolved directory — all files in the same dir share a root.
+		const dirKey = path.resolve(path.dirname(file));
 
-		while (true) {
-			if (
-				stop !== fsRoot &&
-				currentDir.startsWith(stop + path.sep) === false &&
-				currentDir !== stop
-			) {
-				break;
-			}
+		// Fast path: already resolved for this directory.
+		const cached = cache.get(dirKey);
+		if (cached !== undefined) return cached;
 
-			// Check exclude patterns — skip this dir (but keep walking up)
-			if (excludePatterns) {
-				let excluded = false;
-				for (const pattern of excludePatterns) {
+		// In-flight deduplication: if N parallel pipelines edit files in the same
+		// directory simultaneously, only one stat-walk runs; the rest await the same
+		// promise. This is the main fix for parallel-turn LSP timeout spikes.
+		const flying = inFlight.get(dirKey);
+		if (flying) return flying;
+
+		const promise = (async (): Promise<string | undefined> => {
+			let currentDir = dirKey;
+			const fsRoot = path.parse(currentDir).root;
+			const stop = stopDir ? path.resolve(stopDir) : fsRoot;
+
+			while (true) {
+				if (
+					stop !== fsRoot &&
+					currentDir.startsWith(stop + path.sep) === false &&
+					currentDir !== stop
+				) {
+					break;
+				}
+
+				// Check exclude patterns — skip this dir (but keep walking up)
+				if (excludePatterns) {
+					let excluded = false;
+					for (const pattern of excludePatterns) {
+						try {
+							await stat(path.join(currentDir, pattern));
+							excluded = true;
+							break;
+						} catch {
+							/* not found */
+						}
+					}
+					if (excluded) {
+						currentDir = path.dirname(currentDir);
+						continue;
+					}
+				}
+
+				// Check include patterns
+				for (const pattern of includePatterns) {
 					try {
 						await stat(path.join(currentDir, pattern));
-						excluded = true;
-						break;
+						return currentDir;
 					} catch {
 						/* not found */
 					}
 				}
-				if (excluded) {
-					currentDir = path.dirname(currentDir);
-					continue;
+
+				if (currentDir === stop || currentDir === fsRoot) {
+					break;
 				}
+
+				currentDir = path.dirname(currentDir);
 			}
 
-			// Check include patterns
-			for (const pattern of includePatterns) {
-				try {
-					await stat(path.join(currentDir, pattern));
-					return currentDir;
-				} catch {
-					/* not found */
-				}
-			}
+			return undefined;
+		})();
 
-			if (currentDir === stop || currentDir === fsRoot) {
-				break;
-			}
-
-			currentDir = path.dirname(currentDir);
+		inFlight.set(dirKey, promise);
+		try {
+			const result = await promise;
+			// Only cache successful hits. Undefined results are not cached so that
+			// a newly-created root marker (e.g. package.json added mid-session) is
+			// detected on the next call.
+			if (result !== undefined) cache.set(dirKey, result);
+			return result;
+		} finally {
+			inFlight.delete(dirKey);
 		}
-
-		return undefined;
 	};
 }
 

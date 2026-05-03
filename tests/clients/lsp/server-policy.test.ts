@@ -242,6 +242,95 @@ describe("lsp server policy", () => {
 		}
 	});
 
+	it("caches successful root resolution — second call skips stat walk", async () => {
+		const { NearestRoot } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-root-cache-"));
+		dirs.push(tmp);
+
+		const src = path.join(tmp, "src");
+		const file1 = path.join(src, "a.ts");
+		const file2 = path.join(src, "b.ts");
+		fs.mkdirSync(src, { recursive: true });
+		fs.writeFileSync(path.join(tmp, "package.json"), "{}");
+		fs.writeFileSync(file1, "");
+		fs.writeFileSync(file2, "");
+
+		const resolver = NearestRoot(["package.json"]);
+		const r1 = await resolver(file1);
+		expect(r1).toBe(tmp);
+
+		// Delete the marker — a fresh walk would return undefined, but the cache
+		// should serve the hit without touching the filesystem.
+		fs.unlinkSync(path.join(tmp, "package.json"));
+		const r2 = await resolver(file2);
+		expect(r2).toBe(tmp);
+	});
+
+	it("deduplicates concurrent in-flight walks for the same directory", async () => {
+		const { NearestRoot } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-root-inflight-"));
+		dirs.push(tmp);
+
+		const src = path.join(tmp, "extractors");
+		fs.mkdirSync(src, { recursive: true });
+		fs.writeFileSync(path.join(tmp, "package.json"), "{}");
+
+		const files = ["a.mjs", "b.mjs", "c.mjs", "d.mjs"].map((f) => {
+			const fp = path.join(src, f);
+			fs.writeFileSync(fp, "");
+			return fp;
+		});
+
+		const resolver = NearestRoot(["package.json"]);
+		// Fire all four simultaneously — only one stat-walk should run.
+		const results = await Promise.all(files.map((f) => resolver(f)));
+		expect(results).toEqual([tmp, tmp, tmp, tmp]);
+	});
+
+	it("does not cache undefined — re-walks when root marker is later created", async () => {
+		const { NearestRoot } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-root-nocache-"));
+		dirs.push(tmp);
+
+		const src = path.join(tmp, "src");
+		const file = path.join(src, "a.ts");
+		fs.mkdirSync(src, { recursive: true });
+		fs.writeFileSync(file, "");
+
+		// stopDir = tmp prevents the walk escaping to real parent package.json
+		const resolver = NearestRoot(["package.json"], undefined, tmp);
+		const r1 = await resolver(file);
+		expect(r1).toBeUndefined();
+
+		// Now create the marker — next call must detect it despite no cached entry.
+		fs.writeFileSync(path.join(tmp, "package.json"), "{}");
+		const r2 = await resolver(file);
+		expect(r2).toBe(tmp);
+	});
+
+	it("isolates cache per NearestRoot instance — different marker sets are independent", async () => {
+		const { NearestRoot } = await import("../../../clients/lsp/server.js");
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-lens-root-isolate-"));
+		dirs.push(tmp);
+
+		const src = path.join(tmp, "src");
+		const file = path.join(src, "main.go");
+		fs.mkdirSync(src, { recursive: true });
+		fs.writeFileSync(file, "");
+		// Only go.mod present — package.json absent.
+		fs.writeFileSync(path.join(tmp, "go.mod"), "module example\n");
+
+		// stopDir = tmp prevents walks escaping to real parent dirs with package.json
+		const tsResolver = NearestRoot(["package.json"], undefined, tmp);
+		const goResolver = NearestRoot(["go.mod", "go.sum"], undefined, tmp);
+
+		const tsRoot = await tsResolver(file);
+		const goRoot = await goResolver(file);
+
+		expect(tsRoot).toBeUndefined();
+		expect(goRoot).toBe(tmp);
+	});
+
 	it("does not resolve markers above explicit stop directory", async () => {
 		const { NearestRoot } = await import("../../../clients/lsp/server.js");
 		const tmp = fs.mkdtempSync(

@@ -1292,6 +1292,7 @@ export default function (pi: ExtensionAPI) {
 				agentBehaviorClient.recordToolCall(toolName, filePath),
 			formatBehaviorWarnings: (warnings) =>
 				agentBehaviorClient.formatWarnings(warnings as any),
+			readGuard: runtime.readGuard,
 		});
 	});
 

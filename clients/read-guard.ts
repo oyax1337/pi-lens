@@ -257,6 +257,15 @@ export class ReadGuard {
 	}
 
 	/**
+	 * Refresh the FileTime stamp after the model's own write lands on disk.
+	 * Call this from the tool_result handler so the next checkEdit on the same
+	 * file doesn't see "file_modified" caused by our own previous edit.
+	 */
+	recordWritten(filePath: string): void {
+		this.fileTime.read(filePath);
+	}
+
+	/**
 	 * Add a one-time exemption for a file.
 	 * Called via /lens-allow-edit command.
 	 */

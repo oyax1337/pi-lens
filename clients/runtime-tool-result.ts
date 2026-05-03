@@ -4,6 +4,7 @@ import * as path from "node:path";
 import type { BiomeClient } from "./biome-client.js";
 import type { CacheManager } from "./cache-manager.js";
 import { createFileTime } from "./file-time.js";
+import type { ReadGuard } from "./read-guard.js";
 import { getFormatService } from "./format-service.js";
 import { resolveLanguageRootForFile } from "./language-profile.js";
 import { logLatency } from "./latency-logger.js";
@@ -35,6 +36,7 @@ interface ToolResultDeps {
 	resetLSPService: () => void;
 	agentBehaviorRecord: (toolName: string, filePath?: string) => unknown[];
 	formatBehaviorWarnings: (warnings: unknown[]) => string;
+	readGuard?: ReadGuard;
 }
 
 function parseDiffRanges(diff: string): { start: number; end: number }[] {
@@ -131,6 +133,10 @@ export async function handleToolResult(deps: ToolResultDeps): Promise<{
 		);
 		return;
 	}
+
+	// Refresh the read-guard's FileTime stamp so that the model's own write
+	// doesn't trigger a spurious "file_modified" block on the next edit.
+	deps.readGuard?.recordWritten(filePath);
 
 	// Keep cachedExports in sync after each write/edit so the pre-write STOP
 	// check doesn't fire on names that were removed from this file this session.
