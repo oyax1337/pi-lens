@@ -14,6 +14,7 @@ const state = {
 	turnIndex: undefined,
 	activeTools: new Map(),
 	configs: new Map(),
+	configsSeen: 0,
 	formatters: new Map(),
 	runners: new Map(),
 	lsps: new Map(),
@@ -96,6 +97,7 @@ function applyEvent(event) {
 			state.activeTools.delete(event.toolCallId);
 			break;
 		case "lens.config.formatter_selected":
+			state.configsSeen++;
 			state.configs.set(`${event.cwd}:${event.filePath}`, event);
 			fileState(event.filePath);
 			break;
@@ -179,11 +181,75 @@ function scheduleRender() {
 
 function render() {
 	const rows = [];
-	rows.push(
-		`${cyan("pi-lens dashboard")} ${dim(`events=${state.eventCount} turn=${state.turnIndex ?? "?"} uptime=${Math.round((Date.now() - state.startedAt) / 1000)}s`)}`,
-	);
+	const folder = state.configs.get("__root")?.projectRoot || "?";
+	rows.push(`${cyan("pi-lens dashboard")} ${dim(folder)}`);
 	rows.push(dim(`log: ${logPath}`));
 	rows.push("");
+
+	// --- Static configs identified in the folder ---
+	if (state.configsSeen > 0) {
+		const configs = [...state.configs.values()]
+			.filter((c) => c.type === "lens.config.formatter_selected")
+			.slice(-12);
+
+		// Derive languages from config file extensions
+		const extLang = {
+			ts: "TS",
+			tsx: "TSX",
+			js: "JS",
+			jsx: "JSX",
+			css: "CSS",
+			json: "JSON",
+			yaml: "YAML",
+			yml: "YAML",
+			md: "MD",
+			py: "Python",
+			rs: "Rust",
+			go: "Go",
+			java: "Java",
+			c: "C",
+			cpp: "C++",
+			h: "C",
+			hpp: "C++",
+			sh: "Shell",
+			bash: "Shell",
+			toml: "TOML",
+			xml: "XML",
+			sql: "SQL",
+			graphql: "GraphQL",
+			vue: "Vue",
+			svelte: "Svelte",
+		};
+		const seen = new Set();
+		for (const c of configs) {
+			const ext = String(c.filePath || "")
+				.split(".")
+				.pop()
+				?.toLowerCase();
+			const lang = extLang[ext];
+			if (lang) seen.add(lang);
+		}
+		const langs = [...seen].sort();
+
+		const hasExplicit = configs.some(
+			(c) => c.reason === "explicit-config" || c.reason === "detect",
+		);
+		rows.push(
+			`${cyan("Configs identified")}${langs.length ? dim(` (${langs.join(", ")})`) : ""}`,
+		);
+		if (hasExplicit) {
+			for (const c of configs.filter(
+				(c) => c.reason === "explicit-config" || c.reason === "detect",
+			)) {
+				rows.push(
+					`  ${link(c.filePath, rel(c.filePath))} → ${c.formatter || "none"} ${dim(c.reason || "")}`,
+				);
+			}
+		} else {
+			rows.push(dim("  smart defaults enabled"));
+		}
+		rows.push("");
+	}
 
 	// --- Session start summary (sticky, shown once received) ---
 	if (state.sessionSummary) {
@@ -233,27 +299,6 @@ function render() {
 
 		rows.push("");
 	}
-
-	rows.push(cyan("Active tools"));
-	if (state.activeTools.size === 0) rows.push(dim("  none"));
-	for (const [, tool] of [...state.activeTools.entries()].slice(-8)) {
-		rows.push(
-			`  ${green("●")} ${tool.name} ${dim(`${Math.round((Date.now() - tool.startedAt) / 1000)}s`)} ${dim(JSON.stringify(tool.args || {})).slice(0, 100)}`,
-		);
-	}
-	rows.push("");
-
-	rows.push(cyan("Configs identified"));
-	const configs = [...state.configs.values()]
-		.filter((c) => c.type === "lens.config.formatter_selected")
-		.slice(-10);
-	if (configs.length === 0) rows.push(dim("  none yet"));
-	for (const c of configs) {
-		rows.push(
-			`  ${link(c.filePath, rel(c.filePath))} → ${c.formatter || "none"} ${dim(c.reason || "")}`,
-		);
-	}
-	rows.push("");
 
 	rows.push(cyan("Formatters"));
 	if (state.formatters.size === 0) rows.push(dim("  none yet"));
