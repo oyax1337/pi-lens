@@ -176,7 +176,7 @@ export function renderWidget(
 		const warnings = rec.diagnostics.filter(
 			(d) => d.severity === "warning",
 		).length;
-		const dot = errors > 0 ? red("●") : warnings > 0 ? yellow("▲") : dim("○");
+		const dot = errors > 0 ? red("●") : warnings > 0 ? yellow("▲") : green("✓");
 		const runnerNames = [...rec.runners.keys()].join(" ");
 		const counts =
 			errors > 0
