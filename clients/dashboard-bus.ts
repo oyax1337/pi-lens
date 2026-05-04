@@ -376,8 +376,13 @@ function startTerminalDashboard(logPath: string): void {
 
 	try {
 		if (process.platform === "win32") {
-			spawn(
+			const cmdPath = path.join(
+				process.env.SystemRoot ?? "C:\\Windows",
+				"System32",
 				"cmd.exe",
+			);
+			spawn(
+				cmdPath,
 				["/c", "start", "pi-lens dashboard", node, scriptPath, logPath],
 				{ detached: true, stdio: "ignore", windowsHide: true },
 			).unref();
@@ -387,7 +392,7 @@ function startTerminalDashboard(logPath: string): void {
 		if (process.platform === "darwin") {
 			const command = `${shellQuote(node)} ${shellQuote(scriptPath)} ${shellQuote(logPath)}`;
 			spawn(
-				"osascript",
+				"/usr/bin/osascript",
 				[
 					"-e",
 					`tell application "Terminal" to do script ${JSON.stringify(command)}`,
