@@ -1,8 +1,14 @@
 /**
  * pi-lens dashboard event bus.
  *
- * Emits a small, redacted JSONL stream that can be consumed by the upcoming
+ * Emits a small, redacted JSONL stream that can be consumed by the
  * terminal dashboard (and later Glimpse/browser UIs). Disabled by default.
+ *
+ * Each session writes to its own log file to keep events isolated per session.
+ * Log path resolution (first match):
+ *   1. PI_LENS_DASHBOARD_LOG env var (template: {sessionId} is replaced)
+ *   2. options.logPath (if provided)
+ *   3. ~/.pi-lens/dashboard-events/{sessionId}.jsonl
  */
 
 import { spawn } from "node:child_process";
@@ -34,6 +40,78 @@ let currentLogPath: string | undefined;
 let terminalStarted = false;
 
 const MAX_PREVIEW_CHARS = 240;
+
+/**
+ * Directory under ~/.pi-lens/ that holds per-session dashboard event files.
+ */
+const DASHBOARD_EVENTS_DIR = path.join(
+	os.homedir(),
+	".pi-lens",
+	"dashboard-events",
+);
+
+/**
+ * Resolve the per-session log path for dashboard events.
+ * Priority:
+ *   1. PI_LENS_DASHBOARD_LOG env var (template: {sessionId} is replaced)
+ *   2. options.logPath (explicit caller override)
+ *   3. ~/.pi-lens/dashboard-events/{sessionId}.jsonl (default)
+ */
+function resolveDashboardLogPath(options: DashboardBusOptions): string {
+	const envPath = process.env.PI_LENS_DASHBOARD_LOG?.trim();
+	if (envPath) {
+		return envPath.replace(/{sessionId}/g, options.sessionId);
+	}
+	if (options.logPath) {
+		return options.logPath.replace(/{sessionId}/g, options.sessionId);
+	}
+	return path.join(DASHBOARD_EVENTS_DIR, `${options.sessionId}.jsonl`);
+}
+
+/**
+ * Clean up dashboard event files older than the given retention period.
+ * Default: delete files older than 7 days.
+ */
+export function runDashboardLogCleanup(dbg?: (msg: string) => void): {
+	cleaned: number;
+} {
+	const retentionDays = Math.max(
+		1,
+		Number.parseInt(process.env.PI_LENS_DASHBOARD_RETENTION_DAYS ?? "7", 10) ||
+			7,
+	);
+	let cleaned = 0;
+
+	try {
+		if (!fs.existsSync(DASHBOARD_EVENTS_DIR)) return { cleaned };
+		const files = fs.readdirSync(DASHBOARD_EVENTS_DIR);
+		const now = Date.now();
+		for (const file of files) {
+			if (!file.endsWith(".jsonl")) continue;
+			const filePath = path.join(DASHBOARD_EVENTS_DIR, file);
+			try {
+				const stat = fs.statSync(filePath);
+				const ageDays = (now - stat.mtime.getTime()) / (1000 * 60 * 60 * 24);
+				if (ageDays > retentionDays) {
+					fs.unlinkSync(filePath);
+					cleaned++;
+				}
+			} catch {
+				// skip files we can't stat
+			}
+		}
+	} catch {
+		// directory doesn't exist or can't be read
+	}
+
+	if (cleaned > 0) {
+		dbg?.(
+			`dashboard_cleanup: removed ${cleaned} old session file(s) (>${retentionDays}d)`,
+		);
+	}
+	return { cleaned };
+}
+
 const SECRET_KEY_RE =
 	/(?:content|text|oldText|newText|replacement|password|token|secret|key|apiKey|authorization|cookie)/i;
 const PATHISH_KEY_RE =
@@ -46,18 +124,16 @@ export function configureDashboardBus(options: DashboardBusOptions): void {
 	sessionId = options.sessionId;
 	if (!enabled) return;
 
-	currentLogPath =
-		options.logPath ??
-		path.join(os.homedir(), ".pi-lens", "dashboard-events.jsonl");
+	currentLogPath = resolveDashboardLogPath(options);
 	try {
-		fs.mkdirSync(path.dirname(currentLogPath), { recursive: true });
+		fs.mkdirSync(path.dirname(currentLogPath!), { recursive: true });
 		stream = fs.createWriteStream(currentLogPath, { flags: "a" });
 		emitDashboardEvent({
 			type: "lens.dashboard.start",
-			logPath: currentLogPath,
+			logPath: currentLogPath!,
 		});
 		if (process.env.PI_LENS_DASHBOARD_LOG_ONLY !== "1") {
-			startTerminalDashboard(currentLogPath);
+			startTerminalDashboard(currentLogPath!);
 		}
 	} catch {
 		enabled = false;
@@ -76,6 +152,7 @@ export function shutdownDashboardBus(): void {
 	enabled = false;
 	projectRoot = "";
 	sessionId = "";
+	terminalStarted = false;
 }
 
 export function isDashboardBusEnabled(): boolean {

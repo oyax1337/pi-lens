@@ -16,6 +16,7 @@ import {
 	getDefaultStartupTools,
 } from "./language-profile.js";
 import { runLogCleanup } from "./log-cleanup.js";
+import { runDashboardLogCleanup } from "./dashboard-bus.js";
 import { initLSPConfig, loadLSPConfig } from "./lsp/config.js";
 import { getLSPService } from "./lsp/index.js";
 import type { MetricsClient } from "./metrics-client.js";
@@ -451,6 +452,8 @@ export async function handleSessionStart(
 	if (logCleanup.cleaned > 0 || logCleanup.rotated > 0) {
 		notify(`🧹 ${logCleanup.report}`, "info");
 	}
+	// Clean up old per-session dashboard event files
+	runDashboardLogCleanup(dbg);
 	dbg(`session_start startup mode: ${startupMode}`);
 
 	if (!getFlag("no-lsp")) {

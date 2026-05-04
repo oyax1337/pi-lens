@@ -170,6 +170,14 @@ function scheduleRender() {
 	renderTimer = setTimeout(render, 80);
 }
 
+function getTerminalHeight() {
+	try {
+		return process.stdout.rows || 24;
+	} catch {
+		return 24;
+	}
+}
+
 function render() {
 	const rows = [];
 	rows.push(
@@ -267,7 +275,12 @@ function render() {
 		if (ds.length > 3) rows.push(dim(`     +${ds.length - 3} more`));
 	}
 
-	process.stdout.write("\x1b[2J\x1b[H" + rows.join("\n") + "\n");
+	const output = rows.join("\n");
+	process.stdout.write("\x1b[H" + output + "\n");
+	// Clear any leftover lines below the rendered content
+	process.stdout.write("\x1b[0J");
+	// Scroll viewport to the bottom so the latest content is visible
+	process.stdout.write("\x1b[999;1H");
 }
 
 function readNew() {
