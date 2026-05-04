@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import piLens from "../index.js";
 
-type CommandHandler = (args: unknown, ctx: { ui: { notify: ReturnType<typeof vi.fn> } }) => Promise<void> | void;
+type CommandHandler = (
+	args: unknown,
+	ctx: { ui: { notify: ReturnType<typeof vi.fn> } },
+) => Promise<void> | void;
 
 type Harness = {
 	commands: Map<string, { description?: string; handler: CommandHandler }>;
@@ -9,7 +12,10 @@ type Harness = {
 };
 
 function installLens(flagValues: Record<string, unknown> = {}): Harness {
-	const commands = new Map<string, { description?: string; handler: CommandHandler }>();
+	const commands = new Map<
+		string,
+		{ description?: string; handler: CommandHandler }
+	>();
 	const flags = new Map<string, { default?: unknown }>();
 	const handlers = new Map<string, Function[]>();
 
@@ -25,7 +31,10 @@ function installLens(flagValues: Record<string, unknown> = {}): Harness {
 			return flags.get(name)?.default ?? false;
 		}),
 		registerCommand: vi.fn(
-			(name: string, config: { description?: string; handler: CommandHandler }) => {
+			(
+				name: string,
+				config: { description?: string; handler: CommandHandler },
+			) => {
 				commands.set(name, config);
 			},
 		),

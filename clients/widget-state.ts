@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,7 +96,10 @@ export function recordDiagnostics(
 	const base = pathToFileURL(filePath).href;
 	rec.diagnostics = diagnostics.map((d) => {
 		const rule = d.rule ?? d.id;
-		const uri = d.line != null ? `${base}#L${d.line}${d.column != null ? `:${d.column}` : ""}` : base;
+		const uri =
+			d.line != null
+				? `${base}#L${d.line}${d.column != null ? `:${d.column}` : ""}`
+				: base;
 		return {
 			severity: d.severity ?? "info",
 			message: d.message ?? "",
@@ -141,44 +145,52 @@ export function renderWidget(
 	const yellow = (s: string) => theme.fg("warning", s);
 	const green = (s: string) => theme.fg("success", s);
 	const cyan = (s: string) => theme.fg("accent", s);
-	const w = width || 80;
+	const w = Math.max(1, width || 80);
 
 	if (files.size === 0 && lspServers.size === 0) return [];
 
 	const lines: string[] = [];
 
-	// Header
+	// Header — counts from deduplicated files only
+	const deduped = dedupeByBasename([...files.values()]);
+	const sorted = deduped.slice(0, 5);
 	const langStr = sessionLanguages.slice(0, 6).join(" ");
-	const totalErrors = countTotal("error");
-	const totalWarnings = countTotal("warning");
+	const totalErrors = countTotalIn("error", deduped);
+	const totalWarnings = countTotalIn("warning", deduped);
 	const summary =
 		totalErrors > 0
-			? red(`●${totalErrors}E`) + (totalWarnings > 0 ? " " + yellow(`▲${totalWarnings}W`) : "")
+			? red(`●${totalErrors}E`) +
+				(totalWarnings > 0 ? " " + yellow(`▲${totalWarnings}W`) : "")
 			: totalWarnings > 0
 				? yellow(`▲${totalWarnings}W`)
 				: files.size > 0
 					? green("✓ clean")
 					: "";
 	const header = ` ${cyan("pi-lens")}${langStr ? "  " + dim(langStr) : ""}${summary ? "  " + summary : ""}`;
-	lines.push(header);
+	lines.push(fitLine(header, w));
 
-	// File list — most recently touched first, cap at 6
-	const sorted = [...files.values()].sort((a, b) => b.touchedAt - a.touchedAt).slice(0, 6);
+	// File list — most recently touched first, dedup by basename (last wins), cap at 5
 	for (const rec of sorted) {
 		const base = path.basename(rec.filePath);
 		const errors = rec.diagnostics.filter((d) => d.severity === "error").length;
-		const warnings = rec.diagnostics.filter((d) => d.severity === "warning").length;
+		const warnings = rec.diagnostics.filter(
+			(d) => d.severity === "warning",
+		).length;
 		const dot = errors > 0 ? red("●") : warnings > 0 ? yellow("▲") : dim("○");
 		const runnerNames = [...rec.runners.keys()].join(" ");
 		const counts =
 			errors > 0
-				? " " + red(`${errors}E`) + (warnings > 0 ? " " + yellow(`${warnings}W`) : "")
+				? " " +
+					red(`${errors}E`) +
+					(warnings > 0 ? " " + yellow(`${warnings}W`) : "")
 				: warnings > 0
 					? " " + yellow(`${warnings}W`)
 					: " " + dim("clean");
-		const formatMark = [...rec.formatters.values()].some((f) => f.changed) ? dim(" fmt") : "";
+		const formatMark = [...rec.formatters.values()].some((f) => f.changed)
+			? dim(" fmt")
+			: "";
 		const row = ` ${dot} ${base}  ${dim(runnerNames)}${formatMark}${counts}`;
-		lines.push(truncate(row, w));
+		lines.push(fitLine(row, w));
 	}
 
 	// Diagnostics — errors from the most recently touched file that has them
@@ -187,27 +199,35 @@ export function renderWidget(
 	);
 	if (withErrors.length > 0) {
 		const rec = withErrors[0];
-		lines.push(dim("─".repeat(Math.min(w, 60))));
-		lines.push(` ${dim(path.basename(rec.filePath))}`);
-		const errors = rec.diagnostics.filter((d) => d.severity === "error").slice(0, 5);
+		lines.push(fitLine(dim("─".repeat(Math.min(w, 60))), w));
+		lines.push(fitLine(` ${dim(path.basename(rec.filePath))}`, w));
+		const errors = rec.diagnostics
+			.filter((d) => d.severity === "error")
+			.slice(0, 5);
 		const warnings =
 			errors.length < 5
-				? rec.diagnostics.filter((d) => d.severity === "warning").slice(0, 5 - errors.length)
+				? rec.diagnostics
+						.filter((d) => d.severity === "warning")
+						.slice(0, 5 - errors.length)
 				: [];
 		for (const d of [...errors, ...warnings]) {
 			const sev = d.severity === "error" ? red("●") : yellow("▲");
 			const loc = d.line != null ? osc8(d.uri ?? "", `L${d.line}`) : "";
 			const rule = d.rule ? dim(` ${d.rule}`) : "";
-			const msg = truncate(d.message, w - 20);
-			lines.push(`   ${sev} ${loc}${rule}  ${msg}`);
+			const prefix = `   ${sev} ${loc}${rule}  `;
+			const msgWidth = Math.max(1, w - visibleWidth(prefix));
+			const msg = fitLine(d.message, msgWidth, "…");
+			lines.push(fitLine(`${prefix}${msg}`, w));
 		}
 	}
 
 	// LSP status — only spawning servers (ready ones are quiet)
-	const spawning = [...lspServers.values()].filter((s) => s.status === "spawning");
+	const spawning = [...lspServers.values()].filter(
+		(s) => s.status === "spawning",
+	);
 	if (spawning.length > 0) {
 		const ids = spawning.map((s) => s.serverId).join(" ");
-		lines.push(` ${dim(`LSP spawning: ${ids}`)}`);
+		lines.push(fitLine(` ${dim(`LSP spawning: ${ids}`)}`, w));
 	}
 
 	return lines;
@@ -227,9 +247,9 @@ function getOrCreate(filePath: string): FileRecord {
 	);
 }
 
-function countTotal(severity: string): number {
+function countTotalIn(severity: string, recs: FileRecord[]): number {
 	let n = 0;
-	for (const rec of files.values())
+	for (const rec of recs)
 		n += rec.diagnostics.filter((d) => d.severity === severity).length;
 	return n;
 }
@@ -243,15 +263,14 @@ function osc8(uri: string, label: string): string {
 	return `\x1b]8;;${uri}\x1b\\${label}\x1b]8;;\x1b\\`;
 }
 
-function truncate(s: string, maxLen: number): string {
-	// Strip ANSI SGR sequences and OSC-8 hyperlinks for length measurement.
-	// ESC (U+001B) built at runtime to avoid S6324 control-character-in-regex.
-	const e = String.fromCharCode(27);
-	const ansi = new RegExp(
-		`${e}\\[[0-9;]*m|${e}]8;;[^${e}]*${e}\\\\|${e}]8;;${e}\\\\`,
-		"g",
-	);
-	const visible = s.replace(ansi, "");
-	if (visible.length <= maxLen) return s;
-	return s.slice(0, maxLen - 1) + "…";
+function fitLine(s: string, maxWidth: number, ellipsis = "..."): string {
+	return truncateToWidth(s, Math.max(0, maxWidth), ellipsis);
+}
+
+function dedupeByBasename(recs: FileRecord[]): FileRecord[] {
+	const seen = new Map<string, FileRecord>();
+	for (const r of [...recs].sort((a, b) => a.touchedAt - b.touchedAt)) {
+		seen.set(path.basename(r.filePath), r);
+	}
+	return [...seen.values()].sort((a, b) => b.touchedAt - a.touchedAt);
 }
