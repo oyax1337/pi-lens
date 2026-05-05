@@ -1,4 +1,3 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
 import type { CacheManager } from "./cache-manager.js";
 import { logCascade } from "./cascade-logger.js";
@@ -9,7 +8,6 @@ import {
 	toRunnerDisplayPath,
 } from "./dispatch/runner-context.js";
 import { getKnipIgnorePatterns } from "./file-utils.js";
-import type { JscpdClient } from "./jscpd-client.js";
 import type { KnipClient, KnipIssue } from "./knip-client.js";
 import { logLatency } from "./latency-logger.js";
 import { RUNTIME_CONFIG } from "./runtime-config.js";
@@ -22,7 +20,6 @@ interface TurnEndDeps {
 	dbg: (msg: string) => void;
 	runtime: RuntimeCoordinator;
 	cacheManager: CacheManager;
-	jscpdClient: JscpdClient;
 	knipClient: KnipClient;
 	depChecker: DependencyChecker;
 	testRunnerClient: TestRunnerClient;
@@ -78,7 +75,6 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 		dbg,
 		runtime,
 		cacheManager,
-		jscpdClient,
 		knipClient,
 		depChecker,
 		testRunnerClient,
@@ -120,6 +116,7 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 
 	const turnEndStart = Date.now();
 	const blockerParts: string[] = [];
+	const advisoryParts: string[] = [];
 
 	// Merge accumulated cascade results from all pipeline runs this turn.
 	// Two-pass dedup:
@@ -175,97 +172,15 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 		metadata: { resultCount: cascadeResults.length },
 	});
 
-	const t1 = Date.now();
-	let jscpdMeta: { skipped?: boolean; fileCount?: number; totalClones?: number; matchedClones?: number } = {};
-	if (runtime.isStartupScanInFlight("jscpd")) {
-		dbg("turn_end: skipping jscpd (startup scan still in flight)");
-		jscpdMeta = { skipped: true };
-	} else if (await jscpdClient.ensureAvailable()) {
-		const jscpdFiles = cacheManager.getFilesForJscpd(cwd);
-		jscpdMeta = { fileCount: jscpdFiles.length, totalClones: 0, matchedClones: 0 };
-		if (jscpdFiles.length > 0) {
-			dbg(`turn_end: jscpd scanning ${jscpdFiles.length} file(s)`);
-			const result = jscpdClient.scan(cwd);
-			jscpdMeta.totalClones = result.clones.length;
-			const jscpdFileSet = new Set(
-				jscpdFiles.map((f) => resolveRunnerPath(cwd, f)),
-			);
-			const filtered = result.clones.filter((clone) => {
-				const resolvedA = resolveRunnerPath(cwd, clone.fileA);
-				const resolvedB = resolveRunnerPath(cwd, clone.fileB);
-				if (!fs.existsSync(resolvedA) || !fs.existsSync(resolvedB)) {
-					return false;
-				}
-
-				const stateA = cacheManager.getTurnFileState(resolvedA, cwd);
-				const stateB = cacheManager.getTurnFileState(resolvedB, cwd);
-
-				const matchA =
-					jscpdFileSet.has(resolvedA) &&
-					!!stateA &&
-					cacheManager.isLineInModifiedRange(
-						clone.startA,
-						stateA.modifiedRanges,
-					);
-
-				const matchB =
-					jscpdFileSet.has(resolvedB) &&
-					!!stateB &&
-					cacheManager.isLineInModifiedRange(
-						clone.startB,
-						stateB.modifiedRanges,
-					);
-
-				return matchA || matchB;
-			});
-			jscpdMeta.matchedClones = filtered.length;
-			if (filtered.length > 0) {
-				let report = `🔴 New duplicates in modified code:\n`;
-				let firstPath: string | null = null;
-				for (const clone of filtered.slice(0, 5)) {
-					const displayA = toRunnerDisplayPath(cwd, clone.fileA);
-					const displayB = toRunnerDisplayPath(cwd, clone.fileB);
-
-					if (!firstPath) {
-						const resolvedA = resolveRunnerPath(cwd, clone.fileA);
-						const resolvedB = resolveRunnerPath(cwd, clone.fileB);
-						const stateA = cacheManager.getTurnFileState(resolvedA, cwd);
-						const stateB = cacheManager.getTurnFileState(resolvedB, cwd);
-						const matchA =
-							!!stateA &&
-							cacheManager.isLineInModifiedRange(
-								clone.startA,
-								stateA.modifiedRanges,
-							);
-						const matchB =
-							!!stateB &&
-							cacheManager.isLineInModifiedRange(
-								clone.startB,
-								stateB.modifiedRanges,
-							);
-						firstPath = matchB && !matchA ? displayB : displayA;
-					}
-					report += `  ${displayA}:${clone.startA} ↔ ${displayB}:${clone.startB} (${clone.lines} lines)\n`;
-				}
-				if (firstPath) {
-					report += `  First location: ${firstPath}\n`;
-				}
-				blockerParts.push(report);
-			}
-			cacheManager.writeCache("jscpd", result, cwd);
-		}
-	}
-	logLatency({
-		type: "phase",
-		toolName: "turn_end",
-		filePath: cwd,
-		phase: "jscpd",
-		durationMs: Date.now() - t1,
-		metadata: jscpdMeta,
-	});
-
 	const t2 = Date.now();
-	let knipMeta: { skipped?: boolean; success?: boolean; totalIssues?: number; newIssues?: number; blockerIssues?: number; reason?: string } = {};
+	let knipMeta: {
+		skipped?: boolean;
+		success?: boolean;
+		totalIssues?: number;
+		newIssues?: number;
+		blockerIssues?: number;
+		reason?: string;
+	} = {};
 	if (runtime.isStartupScanInFlight("knip")) {
 		dbg("turn_end: skipping knip (startup scan still in flight)");
 		knipMeta = { skipped: true };
@@ -317,6 +232,22 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 					report += `  First location: ${firstPath}\n`;
 				}
 				blockerParts.push(report);
+			}
+
+			// Newly-unused exports in modified files: symbol was clean before this turn
+			// (not in prevKnip issues) but is now flagged — likely a caller was removed or
+			// an interface changed. Advisory only — the agent may be mid-task.
+			const unusedExportIssues = newIssues.filter((i) => i.type === "export");
+			if (unusedExportIssues.length > 0) {
+				let report =
+					"⚠️ Newly unused exports in modified files — check if callers need updating (Knip):\n";
+				for (const issue of unusedExportIssues.slice(0, 5)) {
+					const display = issue.file
+						? toRunnerDisplayPath(cwd, issue.file)
+						: "(unknown)";
+					report += `  ${display}${issue.line ? `:${issue.line}` : ""} — ${issue.name}\n`;
+				}
+				advisoryParts.push(report);
 			}
 		}
 	}
@@ -435,20 +366,22 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 
 	cacheManager.incrementTurnCycle(cwd);
 
-	if (blockerParts.length > 0) {
+	const findingParts = [...blockerParts, ...advisoryParts];
+	if (findingParts.length > 0) {
 		dbg(
-			`turn_end: ${blockerParts.length} blocker section(s) found, persisting for next context`,
+			`turn_end: ${blockerParts.length} blocker section(s), ${advisoryParts.length} advisory section(s) found, persisting for next context`,
 		);
-		const content = capTurnEndMessage(blockerParts.join("\n\n"));
-		const signature = `${files.slice().sort((a, b) => a.localeCompare(b)).join("|")}::${content}`;
+		const content = capTurnEndMessage(findingParts.join("\n\n"));
+		const signature = `${files
+			.slice()
+			.sort((a, b) => a.localeCompare(b))
+			.join("|")}::${content}`;
 		const last = cacheManager.readCache<{ signature: string }>(
 			"turn-end-findings-last",
 			cwd,
 		);
 		if (last?.data?.signature === signature) {
-			dbg(
-				"turn_end: duplicate blocker findings detected, suppressing re-prompt",
-			);
+			dbg("turn_end: duplicate findings detected, suppressing re-prompt");
 			cacheManager.clearTurnState(cwd);
 			runtime.fixedThisTurn.clear();
 			resetFormatService();
@@ -456,7 +389,8 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 		}
 		cacheManager.writeCache("turn-end-findings", { content }, cwd);
 		cacheManager.writeCache("turn-end-findings-last", { signature }, cwd);
-	} else {
+	}
+	if (blockerParts.length === 0) {
 		cacheManager.clearTurnState(cwd);
 	}
 
@@ -467,7 +401,11 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 		filePath: cwd,
 		durationMs: Date.now() - turnEndStart,
 		result: blockerParts.length > 0 ? "blockers_found" : "clean",
-		metadata: { fileCount: files.length, blockerSections: blockerParts.length },
+		metadata: {
+			fileCount: files.length,
+			blockerSections: blockerParts.length,
+			advisorySections: advisoryParts.length,
+		},
 	});
 	resetFormatService();
 }

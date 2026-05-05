@@ -4,9 +4,19 @@ All notable changes to pi-lens will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`/lens-widget-toggle` command** — toggles the pi-lens diagnostics widget below the editor on/off for the current session, so users can reclaim footer/editor space without disabling pi-lens analysis.
+
+### Changed
+
+- **Removed per-turn jscpd scans** — jscpd remains in the session-start project scan, but no longer runs unconditionally at `turn_end`; inline structural-similarity checks cover the high-value duplicate-code signal during active edits without the repeated multi-second clone scan.
+- **Cascade avoids low-value work** — unsupported graph kinds now skip review-graph construction and go straight to passive LSP fallback diagnostics, and neighbor files that recently returned clean can skip repeated active LSP touches for a few turns unless the passive snapshot already contains fresh errors.
+- **Knip now surfaces unused-export regressions** — newly unused exports in modified files are shown as advisory end-of-turn findings when they were absent from the previous Knip cache.
+
 ### Fixed
 
-- **jscpd and knip latency log now includes result metadata** — both `turn_end` phases previously logged only duration with empty `metadata: {}`, making it impossible to distinguish a clean run from a silent failure. `jscpd` now logs `fileCount`, `totalClones`, and `matchedClones`; `knip` logs `success`, `totalIssues`, `newIssues`, and `blockerIssues`. Both log `skipped: true` when the startup scan is still in flight.
+- **Knip latency log now includes result metadata** — the `turn_end` Knip phase previously logged only duration with empty `metadata: {}`, making it impossible to distinguish a clean run from a silent failure. It now logs `success`, `totalIssues`, `newIssues`, `blockerIssues`, and `skipped` when the startup scan is still in flight.
 
 - **LSP timeout log now includes `serverIds`** — `lsp_client_wait_timeout` previously only recorded `maxWaitMs`, making it impossible to identify which server consistently failed to respond within the budget. The event now includes the array of server IDs that were being waited on.
 

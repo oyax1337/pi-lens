@@ -112,7 +112,6 @@ describe("runtime event flow", () => {
 				dbg: () => {},
 				runtime,
 				cacheManager,
-				jscpdClient: { ensureAvailable: async () => false },
 				knipClient: { ensureAvailable: async () => false },
 				depChecker: { ensureAvailable: async () => false },
 				testRunnerClient: { getTestRunTarget: () => null },
@@ -120,7 +119,7 @@ describe("runtime event flow", () => {
 				resetFormatService: () => {},
 			} as any);
 
-			// No cascade results, no jscpd/knip blockers — turn_end clears state
+			// No cascade results or knip blockers — turn_end clears state
 			const firstContext = consumeTurnEndFindings(cacheManager, env.tmpDir);
 			expect(firstContext).toBeUndefined();
 		} finally {

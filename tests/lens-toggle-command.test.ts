@@ -3,7 +3,12 @@ import piLens from "../index.js";
 
 type CommandHandler = (
 	args: unknown,
-	ctx: { ui: { notify: ReturnType<typeof vi.fn> } },
+	ctx: {
+		ui: {
+			notify: ReturnType<typeof vi.fn>;
+			setWidget?: ReturnType<typeof vi.fn>;
+		};
+	},
 ) => Promise<void> | void;
 
 type Harness = {
@@ -61,6 +66,7 @@ describe("lens-toggle command", () => {
 
 		expect(flags.has("no-lens")).toBe(true);
 		expect(commands.has("lens-toggle")).toBe(true);
+		expect(commands.has("lens-widget-toggle")).toBe(true);
 		expect(commands.has("lens-enable")).toBe(false);
 		expect(commands.has("lens-disable")).toBe(false);
 		expect(commands.has("lens-status")).toBe(false);
@@ -97,6 +103,35 @@ describe("lens-toggle command", () => {
 
 		expect(notify).toHaveBeenCalledWith(
 			"pi-lens enabled for this session.",
+			"info",
+		);
+	});
+
+	it("toggles the diagnostics widget off and on", async () => {
+		const { commands } = installLens();
+		const notify = vi.fn();
+		const setWidget = vi.fn();
+		const command = commands.get("lens-widget-toggle");
+
+		expect(command).toBeDefined();
+		await command?.handler([], { ui: { notify, setWidget } });
+		await command?.handler([], { ui: { notify, setWidget } });
+
+		expect(setWidget).toHaveBeenNthCalledWith(1, "pi-lens", undefined);
+		expect(setWidget).toHaveBeenNthCalledWith(
+			2,
+			"pi-lens",
+			expect.any(Function),
+			{ placement: "belowEditor" },
+		);
+		expect(notify).toHaveBeenNthCalledWith(
+			1,
+			"pi-lens widget hidden. Run /lens-widget-toggle to show it.",
+			"info",
+		);
+		expect(notify).toHaveBeenNthCalledWith(
+			2,
+			"pi-lens widget shown. Run /lens-widget-toggle to hide it.",
 			"info",
 		);
 	});

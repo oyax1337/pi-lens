@@ -391,6 +391,48 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	let lensEnabled = !pi.getFlag("no-lens");
+	let lensWidgetVisible = true;
+	type LensWidgetTui = { requestRender: () => void };
+	type LensWidgetTheme = { fg: (color: string, s: string) => string };
+	type LensWidgetComponent = {
+		render: (width: number) => string[];
+		invalidate: () => void;
+	};
+	type LensWidgetFactory = (
+		tui: LensWidgetTui,
+		theme: LensWidgetTheme,
+	) => LensWidgetComponent;
+	type LensWidgetUi = { setWidget?: unknown };
+	type LensWidgetSetWidget = (
+		id: string,
+		widget: LensWidgetFactory | undefined,
+		options?: { placement: "belowEditor" },
+	) => void;
+
+	function mountLensWidget(ui: LensWidgetUi | undefined): boolean {
+		if (typeof ui?.setWidget !== "function") return false;
+		const setWidget = ui.setWidget as LensWidgetSetWidget;
+		setWidget(
+			"pi-lens",
+			(tui: LensWidgetTui, theme: LensWidgetTheme) => {
+				setRenderCallback(() => tui.requestRender());
+				return {
+					render: (width: number) => renderWidget(width, theme),
+					invalidate: () => setRenderCallback(() => {}),
+				};
+			},
+			{ placement: "belowEditor" },
+		);
+		return true;
+	}
+
+	function unmountLensWidget(ui: LensWidgetUi | undefined): boolean {
+		setRenderCallback(() => {});
+		if (typeof ui?.setWidget !== "function") return false;
+		const setWidget = ui.setWidget as LensWidgetSetWidget;
+		setWidget("pi-lens", undefined);
+		return true;
+	}
 
 	// --- Commands ---
 
@@ -404,6 +446,32 @@ export default function (pi: ExtensionAPI) {
 					? "pi-lens enabled for this session."
 					: "pi-lens disabled for this session. Run /lens-toggle again to resume.",
 				lensEnabled ? "info" : "warning",
+			);
+		},
+	});
+
+	pi.registerCommand("lens-widget-toggle", {
+		description:
+			"Show or hide the pi-lens diagnostics widget below the editor. Usage: /lens-widget-toggle",
+		handler: async (_args, ctx) => {
+			const nextVisible = !lensWidgetVisible;
+			const changed = nextVisible
+				? mountLensWidget(ctx.ui)
+				: unmountLensWidget(ctx.ui);
+			if (!changed) {
+				ctx.ui.notify(
+					"pi-lens widget is not supported by this pi version.",
+					"warning",
+				);
+				return;
+			}
+
+			lensWidgetVisible = nextVisible;
+			ctx.ui.notify(
+				lensWidgetVisible
+					? "pi-lens widget shown. Run /lens-widget-toggle to hide it."
+					: "pi-lens widget hidden. Run /lens-widget-toggle to show it.",
+				"info",
 			);
 		},
 	});
@@ -926,18 +994,8 @@ export default function (pi: ExtensionAPI) {
 			});
 			ctx.ui && updateLspStatus(ctx.ui.setStatus, ctx.ui.theme);
 			clearWidgetState();
-			if (ctx.ui?.setWidget) {
-				ctx.ui.setWidget(
-					"pi-lens",
-					(tui: any, theme: any) => {
-						setRenderCallback(() => tui.requestRender());
-						return {
-							render: (width: number) => renderWidget(width, theme),
-							invalidate: () => setRenderCallback(() => {}),
-						};
-					},
-					{ placement: "belowEditor" },
-				);
+			if (lensWidgetVisible) {
+				mountLensWidget(ctx.ui);
 			}
 		} catch (sessionErr) {
 			dbg(`session_start crashed: ${sessionErr}`);
@@ -1501,7 +1559,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("turn_end", async (_event: any, ctx) => {
 		if (!lensEnabled) return;
 		try {
-			const { jscpdClient, knipClient, depChecker, testRunnerClient } =
+			const { knipClient, depChecker, testRunnerClient } =
 				await loadBootstrapClients();
 			await handleTurnEnd({
 				ctxCwd: ctx.cwd,
@@ -1509,7 +1567,6 @@ export default function (pi: ExtensionAPI) {
 				dbg,
 				runtime,
 				cacheManager,
-				jscpdClient,
 				knipClient,
 				depChecker,
 				testRunnerClient,

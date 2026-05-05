@@ -90,7 +90,6 @@ describe("cascade turn-end merge", () => {
 				dbg: () => {},
 				runtime,
 				cacheManager,
-				jscpdClient: { ensureAvailable: async () => false },
 				knipClient: { ensureAvailable: async () => false },
 				depChecker: { ensureAvailable: async () => false },
 				testRunnerClient: { getTestRunTarget: () => null },

@@ -325,7 +325,8 @@ function withSemgrepGroup(
 		config: ctx.pi.getFlag("lens-semgrep-config"),
 	});
 	if (!config.enabled) return groups;
-	if (groups.some((group) => group.runnerIds.includes("semgrep"))) return groups;
+	if (groups.some((group) => group.runnerIds.includes("semgrep")))
+		return groups;
 	return [
 		...groups,
 		{
@@ -402,16 +403,29 @@ export function resetDispatchBaselines(): void {
 	clearCoverageNoticeState();
 	clearReviewGraphWorkspaceCache();
 	neighborTouchCache.clear();
+	recentlyCleanNeighborCache.clear();
 	primaryFilesThisTurn.clear();
 	cascadeDiagnosticBaselines.clear();
-	cascadeSessionStats = { runs: 0, diagnosticsSurfaced: 0, coldSnapshotTouches: 0 };
+	cascadeSessionStats = {
+		runs: 0,
+		diagnosticsSurfaced: 0,
+		coldSnapshotTouches: 0,
+	};
 	for (const timer of astGrepWarnDebounceTimers.values()) clearTimeout(timer);
 	astGrepWarnDebounceTimers.clear();
 }
 
-let cascadeSessionStats = { runs: 0, diagnosticsSurfaced: 0, coldSnapshotTouches: 0 };
+let cascadeSessionStats = {
+	runs: 0,
+	diagnosticsSurfaced: 0,
+	coldSnapshotTouches: 0,
+};
 
-export function getCascadeSessionStats(): { runs: number; diagnosticsSurfaced: number; coldSnapshotTouches: number } {
+export function getCascadeSessionStats(): {
+	runs: number;
+	diagnosticsSurfaced: number;
+	coldSnapshotTouches: number;
+} {
 	return { ...cascadeSessionStats };
 }
 
@@ -425,6 +439,16 @@ type NeighborCacheEntry = {
 };
 const neighborTouchCache = new Map<string, NeighborCacheEntry>();
 
+// Cross-turn clean cache: neighbor touches that recently returned no errors can
+// be skipped for a few turns. LSP servers push diagnostics proactively when a
+// file becomes unhealthy, so repeatedly re-opening known-clean neighbors is low value.
+type RecentlyCleanNeighborEntry = { turnSeq: number; checkedAt: number };
+const recentlyCleanNeighborCache = new Map<
+	string,
+	RecentlyCleanNeighborEntry
+>();
+const RECENTLY_CLEAN_TTL_TURNS = 5;
+
 // B10: tracks files that were the *primary* edited file this turn.
 // These are excluded from cascade neighbor results — their own pipeline run
 // already reported their diagnostics authoritatively.
@@ -436,11 +460,17 @@ function ensureCascadeTurnScope(turnSeq: number): void {
 	cascadeTurnScope = turnSeq;
 	primaryFilesThisTurn.clear();
 	neighborTouchCache.clear();
+	for (const [key, entry] of recentlyCleanNeighborCache) {
+		if (turnSeq - entry.turnSeq > RECENTLY_CLEAN_TTL_TURNS) {
+			recentlyCleanNeighborCache.delete(key);
+		}
+	}
 }
 
 const CASCADE_TTL_MS = 240_000;
 const MAX_PER_FILE = RUNTIME_CONFIG.pipeline.cascadeMaxDiagnosticsPerFile;
 const MAX_FILES = RUNTIME_CONFIG.pipeline.cascadeMaxFiles;
+const CASCADE_GRAPH_KINDS = new Set(["jsts", "python", "go", "rust", "ruby"]);
 
 /**
  * Unified cascade orchestration — builds graph, discovers neighbors, and
@@ -477,7 +507,8 @@ export async function computeCascadeForFile(
 		return undefined;
 	}
 
-	if (!detectFileKind(filePath)) {
+	const fileKind = detectFileKind(filePath);
+	if (!fileKind) {
 		logCascade({ phase: "cascade_skip", filePath, reason: "non_code_file" });
 		return undefined;
 	}
@@ -489,55 +520,87 @@ export async function computeCascadeForFile(
 	// turn won't show it as a neighbor.
 	primaryFilesThisTurn.add(normalizedFileKey);
 
-	const graphStart = Date.now();
-	const graph = await buildOrUpdateGraph(cwd, [normalizedFile], sessionFacts);
-	const graphMs = Date.now() - graphStart;
+	let impact: ReturnType<typeof computeImpactCascade> = {
+		filePath: normalizedFile,
+		changedSymbols: [],
+		directImporters: [],
+		directCallers: [],
+		neighborFiles: [],
+		riskFlags: [],
+	};
+	let sortedNeighbors: string[] = [];
+	let importerSet = new Set<string>();
+	let callerSet = new Set<string>();
+	let referenceCount = 0;
 
-	// Count files represented in the graph (nodes with a filePath).
-	const graphFileCount = new Set(
-		[...graph.nodes.values()].flatMap((n) => (n.filePath ? [n.filePath] : [])),
-	).size;
+	if (CASCADE_GRAPH_KINDS.has(fileKind)) {
+		const graphStart = Date.now();
+		const graph = await buildOrUpdateGraph(cwd, [normalizedFile], sessionFacts);
+		const graphMs = Date.now() - graphStart;
 
-	const graphBuildInfo = getLastGraphBuildInfo();
-	logCascade({
-		phase: "graph_build",
-		filePath,
-		graphBuiltMs: graphMs,
-		graphReused: graphBuildInfo.reused,
-		graphNodeCount: graph.nodes.size,
-		graphFileCount,
-		graphChangedSymbolCount: (
-			graph.changedSymbolsByFile.get(normalizedFileKey) ?? []
-		).length,
-		metadata: { graphBuildMode: graphBuildInfo.mode },
-	});
+		// Count files represented in the graph (nodes with a filePath).
+		const graphFileCount = new Set(
+			[...graph.nodes.values()].flatMap((n) =>
+				n.filePath ? [n.filePath] : [],
+			),
+		).size;
 
-	const impact = computeImpactCascade(graph, normalizedFile);
+		const graphBuildInfo = getLastGraphBuildInfo();
+		logCascade({
+			phase: "graph_build",
+			filePath,
+			graphBuiltMs: graphMs,
+			graphReused: graphBuildInfo.reused,
+			graphNodeCount: graph.nodes.size,
+			graphFileCount,
+			graphChangedSymbolCount: (
+				graph.changedSymbolsByFile.get(normalizedFileKey) ?? []
+			).length,
+			metadata: { graphBuildMode: graphBuildInfo.mode },
+		});
 
-	// Sort by relationship strength (B6) then cap to MAX_FILES.
-	// directImporters are most impactful, then callers, then reference edges.
-	const importerSet = new Set(impact.directImporters);
-	const callerSet = new Set(impact.directCallers);
-	// neighbors that are neither direct importers nor callers are reference-edge neighbors
-	const importerOrCallerSet = new Set([
-		...impact.directImporters,
-		...impact.directCallers,
-	]);
-	const referenceCount = impact.neighborFiles.filter(
-		(n) => !importerOrCallerSet.has(n),
-	).length;
-	const sortedNeighbors = [...impact.neighborFiles]
-		.filter((n) => nodeFs.existsSync(n))
-		.filter((n) => !isExternalOrVendorFile(n, cwd))
-		// B10: exclude files already edited as primary this turn — their own pipeline
-		// run is the authoritative diagnostic source; showing them as neighbors is noise.
-		.filter((n) => !primaryFilesThisTurn.has(normalizeMapKey(n)))
-		.sort((a, b) => {
-			const rank = (p: string) =>
-				importerSet.has(p) ? 0 : (callerSet.has(p) ? 1 : 2);
-			return rank(a) - rank(b);
-		})
-		.slice(0, MAX_FILES);
+		impact = computeImpactCascade(graph, normalizedFile);
+
+		// Sort by relationship strength (B6) then cap to MAX_FILES.
+		// directImporters are most impactful, then callers, then reference edges.
+		importerSet = new Set(impact.directImporters);
+		callerSet = new Set(impact.directCallers);
+		// neighbors that are neither direct importers nor callers are reference-edge neighbors
+		const importerOrCallerSet = new Set([
+			...impact.directImporters,
+			...impact.directCallers,
+		]);
+		referenceCount = impact.neighborFiles.filter(
+			(n) => !importerOrCallerSet.has(n),
+		).length;
+		sortedNeighbors = [...impact.neighborFiles]
+			.filter((n) => nodeFs.existsSync(n))
+			.filter((n) => !isExternalOrVendorFile(n, cwd))
+			// B10: exclude files already edited as primary this turn — their own pipeline
+			// run is the authoritative diagnostic source; showing them as neighbors is noise.
+			.filter((n) => !primaryFilesThisTurn.has(normalizeMapKey(n)))
+			.sort((a, b) => {
+				const rank = (p: string) =>
+					importerSet.has(p) ? 0 : callerSet.has(p) ? 1 : 2;
+				return rank(a) - rank(b);
+			})
+			.slice(0, MAX_FILES);
+	} else {
+		logCascade({
+			phase: "graph_build",
+			filePath,
+			graphBuiltMs: 0,
+			graphReused: false,
+			graphNodeCount: 0,
+			graphFileCount: 0,
+			graphChangedSymbolCount: 0,
+			metadata: {
+				graphBuildMode: "skipped",
+				reason: "unsupported_kind",
+				fileKind,
+			},
+		});
+	}
 
 	logCascade({
 		phase: "neighbors_computed",
@@ -635,6 +698,41 @@ export async function computeCascadeForFile(
 				const neighborStart = Date.now();
 				const cacheKey = normalizeMapKey(neighborPath);
 
+				const passiveEntry = allDiags.get(cacheKey);
+				const hasFreshPassiveErrors =
+					passiveEntry != null &&
+					Date.now() - passiveEntry.ts < CASCADE_TTL_MS &&
+					passiveEntry.diags.some((d) => d.severity === 1);
+				const recentlyClean = recentlyCleanNeighborCache.get(cacheKey);
+				if (
+					recentlyClean &&
+					turnSeq - recentlyClean.turnSeq <= RECENTLY_CLEAN_TTL_TURNS &&
+					!hasFreshPassiveErrors
+				) {
+					producedLspData = true;
+					const durationMs = Date.now() - neighborStart;
+					logCascade({
+						phase: "neighbor_snapshot",
+						filePath,
+						neighborFile: neighborPath,
+						diagnosticCount: 0,
+						durationMs,
+						autoPropagate: false,
+						snapshotMissing: false,
+						metadata: {
+							recentlyClean: true,
+							cleanTurnSeq: recentlyClean.turnSeq,
+						},
+					});
+					return {
+						filePath: neighborPath,
+						reason: neighborReason(importerSet, callerSet, neighborPath),
+						diagnostics: [],
+						lspTouched: false,
+						durationMs,
+					} satisfies CascadeResult["neighbors"][number];
+				}
+
 				// A5: skip re-touch if this neighbor was already diagnosed at the current
 				// write sequence. A new write (higher writeSeq) invalidates the cache entry.
 				const cached =
@@ -704,6 +802,14 @@ export async function computeCascadeForFile(
 						writeSeq,
 						diagnostics: diags,
 					});
+				}
+				if (diags.length === 0) {
+					recentlyCleanNeighborCache.set(cacheKey, {
+						turnSeq,
+						checkedAt: Date.now(),
+					});
+				} else {
+					recentlyCleanNeighborCache.delete(cacheKey);
 				}
 				producedLspData = true;
 
@@ -924,7 +1030,10 @@ function formatCascadeResult(
 	});
 	if (!diagnosticsBlock) return "";
 
-	const impactHeader = formatImpactCascade(impact, RUNTIME_CONFIG.pipeline.cascadeMaxFiles);
+	const impactHeader = formatImpactCascade(
+		impact,
+		RUNTIME_CONFIG.pipeline.cascadeMaxFiles,
+	);
 	let out = impactHeader
 		? `${impactHeader}\n${diagnosticsBlock}`
 		: diagnosticsBlock;
@@ -975,7 +1084,11 @@ export async function dispatchLint(
 	const kind = ctx.kind;
 	if (!kind) return "";
 
-	const groups = withSemgrepGroup(kind, getDispatchGroupsForKind(kind, pi), ctx);
+	const groups = withSemgrepGroup(
+		kind,
+		getDispatchGroupsForKind(kind, pi),
+		ctx,
+	);
 	if (groups.length === 0) return "";
 
 	await runProviders(ctx);
@@ -1018,7 +1131,11 @@ export async function dispatchLintWithResult(
 		};
 	}
 
-	const groups = withSemgrepGroup(kind, getDispatchGroupsForKind(kind, pi), ctx);
+	const groups = withSemgrepGroup(
+		kind,
+		getDispatchGroupsForKind(kind, pi),
+		ctx,
+	);
 	if (groups.length === 0) {
 		return {
 			diagnostics: [],

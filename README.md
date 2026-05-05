@@ -268,6 +268,7 @@ pi --lens-semgrep-config p/ci  # Explicit Semgrep config for dispatch (requires 
 ## Key Commands
 
 - `/lens-toggle` — toggle pi-lens on/off for the current session without restarting
+- `/lens-widget-toggle` — show/hide the pi-lens diagnostics widget below the editor
 - `/lens-booboo` — full quality report for current project state
 - `/lens-health` — runtime health, latency, and diagnostic telemetry
 - `/lens-tools` — tool installation status: globally installed, auto-installed, or npx fallback
