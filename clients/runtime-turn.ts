@@ -265,7 +265,7 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 	});
 
 	const t2 = Date.now();
-	let knipMeta: { skipped?: boolean; success?: boolean; totalIssues?: number; newIssues?: number; blockerIssues?: number } = {};
+	let knipMeta: { skipped?: boolean; success?: boolean; totalIssues?: number; newIssues?: number; blockerIssues?: number; reason?: string } = {};
 	if (runtime.isStartupScanInFlight("knip")) {
 		dbg("turn_end: skipping knip (startup scan still in flight)");
 		knipMeta = { skipped: true };
@@ -276,7 +276,13 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 			cwd,
 		);
 		cacheManager.writeCache("knip", knipResult, cwd);
-		knipMeta = { success: knipResult.success, totalIssues: knipResult.issues.length, newIssues: 0, blockerIssues: 0 };
+		knipMeta = {
+			success: knipResult.success,
+			totalIssues: knipResult.issues.length,
+			newIssues: 0,
+			blockerIssues: 0,
+			...(!knipResult.success && { reason: knipResult.summary }),
+		};
 
 		if (knipResult.success && knipResult.issues.length > 0) {
 			const issueKey = (i: KnipIssue) =>

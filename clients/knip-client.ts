@@ -118,7 +118,7 @@ export class KnipClient {
 	/**
 	 * Run knip analysis on the project
 	 */
-	analyze(cwd?: string, ignore?: string[]): KnipResult {
+	analyze(cwd?: string, _ignore?: string[]): KnipResult {
 		if (!this.isAvailable()) {
 			return {
 				success: false,
@@ -140,9 +140,6 @@ export class KnipClient {
 				"--include",
 				"files,exports,types,dependencies,unlisted",
 			];
-			if (ignore && ignore.length > 0) {
-				args.push("--ignore", ignore.join(","));
-			}
 
 			const result = safeSpawn("npx", args, {
 				timeout: 30000,

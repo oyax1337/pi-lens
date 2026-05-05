@@ -293,14 +293,24 @@ export class LSPService {
 	 * Get or create ALL LSP clients that can serve a file.
 	 * Used for diagnostics aggregation across complementary servers.
 	 */
-	async getClientsForFile(filePath: string): Promise<SpawnedServer[]> {
+	async getClientsForFile(
+		filePath: string,
+	): Promise<{ clients: SpawnedServer[]; serverCountAttempted: number }> {
 		const servers = getServersForFileWithConfig(filePath);
-		if (servers.length === 0) return [];
+		if (servers.length === 0) return { clients: [], serverCountAttempted: 0 };
+
+		// Count servers with a valid root as "attempted" — extension-only matches
+		// that fail the root check are not real spawn attempts.
+		const roots = await Promise.all(servers.map((s) => s.root(filePath)));
+		const serverCountAttempted = roots.filter(Boolean).length;
 
 		const spawned = await Promise.all(
 			servers.map((server) => this.ensureClientForServer(filePath, server)),
 		);
-		return spawned.filter((entry): entry is SpawnedServer => Boolean(entry));
+		return {
+			clients: spawned.filter((entry): entry is SpawnedServer => Boolean(entry)),
+			serverCountAttempted,
+		};
 	}
 
 	/**
@@ -557,11 +567,17 @@ export class LSPService {
 		const clientScope: LSPTouchClientScope =
 			options.clientScope ?? (diagnosticsMode === "full" ? "all" : "primary");
 		const useAllClients = clientScope === "all";
-		const spawned = useAllClients
-			? await this.getClientsForFile(filePath)
-			: await this.getClientForFile(filePath, options.maxClientWaitMs).then(
-					(entry) => (entry ? [entry] : []),
-				);
+		let spawned: SpawnedServer[];
+		let serverCountAttempted: number;
+		if (useAllClients) {
+			const result = await this.getClientsForFile(filePath);
+			spawned = result.clients;
+			serverCountAttempted = result.serverCountAttempted;
+		} else {
+			const entry = await this.getClientForFile(filePath, options.maxClientWaitMs);
+			spawned = entry ? [entry] : [];
+			serverCountAttempted = spawned.length > 0 ? 1 : getServersForFileWithConfig(filePath).length > 0 ? 1 : 0;
+		}
 		if (spawned.length === 0) {
 			logLatency({
 				type: "phase",
@@ -569,7 +585,7 @@ export class LSPService {
 				filePath: normalizedPath,
 				durationMs: Date.now() - startedAt,
 				metadata: {
-					serverCountAttempted: getServersForFileWithConfig(filePath).length,
+					serverCountAttempted,
 					serverCountReady: 0,
 					clientScope,
 					diagnosticsMode,
@@ -668,7 +684,7 @@ export class LSPService {
 		if (this.checkDestroyed()) return [];
 		const startedAt = Date.now();
 		const normalizedPath = normalizeMapKey(filePath);
-		const spawned = await this.getClientsForFile(filePath);
+		const { clients: spawned, serverCountAttempted } = await this.getClientsForFile(filePath);
 		if (spawned.length === 0) {
 			logLatency({
 				type: "phase",
@@ -676,7 +692,7 @@ export class LSPService {
 				filePath: normalizedPath,
 				durationMs: Date.now() - startedAt,
 				metadata: {
-					serverCountAttempted: 0,
+					serverCountAttempted,
 					serverCountReady: 0,
 					mergedCount: 0,
 					dedupDroppedCount: 0,
@@ -794,7 +810,7 @@ export class LSPService {
 			filePath: normalizedPath,
 			durationMs: Date.now() - startedAt,
 			metadata: {
-				serverCountAttempted: getServersForFileWithConfig(filePath).length,
+				serverCountAttempted,
 				serverCountReady: perServerFull.length,
 				serverCountWithDiagnostics: serversWithDiagnostics,
 				mergedCount: merged.length,
