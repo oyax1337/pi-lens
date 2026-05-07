@@ -1,5 +1,5 @@
 import * as nodeFs from "node:fs";
-import { isToolCallEventType } from "@mariozechner/pi-coding-agent";
+import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { logReadGuardEvent } from "./read-guard-logger.js";
 
 export interface GuardLineResult {

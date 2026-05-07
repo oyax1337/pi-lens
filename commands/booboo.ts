@@ -3,7 +3,7 @@ import * as path from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type { AstGrepClient } from "../clients/ast-grep-client.js";
 import type { ComplexityClient } from "../clients/complexity-client.js";
 import type { DependencyChecker } from "../clients/dependency-checker.js";

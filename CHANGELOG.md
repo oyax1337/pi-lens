@@ -4,6 +4,12 @@ All notable changes to pi-lens will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Package scope migration** — all `@mariozechner/*` import references updated to `@earendil-works/*` following the repo move to `earendil-works/pi-mono`. `@earendil-works/pi-tui` dependency bumped to `^0.74.0`.
+
+
+
 ### Added
 
 - **Test runner: import-based fallback discovery** — when basename pattern lookup finds no test file for a modified source file (e.g. `cline.test.ts` for `cline-auth.ts`), the runner now scans `tests/`, `__tests__/`, and the source file's own directory for any `*.test.*` file whose content references the source basename in an import path. Fixes the silent `no test file found` for files whose test is named after a module rather than the source file.

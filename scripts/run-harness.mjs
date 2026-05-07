@@ -214,16 +214,16 @@ function runPi(args, cwd, piBinOverride) {
 			[path.join(appData, "npm", "pi.cmd"), args],
 			[
 				path.join(appData, "npm", "npx.cmd"),
-				["@mariozechner/pi-coding-agent", ...args],
+				["@earendil-works/pi-coding-agent", ...args],
 			],
 			["pi.cmd", args],
 			["pi", args],
-			["npx.cmd", ["@mariozechner/pi-coding-agent", ...args]],
+			["npx.cmd", ["@earendil-works/pi-coding-agent", ...args]],
 		);
 	} else {
 		attempts.push(
 			["pi", args],
-			["npx", ["@mariozechner/pi-coding-agent", ...args]],
+			["npx", ["@earendil-works/pi-coding-agent", ...args]],
 		);
 	}
 
