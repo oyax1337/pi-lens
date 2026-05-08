@@ -35,6 +35,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 		writeGroups: [
 			primary("jsts"),
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["jsts"] },
+			{ mode: "all", runnerIds: ["fact-rules"], filterKinds: ["jsts"] },
 			{ mode: "all", runnerIds: ["ast-grep-napi"], filterKinds: ["jsts"] },
 			{ mode: "fallback", runnerIds: ["type-safety"], filterKinds: ["jsts"] },
 			{
@@ -59,6 +60,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 			{ mode: "fallback", runnerIds: ["ruff-lint"], filterKinds: ["python"] },
 			{ mode: "fallback", runnerIds: ["mypy"], filterKinds: ["python"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["python"] },
+			{ mode: "all", runnerIds: ["fact-rules"], filterKinds: ["python"] },
 		],
 		fullOnlyGroups: [
 			{ mode: "fallback", runnerIds: ["python-slop"], filterKinds: ["python"] },
@@ -72,6 +74,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 			{ mode: "fallback", runnerIds: ["go-vet"], filterKinds: ["go"] },
 			{ mode: "fallback", runnerIds: ["golangci-lint"], filterKinds: ["go"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["go"] },
+			{ mode: "all", runnerIds: ["fact-rules"], filterKinds: ["go"] },
 		],
 	},
 	rust: {
@@ -81,6 +84,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 			primary("rust"),
 			{ mode: "fallback", runnerIds: ["rust-clippy"], filterKinds: ["rust"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["rust"] },
+			{ mode: "all", runnerIds: ["fact-rules"], filterKinds: ["rust"] },
 		],
 	},
 	ruby: {
@@ -90,6 +94,7 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 			primary("ruby"),
 			{ mode: "fallback", runnerIds: ["rubocop"], filterKinds: ["ruby"] },
 			{ mode: "all", runnerIds: ["tree-sitter"], filterKinds: ["ruby"] },
+			{ mode: "all", runnerIds: ["fact-rules"], filterKinds: ["ruby"] },
 		],
 	},
 	cxx: {
@@ -100,12 +105,18 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 	cmake: {
 		name: "CMake Processing",
 		capabilities: ["lint"],
-		writeGroups: [primary("cmake")],
+		writeGroups: [
+			primary("cmake"),
+			{ mode: "all", runnerIds: ["fact-rules"], filterKinds: ["cmake"] },
+		],
 	},
 	shell: {
 		name: "Shell Script Linting",
 		capabilities: ["lint", "security"],
-		writeGroups: [primary("shell")],
+		writeGroups: [
+			primary("shell"),
+			{ mode: "all", runnerIds: ["fact-rules"], filterKinds: ["shell"] },
+		],
 	},
 	json: {
 		name: "JSON Processing",

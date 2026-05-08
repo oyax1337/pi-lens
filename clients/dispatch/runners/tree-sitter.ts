@@ -8,6 +8,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { RuleCache } from "../../cache/rule-cache.js";
+import { resolvePackagePath } from "../../package-root.js";
 import {
 	buildOrUpdateGraph,
 	computeImpactCascade,
@@ -335,22 +336,29 @@ const treeSitterRunner: RunnerDefinition = {
 		let languageQueries: TreeSitterQuery[] = [];
 		const cache = new RuleCache(languageId, ctx.cwd);
 
-		// Get all rule files for this language (use ctx.cwd for project root)
+		// Get all rule files for this language — project-local AND pi-lens built-ins.
+		// Both sets must be in the hash so the cache is invalidated when either changes.
 		const rulesDir = path.join(
 			ctx.cwd,
 			"rules",
 			"tree-sitter-queries",
 			languageId,
 		);
-		const ruleFiles: string[] = [];
-		if (fs.existsSync(rulesDir)) {
-			ruleFiles.push(
-				...fs
-					.readdirSync(rulesDir)
-					.filter((f) => f.endsWith(".yml"))
-					.map((f: string) => path.join(rulesDir, f)),
-			);
+		const builtinRulesDir = resolvePackagePath(
+			import.meta.url,
+			"rules",
+			"tree-sitter-queries",
+			languageId,
+		);
+		const ruleFileSet = new Set<string>();
+		for (const dir of [rulesDir, builtinRulesDir]) {
+			if (fs.existsSync(dir)) {
+				for (const f of fs.readdirSync(dir)) {
+					if (f.endsWith(".yml")) ruleFileSet.add(path.join(dir, f));
+				}
+			}
 		}
+		const ruleFiles = [...ruleFileSet];
 
 		// Try cache
 		const cached = cache.get(ruleFiles);
