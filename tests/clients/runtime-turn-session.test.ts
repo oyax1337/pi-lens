@@ -286,3 +286,85 @@ describe("context injection framing", () => {
 		env.cleanup();
 	});
 });
+
+// ── Unresolved inline blocker re-surfacing ────────────────────────────────────
+
+describe("unresolved inline blocker re-surfacing", () => {
+	it("re-injects an inline blocker that was not fixed before turn_end", async () => {
+		const env = setupTestEnvironment("pi-lens-unresolved-blocker-");
+		const runtime = new RuntimeCoordinator();
+		runtime.setTelemetryIdentity({ sessionId: "session-A" });
+		const cacheManager = new CacheManager(false);
+
+		const filePath = path.join(env.tmpDir, "src/foo.ts");
+		fs.mkdirSync(path.dirname(filePath), { recursive: true });
+		fs.writeFileSync(filePath, "const x = 1;\n");
+
+		cacheManager.addModifiedRange(
+			filePath,
+			{ start: 1, end: 1 },
+			false,
+			env.tmpDir,
+			"session-A",
+		);
+
+		runtime.recordInlineBlockers(filePath, "🔴 STOP — 1 issue(s) must be fixed:\n  L1: unused variable 'x'");
+
+		await handleTurnEnd(makeTurnEndDeps(runtime, cacheManager, { ctxCwd: env.tmpDir }));
+
+		const injected = cacheManager.readCache<{ content: string }>("turn-end-findings", env.tmpDir);
+		expect(injected?.data?.content).toBeDefined();
+		expect(injected?.data?.content).toContain("Unresolved from this turn");
+		expect(injected?.data?.content).toContain("foo.ts");
+		expect(injected?.data?.content).toContain("unused variable");
+
+		env.cleanup();
+	});
+
+	it("does NOT re-inject when inline blocker was cleared (agent fixed it)", async () => {
+		const env = setupTestEnvironment("pi-lens-resolved-blocker-");
+		const runtime = new RuntimeCoordinator();
+		runtime.setTelemetryIdentity({ sessionId: "session-A" });
+		const cacheManager = new CacheManager(false);
+
+		const filePath = path.join(env.tmpDir, "src/bar.ts");
+		fs.mkdirSync(path.dirname(filePath), { recursive: true });
+		fs.writeFileSync(filePath, "const y = 2;\n");
+
+		cacheManager.addModifiedRange(
+			filePath,
+			{ start: 1, end: 1 },
+			false,
+			env.tmpDir,
+			"session-A",
+		);
+
+		runtime.recordInlineBlockers(filePath, "🔴 STOP — 1 issue(s) must be fixed:\n  L1: unused");
+		runtime.clearInlineBlockers(filePath);
+
+		await handleTurnEnd(makeTurnEndDeps(runtime, cacheManager, { ctxCwd: env.tmpDir }));
+
+		const injected = cacheManager.readCache<{ content: string }>("turn-end-findings", env.tmpDir);
+		expect(injected?.data?.content).toBeUndefined();
+
+		env.cleanup();
+	});
+
+	it("consumeInlineBlockers empties the map", () => {
+		const runtime = new RuntimeCoordinator();
+		runtime.recordInlineBlockers("/a/b.ts", "🔴 STOP");
+		runtime.recordInlineBlockers("/a/c.ts", "🔴 STOP 2");
+		const first = runtime.consumeInlineBlockers();
+		expect(first).toHaveLength(2);
+		const second = runtime.consumeInlineBlockers();
+		expect(second).toHaveLength(0);
+	});
+
+	it("beginTurn clears pending inline blockers from previous turn", () => {
+		const runtime = new RuntimeCoordinator();
+		runtime.recordInlineBlockers("/a/x.ts", "🔴 STOP");
+		runtime.beginTurn();
+		const entries = runtime.consumeInlineBlockers();
+		expect(entries).toHaveLength(0);
+	});
+});

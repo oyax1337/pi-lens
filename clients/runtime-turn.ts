@@ -129,6 +129,14 @@ export async function handleTurnEnd(deps: TurnEndDeps): Promise<void> {
 	const blockerParts: string[] = [];
 	const advisoryParts: string[] = [];
 
+	// Re-surface inline blockers from this turn that the agent didn't fix.
+	// These were shown inline during write/edit but the agent moved on without resolving them.
+	const unresolvedBlockers = runtime.consumeInlineBlockers();
+	for (const { filePath: bPath, summary } of unresolvedBlockers) {
+		const displayPath = toRunnerDisplayPath(cwd, bPath);
+		blockerParts.push(`Unresolved from this turn — ${displayPath}:\n${summary}`);
+	}
+
 	// Merge accumulated cascade results from all pipeline runs this turn.
 	// Two-pass dedup:
 	//   1. Primary-level: dedup by primary file (last writer wins).

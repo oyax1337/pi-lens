@@ -61,6 +61,10 @@ export class RuntimeCoordinator {
 		string,
 		{ status: "warming" | "ready"; ts: number }
 	>();
+	private readonly _pendingInlineBlockers = new Map<
+		string,
+		{ filePath: string; summary: string }
+	>();
 
 	resetForSession(): void {
 		this._sessionGeneration += 1;
@@ -87,6 +91,7 @@ export class RuntimeCoordinator {
 		this._readGuard = null;
 		this._pendingDeferredFormatFiles.clear();
 		this._lspReadWarmState.clear();
+		this._pendingInlineBlockers.clear();
 	}
 
 	get sessionStartedAt(): number {
@@ -132,6 +137,7 @@ export class RuntimeCoordinator {
 
 	beginTurn(): void {
 		this._cascadeResults = [];
+		this._pendingInlineBlockers.clear();
 		this._turnIndex += 1;
 		this._writeIndex = 0;
 		this._reportedThisTurn.clear();
@@ -264,6 +270,20 @@ export class RuntimeCoordinator {
 		const results = this._cascadeResults;
 		this._cascadeResults = [];
 		return results;
+	}
+
+	recordInlineBlockers(filePath: string, summary: string): void {
+		this._pendingInlineBlockers.set(path.resolve(filePath), { filePath, summary });
+	}
+
+	clearInlineBlockers(filePath: string): void {
+		this._pendingInlineBlockers.delete(path.resolve(filePath));
+	}
+
+	consumeInlineBlockers(): Array<{ filePath: string; summary: string }> {
+		const entries = [...this._pendingInlineBlockers.values()];
+		this._pendingInlineBlockers.clear();
+		return entries;
 	}
 
 	get complexityBaselines(): Map<string, FileComplexity> {

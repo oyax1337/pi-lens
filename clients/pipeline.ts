@@ -178,6 +178,8 @@ export interface PipelineResult {
 	fileModified: boolean;
 	/** Files modified by pi-lens format/autofix, including side-effect files. */
 	changedFiles?: string[];
+	/** Blocking-only formatted output for turn_end re-surfacing if agent didn't fix */
+	inlineBlockerSummary?: string;
 }
 
 // --- Phase timing helpers ---
@@ -1005,5 +1007,8 @@ export async function runPipeline(
 		isError: false,
 		fileModified: formatChanged || fixedCount > 0,
 		changedFiles: [...piChangedFiles],
+		inlineBlockerSummary: dispatchResult.hasBlockers
+			? dispatchResult.blockerOutput.trim() || undefined
+			: undefined,
 	};
 }

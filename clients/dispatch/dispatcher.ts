@@ -742,7 +742,8 @@ export async function dispatchForFile(
 
 	// Format output — only blocking issues shown inline
 	// Warnings tracked but not shown (noise) — surfaced via /lens-booboo
-	let output = formatDiagnostics(inlineBlockers, "blocking");
+	const blockerOutput = formatDiagnostics(inlineBlockers, "blocking");
+	let output = blockerOutput;
 	output += formatDiagnostics(inlineFixed, "fixed");
 	if (coverageNotice) {
 		output += formatDiagnostics([coverageNotice], "warning", 1);
@@ -807,6 +808,7 @@ export async function dispatchForFile(
 		fixed: fixedItems,
 		resolvedCount,
 		output,
+		blockerOutput,
 		hasBlockers: blockers.length > 0,
 	};
 }

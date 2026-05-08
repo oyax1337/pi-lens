@@ -47,6 +47,7 @@ const emptyDispatchResult = {
 	fixed: [],
 	resolvedCount: 0,
 	output: "",
+	blockerOutput: "",
 	hasBlockers: false,
 };
 
@@ -108,6 +109,7 @@ describe("Dispatch Integration", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "Test error at line 1",
+				blockerOutput: "",
 				hasBlockers: true,
 			});
 
@@ -151,6 +153,7 @@ describe("Dispatch Integration", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "1 warning",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 

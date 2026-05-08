@@ -101,6 +101,8 @@ export interface DispatchResult {
 	resolvedCount: number;
 	/** Formatted output for display */
 	output: string;
+	/** Blocking-only portion of output (without auto-fix section) — for turn_end re-surfacing */
+	blockerOutput: string;
 	/** Whether any blockers were found */
 	hasBlockers: boolean;
 }

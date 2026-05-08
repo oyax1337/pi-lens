@@ -1127,6 +1127,7 @@ export async function dispatchLintWithResult(
 			fixed: [],
 			resolvedCount: 0,
 			output: "",
+			blockerOutput: "",
 			hasBlockers: false,
 		};
 	}
@@ -1145,6 +1146,7 @@ export async function dispatchLintWithResult(
 			fixed: [],
 			resolvedCount: 0,
 			output: "",
+			blockerOutput: "",
 			hasBlockers: false,
 		};
 	}

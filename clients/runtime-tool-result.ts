@@ -281,6 +281,7 @@ export async function handleToolResult(deps: ToolResultDeps): Promise<{
 		isError?: boolean;
 		cascadeResult?: import("./cascade-types.js").CascadeResult;
 		changedFiles?: string[];
+		inlineBlockerSummary?: string;
 	};
 	const pipelinePromise = runPipeline(
 		{
@@ -399,6 +400,12 @@ export async function handleToolResult(deps: ToolResultDeps): Promise<{
 
 	if (result.cascadeResult) {
 		runtime.appendCascadeResult(result.cascadeResult);
+	}
+
+	if (result.inlineBlockerSummary) {
+		runtime.recordInlineBlockers(filePath, result.inlineBlockerSummary);
+	} else {
+		runtime.clearInlineBlockers(filePath);
 	}
 
 	if (result.isError) {

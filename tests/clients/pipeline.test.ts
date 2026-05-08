@@ -157,6 +157,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 
@@ -178,6 +179,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 
@@ -203,6 +205,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 
@@ -230,6 +233,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 
@@ -281,6 +285,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 
@@ -322,6 +327,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 
@@ -348,6 +354,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 
@@ -377,6 +384,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 
@@ -423,6 +431,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "Type error at line 1",
+				blockerOutput: "",
 				hasBlockers: true,
 			});
 
@@ -446,6 +455,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 
@@ -481,6 +491,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 
@@ -507,6 +518,7 @@ describe("Pipeline", () => {
 				fixed: [],
 				resolvedCount: 0,
 				output: "",
+				blockerOutput: "",
 				hasBlockers: false,
 			});
 
