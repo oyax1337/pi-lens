@@ -449,6 +449,11 @@ const treeSitterRunner: RunnerDefinition = {
 		const queryResults: Diagnostic[][] = [];
 
 		for (let i = 0; i < effectiveQueries.length; i += CONCURRENCY_LIMIT) {
+			// Yield the event loop between batches so already-resolved promises from
+			// other parallel groups (LSP, eslint skip, etc.) can drain. Each wasm query
+			// batch is synchronous CPU work that would otherwise pin the event loop for
+			// the full runner duration, making other runners' latency measurements wrong.
+			if (i > 0) await new Promise<void>((r) => setImmediate(r));
 			const batch = effectiveQueries.slice(i, i + CONCURRENCY_LIMIT);
 			const batchResults = await Promise.all(
 				batch.map(async (query) => {

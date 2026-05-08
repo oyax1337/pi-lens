@@ -22,11 +22,9 @@ import type {
 	RunnerResult,
 } from "../types.js";
 import {
-	createAvailabilityChecker,
+	resolveToolCommand,
 	resolveToolCommandWithInstallFallback,
 } from "./utils/runner-helpers.js";
-
-const oxlint = createAvailabilityChecker("oxlint", ".exe");
 
 function resolveLocalVp(cwd: string): string | null {
 	const isWin = process.platform === "win32";
@@ -81,11 +79,14 @@ const oxlintRunner: RunnerDefinition = {
 		}
 		if (cmd) {
 			args = ["lint", "--format", "unix", ctx.filePath];
-		} else if (oxlint.isAvailable(cwd)) {
-			cmd = oxlint.getCommand(cwd);
-			args = ["--format", "unix", ctx.filePath];
 		} else {
-			cmd = await resolveToolCommandWithInstallFallback(cwd, "oxlint");
+			// Use ctx.hasTool for async availability check — avoids the synchronous
+			// spawnSync probe that blocks the event loop on first call per cwd.
+			// FactStore caches the result for the session so subsequent writes are free.
+			const oxlintCmd = resolveToolCommand(cwd, "oxlint") ?? "oxlint";
+			cmd = (await ctx.hasTool(oxlintCmd))
+				? oxlintCmd
+				: await resolveToolCommandWithInstallFallback(cwd, "oxlint");
 			args = ["--format", "unix", ctx.filePath];
 		}
 		if (!cmd) {

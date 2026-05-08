@@ -18,10 +18,7 @@ vi.mock("../../../../clients/installer/index.js", () => ({
 }));
 
 vi.mock("../../../../clients/dispatch/runners/utils/runner-helpers.js", () => ({
-	createAvailabilityChecker: () => ({
-		isAvailable: () => false,
-		getCommand: () => null,
-	}),
+	resolveToolCommand: vi.fn(() => null),
 	resolveToolCommandWithInstallFallback: vi.fn(async (_cwd: string) => {
 		const installed = await ensureTool("oxlint");
 		return installed ?? null;
@@ -72,7 +69,8 @@ describe("oxlint runner", () => {
 				await import("../../../../clients/dispatch/runners/oxlint.ts")
 			).default;
 
-			const result = await runner.run(createCtx(filePath, env.tmpDir) as never);
+			// hasTool returns false → triggers resolveToolCommandWithInstallFallback → ensureTool
+			const result = await runner.run({ ...createCtx(filePath, env.tmpDir), hasTool: async () => false } as never);
 
 			expect(ensureTool).toHaveBeenCalledWith("oxlint");
 			expect(safeSpawnAsync).toHaveBeenCalledWith(
