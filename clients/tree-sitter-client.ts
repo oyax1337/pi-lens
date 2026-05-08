@@ -80,6 +80,8 @@ export interface StructuralMatch {
 	line: number;
 	column: number;
 	matchedText: string;
+	/** Tree-sitter node type of the first capture (e.g. "call_expression") */
+	nodeType?: string;
 	captures: Record<string, string>;
 }
 
@@ -1119,6 +1121,7 @@ export class TreeSitterClient {
 						line: firstNode.startPosition.row + 1,
 						column: firstNode.startPosition.column + 1,
 						matchedText: firstNode.text,
+						nodeType: firstNode.type as string | undefined,
 						captures: textCaptures,
 					});
 				}

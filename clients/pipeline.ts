@@ -788,12 +788,14 @@ function buildEnrichedBlockerOutput(
 
 	for (const d of shown) {
 		const lineNo = d.line ?? 1;
-		out += `  L${lineNo}: ${d.message}\n`;
-		const raw = fileLines[lineNo - 1];
-		if (raw !== undefined) {
-			const snippet = raw.trim().slice(0, MAX_SNIPPET);
-			if (snippet) out += `      → ${snippet}\n`;
-		}
+		const nodeCtx = d.astNodeType ? ` (${d.astNodeType})` : "";
+		out += `  L${lineNo}: ${d.message}${nodeCtx}\n`;
+		// Prefer the exact matched node text (tree-sitter); fall back to the
+		// full source line (LSP / other runners).
+		const snippet = d.matchedText
+			? d.matchedText.trim().split("\n")[0]?.slice(0, MAX_SNIPPET)
+			: fileLines[lineNo - 1]?.trim().slice(0, MAX_SNIPPET);
+		if (snippet) out += `      → ${snippet}\n`;
 		if (d.fixSuggestion) out += `      💡 ${d.fixSuggestion}\n`;
 	}
 
