@@ -4,6 +4,15 @@ All notable changes to pi-lens will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **4 new blocking tree-sitter rules (SonarCloud BLOCKER equivalents)**:
+  - `ts-xss-dom-sink` (S5696) — flags dynamic values assigned to `innerHTML`/`outerHTML` or passed to `document.write()` / `document.writeln()`
+  - `ts-dynamic-require` (S5335) — flags `require()` called with a non-string-literal argument (arbitrary module loading)
+  - `ts-open-redirect` (S6105) — flags `res.redirect(variable)` / `response.redirect` / `ctx.redirect` with dynamic URL, and `window.location.href = variable`
+  - `ts-nosql-injection` (S5147) — flags any MongoDB `$where` key (JS-execution sink, dangerous regardless of value)
+- **2 existing security rules promoted to `inline_tier: blocking`** — `ts-command-injection` (maps to SonarCloud S2076) and `ts-ssrf` (maps to S5146) were previously `warning`; now block the agent turn on detection.
+
 ### Changed
 
 - **Package scope migration** — all `@mariozechner/*` import references updated to `@earendil-works/*` following the repo move to `earendil-works/pi-mono`. `@earendil-works/pi-tui` dependency bumped to `^0.74.0`.

@@ -294,4 +294,141 @@ describe("slop detection rules", () => {
 			expect(matches.length).toBe(0);
 		});
 	});
+
+	describe("ts-xss-dom-sink", () => {
+		it("flags innerHTML = variable", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-xss-dom-sink");
+			const filePath = writeTempFile("ts", `el.innerHTML = userInput;\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBeGreaterThan(0);
+		});
+
+		it("flags outerHTML = call expression", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-xss-dom-sink");
+			const filePath = writeTempFile("ts", `el.outerHTML = getData();\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBeGreaterThan(0);
+		});
+
+		it("flags document.write(variable)", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-xss-dom-sink");
+			const filePath = writeTempFile("ts", `document.write(content);\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBeGreaterThan(0);
+		});
+
+		it("does not flag innerHTML = string literal", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-xss-dom-sink");
+			const filePath = writeTempFile("ts", `el.innerHTML = "<b>safe</b>";\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBe(0);
+		});
+
+		it("does not flag textContent = variable (safe API)", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-xss-dom-sink");
+			const filePath = writeTempFile("ts", `el.textContent = userInput;\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBe(0);
+		});
+	});
+
+	describe("ts-dynamic-require", () => {
+		it("flags require(identifier)", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-dynamic-require");
+			const filePath = writeTempFile("ts", `const mod = require(pluginName);\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBeGreaterThan(0);
+		});
+
+		it("flags require(member expression)", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-dynamic-require");
+			const filePath = writeTempFile("ts", `const lib = require(config.libPath);\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBeGreaterThan(0);
+		});
+
+		it("does not flag require(string literal)", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-dynamic-require");
+			const filePath = writeTempFile("ts", `const mod = require("./utils");\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBe(0);
+		});
+	});
+
+	describe("ts-open-redirect", () => {
+		it("flags res.redirect(variable)", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-open-redirect");
+			const filePath = writeTempFile("ts", `res.redirect(req.query.returnUrl);\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBeGreaterThan(0);
+		});
+
+		it("flags response.redirect(call expression)", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-open-redirect");
+			const filePath = writeTempFile("ts", `response.redirect(getRedirectUrl());\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBeGreaterThan(0);
+		});
+
+		it("flags window.location.href = variable", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-open-redirect");
+			const filePath = writeTempFile("ts", `window.location.href = userInput;\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBeGreaterThan(0);
+		});
+
+		it("does not flag res.redirect(string literal)", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-open-redirect");
+			const filePath = writeTempFile("ts", `res.redirect("/home");\n`);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBe(0);
+		});
+	});
+
+	describe("ts-nosql-injection", () => {
+		it("flags $where with unquoted key", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-nosql-injection");
+			const filePath = writeTempFile(
+				"ts",
+				`db.users.find({ $where: "this.name == '" + name + "'" });\n`,
+			);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBeGreaterThan(0);
+		});
+
+		it("flags $where with quoted key", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-nosql-injection");
+			const filePath = writeTempFile(
+				"ts",
+				`collection.find({ "$where": \`this.credits > 0\` });\n`,
+			);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBeGreaterThan(0);
+		});
+
+		it("does not flag safe MongoDB equality query", async () => {
+			const client = new TreeSitterClient();
+			const query = await getQuery("ts-nosql-injection");
+			const filePath = writeTempFile(
+				"ts",
+				`db.users.find({ name: userName, active: true });\n`,
+			);
+			const matches = await client.runQueryOnFile(query, filePath, "typescript");
+			expect(matches.length).toBe(0);
+		});
+	});
 });

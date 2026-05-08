@@ -5,7 +5,7 @@ name: Command Injection Sink
 severity: warning
 category: security
 defect_class: injection
-inline_tier: warning
+inline_tier: blocking
 language: typescript
 
 message: "Potential command injection sink — avoid child_process command execution with untrusted input"

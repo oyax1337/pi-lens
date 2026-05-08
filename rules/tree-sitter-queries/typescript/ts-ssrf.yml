@@ -5,7 +5,7 @@ name: SSRF Risk
 severity: warning
 category: security
 defect_class: injection
-inline_tier: warning
+inline_tier: blocking
 language: typescript
 
 message: "Potential SSRF sink — validate and allowlist outbound URLs"
