@@ -4,6 +4,17 @@ All notable changes to pi-lens will be documented in this file.
 
 ## [Unreleased]
 
+## [3.8.43] - 2026-05-10
+
+### Added
+
+- **Unresolved inline blocker re-surfacing at turn_end** — when the agent ignores a blocking diagnostic shown during a write/edit and moves to the next turn without fixing it, the blocker now reappears in the turn_end injection framed as `"Unresolved from this turn — <file>: 🔴 STOP…"`. Previously, unresolved inline blockers were silently lost until cascade happened to re-touch the same file via an importer. `RuntimeCoordinator` tracks the last-seen blocking output per file (`_pendingInlineBlockers`); a subsequent write that produces no blockers clears the entry, so only genuinely unresolved issues resurface. The map is cleared at `beginTurn` to prevent cross-turn contamination.
+- **S1219 (switch non-case labels) and S2970 (incomplete assertions) blocking tree-sitter rules** — S1219 detects labeled statements inside switch cases in TypeScript (SonarCloud S1219); S2970 detects Jest/Vitest `expect()` chains that are never called (e.g. `expect(x).toBe(y)` without `await`), with Chai property assertion exclusion. S2083 (path traversal) moved to disabled — regex heuristics on tree-sitter syntax are the wrong layer; needs taint/data-flow analysis. Adds `parent?` field to `TreeSitterNode` interface.
+- **Inline code snippets in blocker output** — each 🔴 STOP diagnostic now includes the exact source line the agent wrote that caused the violation, so the agent can identify and fix the issue without re-reading the file. `fixSuggestion` is also surfaced inline when present. Snippet capped at 120 chars.
+- **AST node type and matched text in blocker output** — tree-sitter diagnostics now carry `matchedText` (the exact matched node, more precise than the full source line) and `astNodeType` (e.g. `call_expression`, `template_string`). The agent sees: `L12: SQL query built with string interpolation (template_string) → db.query(...)`.
+- **Persist review graph to disk** — `_workspaceGraphCache` is now backed by `.pi-lens/cache/review-graph.json`. On cold start, if source file signatures match the stored cache, the full 2–4 s tree-sitter + import-fact build is skipped (~20 ms JSON parse + `rebuildIndexes` instead). Write is fire-and-forget, never blocks dispatch.
+- **Preserve last known LSP diagnostics when LSP goes inactive** — when no live clients are available (dead client respawning, circuit-breaker cooldown), `getDiagnostics` now returns the last non-empty result for that file instead of `[]`. The widget keeps showing the last known issues rather than going blank mid-session. Live clients returning `[]` clears the stale entry. Stale hits are logged as `failureKind: "no_clients_stale"`.
+
 ### Fixed
 
 - **Read-guard false-positive block on files outside the project root** — edits to files outside `projectRoot` (e.g. `C:/llama/*.bat`, scripts in arbitrary directories) were always blocked with `zero_read` because reads for external files are intentionally not recorded (`isExternalOrVendor` gate in the read handler), but the `checkEdit` call had no matching guard. Added `!isExternalOrVendor` to the `checkEdit` condition so external files bypass the read-guard entirely, consistent with how reads are handled.
@@ -11,13 +22,6 @@ All notable changes to pi-lens will be documented in this file.
 ### Changed
 
 - **Replace pyright-langserver and pylsp with jedi-language-server for Python LSP** — `PythonServer` (pyright-langserver) and `PythonPylspServer` (pylsp) removed from `LSP_SERVERS`; replaced by `PythonJediServer` which spawns `jedi-language-server`. pyright-langserver was causing 5–14 s cold-start delays on large Python projects (e.g. tinygrad) because it performs full workspace analysis on startup; jedi starts in ~200–500 ms via lazy per-file analysis. pylsp was removed because it consistently returned 0 diagnostics (no venv → jedi can't resolve imports; 1500 ms aggregate timeout hit on warm runs). Deep type checking is unaffected — the standalone `pyright` CLI runner and `mypy` runner continue to run in parallel. Added `"python-jedi"` strategy entry (`seedFirstPush: true`, `aggregateWaitMs: 1000`). Wall-clock gate for Python dispatch shifts from LSP (~5–14 s) to mypy (~3.5 s).
-
-
-## [3.8.43] - 2026-05-08
-
-### Added
-
-- **Unresolved inline blocker re-surfacing at turn_end** — when the agent ignores a blocking diagnostic shown during a write/edit and moves to the next turn without fixing it, the blocker now reappears in the turn_end injection framed as `"Unresolved from this turn — <file>: 🔴 STOP…"`. Previously, unresolved inline blockers were silently lost until cascade happened to re-touch the same file via an importer. `RuntimeCoordinator` tracks the last-seen blocking output per file (`_pendingInlineBlockers`); a subsequent write that produces no blockers clears the entry, so only genuinely unresolved issues resurface. The map is cleared at `beginTurn` to prevent cross-turn contamination.
 
 ## [3.8.42] - 2026-05-08
 
