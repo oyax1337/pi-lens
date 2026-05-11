@@ -66,7 +66,9 @@ export class TreeSitterQueryLoader {
 	/**
 	 * Load all queries from the rules/tree-sitter-queries directory
 	 */
-	async loadQueries(rootDir = process.cwd()): Promise<Map<string, TreeSitterQuery[]>> {
+	async loadQueries(
+		rootDir = process.cwd(),
+	): Promise<Map<string, TreeSitterQuery[]>> {
 		const resolvedRoot = path.resolve(rootDir);
 		if (this.loaded && this.loadedRoot === resolvedRoot) return this.queries;
 
@@ -227,7 +229,11 @@ export class TreeSitterQueryLoader {
 						const nextIndent = nextLine.match(/^(\s*)/)?.[0].length || 0;
 
 						// Stop if we hit a line with same or less indent (new key)
-						if (nextIndent <= baseIndent && nextLine.trim() !== "" && nextLine.match(/^\S/)) {
+						if (
+							nextIndent <= baseIndent &&
+							nextLine.trim() !== "" &&
+							nextLine.match(/^\S/)
+						) {
 							break;
 						}
 
@@ -243,7 +249,10 @@ export class TreeSitterQueryLoader {
 						const nestedMatch = nextLine.match(/^\s+(\w+):\s*(.+)$/);
 						if (nestedMatch) {
 							let nv = nestedMatch[2].trim();
-							if ((nv.startsWith('"') && nv.endsWith('"')) || (nv.startsWith("'") && nv.endsWith("'"))) {
+							if (
+								(nv.startsWith('"') && nv.endsWith('"')) ||
+								(nv.startsWith("'") && nv.endsWith("'"))
+							) {
 								nv = nv.slice(1, -1);
 							}
 							nestedObj[nestedMatch[1]] = nv;
@@ -362,7 +371,13 @@ export class TreeSitterQueryLoader {
 	 * Get queries for a specific language
 	 */
 	getQueriesForLanguage(language: string): TreeSitterQuery[] {
-		return this.queries.get(language) || [];
+		const all = this.queries.get(language) || [];
+		// Exclude queries from <language>-disabled/ directories.
+		// Disabled rules are loaded (needed by tests via getAllQueries)
+		// but excluded from production dispatch.
+		return all.filter(
+			(q) => !q.filePath.includes(`-disabled/`),
+		);
 	}
 
 	/**
