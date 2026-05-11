@@ -1522,6 +1522,7 @@ export default function (pi: ExtensionAPI) {
 			ruffClient,
 			metricsClient,
 			resetLSPService,
+			readGuard: runtime.readGuard,
 			agentBehaviorRecord: (toolName, filePath) =>
 				agentBehaviorClient.recordToolCall(toolName, filePath),
 			formatBehaviorWarnings: (warnings) =>
