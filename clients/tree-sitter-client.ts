@@ -791,6 +791,25 @@ export class TreeSitterClient {
 		return false;
 	}
 
+	private isLikelySqlAlchemyReceiver(text: string): boolean {
+		const tail = text.split(".").pop() ?? text;
+		return new Set([
+			"session",
+			"db_session",
+			"async_session",
+			"sync_session",
+		]).has(tail.toLowerCase());
+	}
+
+	private isSafeSqlAlchemyExpressionCall(node: TreeSitterNode): boolean {
+		if (node.type !== "call") return false;
+		const callee = node.children?.[0]?.text ?? "";
+		const expression = node.text;
+		return ["select", "insert", "update", "delete"].some(
+			(name) => callee === name || expression.startsWith(`${name}(`),
+		);
+	}
+
 	/**
 	 * Post-filter predicate: returns true if the match should be kept, false to skip.
 	 * Each branch is an independent filter identified by name — flat dispatch, no nesting.
@@ -1112,10 +1131,27 @@ export class TreeSitterClient {
 						captures.FN?.text ?? "",
 					)
 				);
-			case "py_sql_injection_sink":
-				return /^(execute|executemany|query|raw)$/.test(
-					captures.FN?.text ?? "",
-				);
+			case "py_sql_injection_sink": {
+				const fn = captures.FN?.text ?? "";
+				if (!new Set(["execute", "executemany", "query", "raw"]).has(fn)) {
+					return false;
+				}
+
+				const sqlNode = captures.SQL;
+				const receiver = captures.OBJ?.text ?? "";
+
+				// SQLAlchemy ORM sessions execute expression objects, not raw SQL
+				// strings. `session.execute(stmt)` and `session.execute(select(...))`
+				// are parameterized by construction and were too noisy as blockers.
+				if (fn === "execute" && this.isLikelySqlAlchemyReceiver(receiver)) {
+					return false;
+				}
+				if (sqlNode && this.isSafeSqlAlchemyExpressionCall(sqlNode)) {
+					return false;
+				}
+
+				return true;
+			}
 			case "go_sql_injection_sink":
 				return (
 					/^(Query|QueryContext|QueryRow|QueryRowContext|Exec|ExecContext)$/.test(
