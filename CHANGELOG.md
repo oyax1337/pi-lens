@@ -10,6 +10,7 @@ All notable changes to pi-lens will be documented in this file.
 
 ### Fixed
 
+- **`fish` missing from `LANGUAGE_CAPABILITY_MATRIX` and `LintRunnerName`** — adding the `"fish"` FileKind required two exhaustiveness fixes: a `fish` entry in `plan.ts`'s `Record<FileKind, CapabilityMatrixEntry>` and `"fish-indent"` in the `LintRunnerName` union in `tool-policy.ts`; both caused build/type-check failures on CI.
 - **shellcheck and shfmt no longer fire on `.fish` files** — `.fish` was classified as `"shell"`, causing both runners (which use `appliesTo: ["shell"]`) to process fish scripts with `--shell bash`, producing false-positive SC1073/SC1064 parse errors. Moving `.fish` to the new `"fish"` kind fixes the routing with no special-case logic in either runner. Closes #74.
 
 - **`lsp_diagnostics` tool** — proactive LSP error checking for files and directories. The agent can now run `lsp_diagnostics({ filePath: "src/" })` before builds to catch issues without making edits. Directory mode walks the tree (skipping node_modules/.git/target), auto-detects the language extension, opens each file in the LSP client, and aggregates diagnostics. Supports severity filtering (`error`/`warning`/`information`/`hint`/`all`), caps at 50 files and 200 diagnostics. Returns structured details with `totalDiagnostics`, `truncated`, and per-diagnostic `file`/`line`/`severity`/`message`/`source`/`code`. Adapted from `code-yeongyu/pi-lsp-client`.
