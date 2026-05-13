@@ -10,6 +10,10 @@ All notable changes to pi-lens will be documented in this file.
 
 ### Fixed
 
+- **Linux `sg` command no longer breaks `ast_grep_search` / `ast_grep_replace`** — ast-grep resolution now prefers the canonical `ast-grep` binary and only accepts `sg` when `--version` proves it is ast-grep, avoiding the util-linux `/usr/bin/sg` group-switch command. The installer, probe cache, tool availability, sync runner helpers, and Python slop scan now share the corrected command shape and `npx --no -- ast-grep` fallback. Closes #75.
+- **`return-in-generator` no longer flags normal `async def` coroutine returns** — added a Python tree-sitter post-filter that keeps only synchronous functions containing `yield`, skips `async def`, and rejects non-generator functions. Added regression tests for valued generator returns, coroutine returns, and normal functions. Closes #76.
+- **Formatter tests no longer depend on a real global Ruff install** — the Ruff global fallback test now uses an isolated PATH shim, making it deterministic on machines without Ruff installed.
+
 - **`psscriptanalyzer` runner could hang indefinitely** — `spawnPs` had no timeout; if `pwsh` or `Invoke-ScriptAnalyzer` stalled on a large file the turn would block forever. Added a 30s timeout with SIGTERM → 1s → SIGKILL escalation. `shell: false` means `child.pid` is the actual `pwsh` process so `child.kill()` hits the right target directly (no `taskkill` needed).
 
 - **`turn_end` hangs ~40–50s on Windows when knip times out** — `safeSpawnAsync` used `child.kill("SIGTERM/SIGKILL")` to terminate timed-out processes. On Windows with `shell: true`, `child.pid` is the `cmd.exe` wrapper; killing it orphans the actual subprocess (e.g. knip/npx node process) which then runs unsupervised until it naturally exits. Replaced with `taskkill /F /T /PID` on Windows, which kills the full process tree rooted at `cmd.exe`, matching the approach already used in `lsp/client.ts`.

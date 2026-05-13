@@ -766,6 +766,31 @@ export class TreeSitterClient {
 		}
 	}
 
+	private hasChildToken(node: TreeSitterNode, token: string): boolean {
+		return node.children?.some(
+			(child) => child.type === token || child.text === token,
+		);
+	}
+
+	private containsYieldInFunctionBody(
+		node: TreeSitterNode,
+		root: TreeSitterNode = node,
+	): boolean {
+		for (const child of node.children ?? []) {
+			if (child.type === "yield") return true;
+			if (
+				child !== root &&
+				["function_definition", "class_definition", "lambda"].includes(
+					child.type,
+				)
+			) {
+				continue;
+			}
+			if (this.containsYieldInFunctionBody(child, root)) return true;
+		}
+		return false;
+	}
+
 	/**
 	 * Post-filter predicate: returns true if the match should be kept, false to skip.
 	 * Each branch is an independent filter identified by name — flat dispatch, no nesting.
@@ -777,6 +802,20 @@ export class TreeSitterClient {
 		captures: Record<string, TreeSitterNode>,
 	): boolean {
 		switch (postFilter) {
+			case "is_generator_with_valued_return": {
+				const returnNode = captures.RETURN;
+				const functionNode =
+					captures.FUNCTION ??
+					(returnNode
+						? this.navigator.findParent(returnNode, ["function_definition"])
+						: undefined);
+				if (!functionNode) return false;
+				// In the Python grammar, `async def` is also a function_definition with
+				// an anonymous `async` child. Coroutines may return values normally;
+				// only synchronous generator functions should be flagged.
+				if (this.hasChildToken(functionNode, "async")) return false;
+				return this.containsYieldInFunctionBody(functionNode);
+			}
 			case "count_params": {
 				const paramsNode = captures.PARAMS;
 				if (!paramsNode) return true;
