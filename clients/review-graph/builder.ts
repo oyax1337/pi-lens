@@ -536,6 +536,26 @@ function resolveCxxInclude(
 	return undefined;
 }
 
+function parseLocalCxxInclude(line: string): string | undefined {
+	let i = 0;
+	while (i < line.length && (line[i] === " " || line[i] === "\t")) i += 1;
+	if (line[i] !== "#") return undefined;
+	i += 1;
+	while (i < line.length && (line[i] === " " || line[i] === "\t")) i += 1;
+	if (!line.startsWith("include", i)) return undefined;
+	i += "include".length;
+	if (i >= line.length || (line[i] !== " " && line[i] !== "\t")) {
+		return undefined;
+	}
+	while (i < line.length && (line[i] === " " || line[i] === "\t")) i += 1;
+	if (line[i] !== '"') return undefined;
+	i += 1;
+	const start = i;
+	while (i < line.length && line[i] !== '"') i += 1;
+	if (i >= line.length || i === start) return undefined;
+	return line.slice(start, i);
+}
+
 function addCxxIncludeEdges(
 	graph: ReviewGraph,
 	cwd: string,
@@ -548,8 +568,10 @@ function addCxxIncludeEdges(
 		return;
 	}
 	const fromNode = ensureFileNode(graph, filePath, "cpp");
-	for (const match of content.matchAll(/^\s*#\s*include\s+"([^"]+)"/gm)) {
-		const target = resolveCxxInclude(cwd, filePath, match[1]);
+	for (const line of content.split(/\r?\n/)) {
+		const source = parseLocalCxxInclude(line);
+		if (!source) continue;
+		const target = resolveCxxInclude(cwd, filePath, source);
 		if (!target) continue;
 		const languageId = mapKindToTreeSitterLanguage("cxx", target) ?? "cpp";
 		const toNode = ensureFileNode(graph, target, languageId);
@@ -557,7 +579,7 @@ function addCxxIncludeEdges(
 			from: fromNode,
 			to: toNode,
 			kind: "imports",
-			metadata: { source: match[1] },
+			metadata: { source },
 		});
 	}
 }
