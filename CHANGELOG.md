@@ -4,6 +4,30 @@ All notable changes to pi-lens will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **10 new C blocker tree-sitter rules** — implements SonarCloud C blocker rules via AST queries:
+  - `memset-sensitive-data` (S5798) — `memset` on passwords/secrets (optimized away by compilers)
+  - `noreturn-returns` (S5267) — `return` inside `__attribute__((noreturn))` functions
+  - `no-octal-literals` (S1314) — octal literals like `010`
+  - `no-reserved-identifiers` (S978) — `_Upper` or `__` identifiers
+  - `no-stdlib-name-as-id` (S6936) — shadowing `malloc`, `printf`, etc.
+  - `no-bit-fields` (S2806) — `int x : 4;` bit-field declarations
+  - `no-redundant-pointer-ops` (S3491) — `*&x` and `&*p` no-ops
+  - `no-pointer-arithmetic-array-access` (S3729) — `*(arr + i)` instead of `arr[i]`
+  - `c-hardcoded-secrets` (S6418) — hard-coded API keys/passwords in strings
+  - `non-case-label-in-switch` (S1219) — regular labels inside `switch` bodies
+- **5 new C post-filters** — `c_memset_sensitive_arg`, `c_stdlib_name`, `c_octal_literal`, `c_noreturn_attr`, `c_label_in_switch` added to `applyPostFilter` in `tree-sitter-client.ts`.
+- **C tree-sitter tests** — `tests/clients/tree-sitter-c-rules.test.ts` with 10 passing tests.
+- **C/C++ tree-sitter runner and cascade support** — `cxx` files (`.c`, `.h`, `.cpp`, `.cc`, `.hpp`, etc.) are now fully wired through the dispatch pipeline: tree-sitter structural analysis, review-graph construction with `#include` edge extraction, blast-radius entity snapshots, and cascade neighbor propagation. `cpp-check` runner enhanced with `clang-tidy` support. `language-profile.ts` adds C/C++-specific complexity baselines.
+
+### Fixed
+
+- **Disabled tree-sitter rules leaked into production dispatch** — the runner used `getAllQueries()` which includes rules from `<language>-disabled/` directories (intended only for test access via `getAllQueries()`). Changed to `getQueriesForLanguage()` which properly excludes disabled rules. Fixes the `ts-path-traversal` false positives on test files that were coming from `typescript-disabled/`.
+- **Knip scans bounded to real project roots** — Knip was running against arbitrary working directories (including `/tmp` or parent dirs without `package.json`), producing nonsensical unused-export reports or crashing on missing configs. `KnipClient` now validates the project root with `findProjectRoot()` before scanning, and `turn_end` Knip delta analysis bails early when the root lacks a recognizable package manifest. Prevents false-positive unused-export noise and config-not-found errors.
+- **ReDoS in C/C++ include parsing** — `review-graph/builder.ts` used a regex with `[^>]*` to parse `#include <...>` directives, which SonarCloud flagged as S5852 (polynomial backtracking on malicious input). Replaced with a linear manual parser that scans character-by-character.
+- **3 existing C rule post-filters were broken** — `case-range-multiple-values`, `goto-into-block`, and `goto-label-order` referenced post-filters (`case_range_single_value`, `goto_targets_inner_block`, `goto_jumps_backward`) that didn't exist in `applyPostFilter`, causing them to silently pass all matches. All three are now implemented. The `case-range-multiple-values` rule was moved to `c-disabled/` because the C grammar lacks `range_expression`.
+
 ### Fixed
 
 - **LSP unavailable states are now explicit instead of false-clean** — `lsp_diagnostics` reports when no language-server client is ready (including candidate server IDs and stale-diagnostic state) rather than returning "No diagnostics found". C/C++ startup failures now point users at `clangd`/LLVM instead of the bogus `cpp-language-server` npm hint. Repeatedly failing server/root pairs are truly session-disabled after the permanent-failure threshold, client wait timeouts only log on real timeouts, and read-warm logs distinguish successful warms from no-client unavailability.

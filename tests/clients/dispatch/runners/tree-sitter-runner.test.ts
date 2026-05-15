@@ -38,6 +38,7 @@ async function loadRunnerWithClient(isAvailable: boolean, initResult: boolean) {
 	vi.doMock("../../../../clients/tree-sitter-query-loader.js", () => ({
 		queryLoader: {
 			loadQueries: vi.fn().mockResolvedValue([]),
+			getQueriesForLanguage: vi.fn().mockReturnValue([]),
 			getAllQueries: vi.fn().mockReturnValue([]),
 		},
 	}));
@@ -90,6 +91,7 @@ describe("tree-sitter runner — metadata", () => {
 		vi.doMock("../../../../clients/tree-sitter-query-loader.js", () => ({
 			queryLoader: {
 				loadQueries: vi.fn().mockResolvedValue([]),
+				getQueriesForLanguage: vi.fn().mockReturnValue([]),
 				getAllQueries: vi.fn().mockReturnValue([]),
 			},
 		}));

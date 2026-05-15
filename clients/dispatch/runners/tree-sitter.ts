@@ -484,12 +484,12 @@ const treeSitterRunner: RunnerDefinition = {
 			// Load from disk
 			await queryLoader.loadQueries(ctx.cwd);
 
-			const allQueries = queryLoader.getAllQueries();
-			languageQueries = allQueries.filter(
-				(q) =>
-					q.language === languageId ||
-					(languageId === "javascript" && q.language === "typescript"),
-			);
+			languageQueries = queryLoader.getQueriesForLanguage(languageId);
+			if (languageId === "javascript") {
+				// JavaScript files also match TypeScript rules (shared grammar)
+				const tsQueries = queryLoader.getQueriesForLanguage("typescript");
+				languageQueries = [...languageQueries, ...tsQueries];
+			}
 
 			// Save to cache
 			cache.set(
