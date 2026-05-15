@@ -212,6 +212,11 @@ const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {
 		runnerIds: ["lsp", "taplo"],
 		filterKinds: ["toml"],
 	},
+	"semantic-web": {
+		mode: "fallback",
+		runnerIds: ["lsp"],
+		filterKinds: ["semantic-web"],
+	},
 };
 
 export function getLspCapableKinds(): FileKind[] {
