@@ -77,6 +77,7 @@ export const LANGUAGE_POLICY: Record<FileKind, LanguagePolicy> = {
 	terraform: { lspCapable: true },
 	nix: { lspCapable: true },
 	toml: { lspCapable: true, startup: { defaults: ["taplo"] } },
+	"semantic-web": { lspCapable: true, startup: { defaults: ["swls"] } },
 };
 
 const PRIMARY_DISPATCH_GROUPS: Partial<Record<FileKind, RunnerGroup>> = {

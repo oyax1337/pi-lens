@@ -259,6 +259,11 @@ export const LANGUAGE_CAPABILITY_MATRIX: Record<
 		capabilities: ["lint", "format"],
 		writeGroups: [primary("toml")],
 	},
+	"semantic-web": {
+		name: "Semantic Web Linting",
+		capabilities: ["lint"],
+		writeGroups: [primary("semantic-web")],
+	},
 };
 
 function toWritePlan(entry: CapabilityMatrixEntry): ToolPlan {
