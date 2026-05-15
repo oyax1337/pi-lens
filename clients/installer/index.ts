@@ -612,6 +612,32 @@ const TOOLS: ToolDefinition[] = [
 			binaryInArchive: "zls",
 		},
 	},
+	{
+		id: "swls",
+		name: "Semantic Web Language Server",
+		checkCommand: "swls",
+		checkArgs: ["--version"],
+		installStrategy: "github",
+		binaryName: "swls",
+		github: {
+			repo: "SemanticWebLanguageServer/swls",
+			assetMatch: (platform, arch) => {
+				if (platform === "darwin")
+					return arch === "arm64"
+						? "swls-macos-arm64"
+						: "swls-macos-x86_64";
+				if (platform === "linux")
+					return arch === "arm64"
+						? "swls-linux-aarch64"
+						: "swls-linux-x86_64";
+				if (platform === "win32")
+					return arch === "arm64"
+						? "swls-windows-arm64.exe"
+						: "swls-windows-x86_64.exe";
+				return undefined;
+			},
+		},
+	},
 ];
 
 const ensureInFlight = new Map<string, Promise<string | undefined>>();
@@ -2179,6 +2205,7 @@ export const GITHUB_TOOLS = [
 	"tflint",
 	"terraform-ls",
 	"zls",
+	"swls",
 ] as const;
 export type GitHubToolId = (typeof GITHUB_TOOLS)[number];
 

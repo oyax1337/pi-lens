@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { GITHUB_TOOLS, GitHubToolId } from "../../../clients/installer/index.ts";
+import { GITHUB_TOOLS, type GitHubToolId } from "../../../clients/installer/index.ts";
 
 // Ensure the real installer module is used, not any mock registered by other test files
 vi.unmock("../../../clients/installer/index.ts");
@@ -193,6 +193,20 @@ describe("GitHub release asset selection", () => {
 		] as const)("%s/%s → %s", async (platform, arch, expected) => {
 			const { resolveGitHubAsset } = await import("../../../clients/installer/index.ts");
 			expect(resolveGitHubAsset("zls", platform, arch)).toBe(expected);
+		});
+	});
+
+	describe("swls asset patterns", () => {
+		it.each([
+			["linux", "x64", "swls-linux-x86_64"],
+			["linux", "arm64", "swls-linux-aarch64"],
+			["darwin", "x64", "swls-macos-x86_64"],
+			["darwin", "arm64", "swls-macos-arm64"],
+			["win32", "x64", "swls-windows-x86_64.exe"],
+			["win32", "arm64", "swls-windows-arm64.exe"],
+		] as const)("%s/%s → %s", async (platform, arch, expected) => {
+			const { resolveGitHubAsset } = await import("../../../clients/installer/index.ts");
+			expect(resolveGitHubAsset("swls", platform, arch)).toBe(expected);
 		});
 	});
 });

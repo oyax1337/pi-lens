@@ -1752,6 +1752,24 @@ export const CssServer: LSPServerInfo = {
 	},
 };
 
+export const SemanticWebServer: LSPServerInfo = {
+	id: "swls",
+	name: "Semantic Web Language Server",
+	extensions: KIND_EXTENSIONS["semantic-web"],
+	root: FileDirRoot,
+	spawn(root, options) {
+		return resolveAndLaunch(
+			{
+				candidates: ["swls"],
+				args: ["--stdio"],
+				cwd: root,
+				managedToolId: "swls",
+			},
+			options?.allowInstall,
+		);
+	},
+};
+
 // --- Registry ---
 
 export const LSP_SERVERS: LSPServerInfo[] = [
@@ -1793,6 +1811,8 @@ export const LSP_SERVERS: LSPServerInfo[] = [
 	SvelteServer,
 	ESLintServer,
 	CssServer,
+	// Semantic Web
+	SemanticWebServer,
 ];
 
 /**

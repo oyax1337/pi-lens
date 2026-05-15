@@ -38,6 +38,7 @@ export type FileKind =
 	| "python" // Python
 	| "ruby" // Ruby
 	| "rust" // Rust
+	| "semantic-web" // Semantic Web (Turtle, TriG, SPARQL, JSON-LD)
 	| "shell" // Shell
 	| "sql" // SQL
 	| "swift" // Swift
@@ -197,6 +198,13 @@ export const KIND_EXTENSIONS: Record<FileKind, readonly string[]> = {
 	rust: [
 		".rs",
 	],
+	"semantic-web": [
+		".jsonld",
+		".rq",
+		".sq",
+		".trig",
+		".ttl",
+	],
 	shell: [
 		".bash",
 		".sh",
@@ -313,6 +321,7 @@ export function isCodeKind(kind: FileKind): boolean {
 		"python",
 		"go",
 		"rust",
+		"semantic-web",
 		"cxx",
 		"fish",
 		"shell",
@@ -357,6 +366,7 @@ export function getFileKindLabel(kind: FileKind): string {
 		python: "Python",
 		go: "Go",
 		rust: "Rust",
+		"semantic-web": "Semantic Web",
 		cxx: "C/C++",
 		cmake: "CMake",
 		shell: "Shell",
@@ -431,6 +441,7 @@ export function getLanguageId(kind: FileKind): string {
 		python: "python",
 		go: "go",
 		rust: "rust",
+		"semantic-web": "turtle",
 		cxx: "cpp",
 		cmake: "cmake",
 		shell: "shell",

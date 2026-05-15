@@ -101,6 +101,13 @@ export const LANGUAGE_EXTENSIONS: Record<string, string> = {
 	".html": "html",
 	".htm": "html",
 
+	// Semantic Web
+	".ttl": "turtle",
+	".trig": "trig",
+	".jsonld": "jsonld",
+	".rq": "sparql",
+	".sq": "sparql",
+
 	// SQL
 	".sql": "sql",
 
